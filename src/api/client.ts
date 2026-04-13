@@ -91,5 +91,44 @@ export async function del<T>(path: string): Promise<T> {
   return unwrap(res);
 }
 
+/** Upload a file via multipart form data — unwraps {"data": {...}} */
+export async function uploadFile<T>(path: string, file: File, extraFields?: Record<string, string>): Promise<T> {
+  const token = localStorage.getItem("access_token");
+  const formData = new FormData();
+  formData.append("file", file);
+  if (extraFields) {
+    for (const [key, value] of Object.entries(extraFields)) {
+      formData.append(key, value);
+    }
+  }
+
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  // Do NOT set Content-Type — browser sets it with boundary for multipart
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers,
+    body: formData,
+    credentials: "include",
+  });
+
+  if (res.status === 401) {
+    localStorage.removeItem("access_token");
+    window.location.href = "/login";
+    throw new ApiError(401, "Unauthorized");
+  }
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new ApiError(res.status, body.detail ?? "Upload failed");
+  }
+
+  const envelope = await res.json();
+  return envelope.data;
+}
+
 /** Raw request without envelope unwrapping (for auth, lookups, etc.) */
 export { request as rawRequest };
