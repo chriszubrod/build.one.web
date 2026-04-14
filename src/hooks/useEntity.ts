@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { getList, getOne, post, put, del } from "../api/client";
+import { getList, getOne, post, put, del, ApiError } from "../api/client";
 
 interface UseEntityListResult<T> {
   items: T[];
@@ -29,7 +29,14 @@ export function useEntityList<T>(listPath: string): UseEntityListResult<T> {
     setError("");
     getList<T>(listPath)
       .then((res) => setItems(res.data))
-      .catch((err) => setError(err.message))
+      .catch((err) => {
+        // 404 means "no records" for some endpoints — treat as empty list
+        if (err instanceof ApiError && err.status === 404) {
+          setItems([]);
+        } else {
+          setError(err.message);
+        }
+      })
       .finally(() => setLoading(false));
   }, [listPath]);
 
