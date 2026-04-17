@@ -3,7 +3,7 @@ import { useState } from "react";
 export interface LineItemFieldDef {
   key: string;
   label: string;
-  type?: "text" | "number" | "select" | "checkbox";
+  type?: "text" | "number" | "select" | "checkbox" | "computed";
   options?: { value: string; label: string }[];
   align?: "left" | "right";
   width?: string;
@@ -73,7 +73,16 @@ export default function InlineLineItems<T extends Record<string, any>>({
               <tr key={rowIdx}>
                 {fields.map((f) => (
                   <td key={f.key} style={{ textAlign: f.align ?? "left" }}>
-                    {f.type === "checkbox" ? (
+                    {f.type === "computed" ? (
+                      <span className="inline-li-computed">{
+                        (() => {
+                          const v = item[f.key];
+                          if (v == null || v === "") return "";
+                          const n = Number(v);
+                          return isNaN(n) ? v : n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+                        })()
+                      }</span>
+                    ) : f.type === "checkbox" ? (
                       <input
                         type="checkbox"
                         checked={!!item[f.key]}

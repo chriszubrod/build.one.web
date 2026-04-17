@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getOne, post, del, uploadFile } from "../api/client";
+import { getOne, post, del, uploadFile, fetchViewAttachmentBlob, ApiError } from "../api/client";
 
 interface AttachmentLink {
   public_id: string;
@@ -120,6 +120,26 @@ export default function LineItemAttachment({ lineItemPublicId, entityType }: Lin
     }
   };
 
+  const handleViewAttachment = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!attachment) return;
+    setError("");
+    try {
+      const blob = await fetchViewAttachmentBlob(attachment.public_id);
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, "_blank", "noopener,noreferrer");
+      if (!win) {
+        URL.revokeObjectURL(url);
+        setError("Pop-up blocked — allow pop-ups to view the attachment.");
+        return;
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    } catch (err: unknown) {
+      const msg = err instanceof ApiError ? err.detail : "Could not open attachment.";
+      setError(msg);
+    }
+  };
+
   if (!lineItemPublicId) {
     return <span className="text-muted" style={{ fontSize: 11 }}>Save first</span>;
   }
@@ -131,11 +151,10 @@ export default function LineItemAttachment({ lineItemPublicId, entityType }: Lin
       {attachment ? (
         <span className="li-att-info">
           <a
-            href={`/api/v1/view/attachment/${attachment.public_id}`}
-            target="_blank"
-            rel="noopener noreferrer"
+            href="#"
             className="li-att-link"
             title={`${attachment.original_filename} (${fmtSize(attachment.file_size)})`}
+            onClick={handleViewAttachment}
           >
             {attachment.original_filename}
           </a>

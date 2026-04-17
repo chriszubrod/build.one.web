@@ -130,5 +130,36 @@ export async function uploadFile<T>(path: string, file: File, extraFields?: Reco
   return envelope.data;
 }
 
+/**
+ * GET attachment bytes from the view endpoint (streaming/binary — not JSON).
+ * Sends Bearer token so iframe/navigation-style URLs are not required.
+ */
+export async function fetchViewAttachmentBlob(publicId: string): Promise<Blob> {
+  const token = localStorage.getItem("access_token");
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE}/api/v1/view/attachment/${publicId}`, {
+    method: "GET",
+    headers,
+    credentials: "include",
+  });
+
+  if (res.status === 401) {
+    localStorage.removeItem("access_token");
+    window.location.href = "/login";
+    throw new ApiError(401, "Unauthorized");
+  }
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new ApiError(res.status, typeof body.detail === "string" ? body.detail : "Request failed");
+  }
+
+  return res.blob();
+}
+
 /** Raw request without envelope unwrapping (for auth, lookups, etc.) */
 export { request as rawRequest };
