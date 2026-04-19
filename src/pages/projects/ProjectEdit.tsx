@@ -1,11 +1,19 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useEntityItem, updateEntity } from "../../hooks/useEntity";
+import { useEntityItem, updateEntity, deleteEntity } from "../../hooks/useEntity";
+import { useToast } from "../../components/Toast";
 import { useLookups } from "../../hooks/useLookups";
 import FormField from "../../components/FormField";
 import SelectField from "../../components/SelectField";
 import InlineContacts from "../../components/InlineContacts";
 import type { Project } from "../../types/api";
+
+function fmtDate(v: string | null): string {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return v;
+  return d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+}
 
 export default function ProjectEdit() {
   const { id } = useParams<{ id: string }>();
@@ -13,8 +21,10 @@ export default function ProjectEdit() {
   const { item, loading, error } = useEntityItem<Project>(`/api/v1/get/project/${id}`);
   const { data: lookups } = useLookups("customers");
   const [form, setForm] = useState<Record<string, any> | null>(null);
+  const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   if (item && !form) {
     setForm({
@@ -72,9 +82,35 @@ export default function ProjectEdit() {
             label: c.name,
           }))}
         />
+        {item && (
+          <div style={{ marginTop: 16, fontSize: 12, color: "var(--color-text-muted)" }}>
+            Created: {fmtDate(item.created_datetime)} &nbsp;|&nbsp; Last Modified: {fmtDate(item.modified_datetime)}
+          </div>
+        )}
+
         <div className="form-actions">
-          <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving..." : "Save"}</button>
+          <button type="submit" className="btn btn-primary" disabled={saving || deleting}>{saving ? "Saving..." : "Save"}</button>
           <button type="button" className="btn btn-secondary" onClick={() => navigate(`/project/${id}`)}>Cancel</button>
+          <div className="page-header-spacer" />
+          <button
+            type="button"
+            className="btn btn-danger"
+            disabled={saving || deleting}
+            onClick={async () => {
+              if (!confirm("Delete this project? This cannot be undone.")) return;
+              setDeleting(true);
+              try {
+                await deleteEntity(`/api/v1/delete/project/${id}`);
+                toast("Project deleted.");
+                navigate("/project/list");
+              } catch (err: any) {
+                toast(err.message, "error");
+                setDeleting(false);
+              }
+            }}
+          >
+            {deleting ? "Deleting..." : "Delete"}
+          </button>
         </div>
       </form>
       {item && (

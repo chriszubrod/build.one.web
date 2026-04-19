@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
-import { useEntityItem } from "../../hooks/useEntity";
+import { useEntityItem, deleteEntity } from "../../hooks/useEntity";
+import { useToast } from "../../components/Toast";
 import { put, post, del, getList, getOne } from "../../api/client";
 import { useViewAttachmentObjectUrl } from "../../hooks/useViewAttachmentObjectUrl";
 import { useLookups } from "../../hooks/useLookups";
@@ -71,8 +72,10 @@ export default function BillEdit() {
   const [attachmentPublicId, setAttachmentPublicId] = useState<string | null>(null);
   const { objectUrl: attachmentBlobUrl, loading: attachmentLoading, loadError: attachmentLoadError } =
     useViewAttachmentObjectUrl(attachmentPublicId);
+  const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState("");
 
   // Load line items
@@ -357,16 +360,36 @@ export default function BillEdit() {
         </div>
 
         <div className="form-actions">
-          <button type="submit" className="btn btn-primary" disabled={saving || completing}>
+          <button
+            type="button"
+            className="btn btn-danger"
+            disabled={saving || completing || deleting}
+            onClick={async () => {
+              if (!confirm("Delete this bill? This cannot be undone.")) return;
+              setDeleting(true);
+              try {
+                await deleteEntity(`/api/v1/delete/bill/${id}`);
+                toast("Bill deleted.");
+                navigate("/bill/list");
+              } catch (err: any) {
+                toast(err.message, "error");
+                setDeleting(false);
+              }
+            }}
+          >
+            {deleting ? "Deleting..." : "Delete"}
+          </button>
+          <div className="page-header-spacer" />
+          <button type="button" className="btn btn-secondary" onClick={() => navigate(`/bill/${id}`)}>Cancel</button>
+          <button type="submit" className="btn btn-primary" disabled={saving || completing || deleting}>
             {saving ? "Saving..." : "Save"}
           </button>
-          <button type="button" className="btn btn-secondary" onClick={() => navigate(`/bill/${id}`)}>Cancel</button>
           {form.is_draft && (
             <button
               type="button"
               className="btn btn-success"
               onClick={handleComplete}
-              disabled={saving || completing}
+              disabled={saving || completing || deleting}
             >
               {completing ? "Completing..." : "Complete Bill"}
             </button>
