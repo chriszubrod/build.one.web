@@ -12,6 +12,8 @@
 export interface Usage {
   input_tokens: number;
   output_tokens: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
 }
 
 export interface ToolResultPayload {
@@ -75,6 +77,18 @@ export type ConversationEntry =
       error: RunError | null;
     };
 
+export interface ConversationSummary {
+  /** Stable client-side id — equal to the conversation's last known head, or a generated UUID for very short threads. */
+  id: string;
+  /** Derived from the first user message. Truncated. */
+  title: string;
+  /** ISO timestamp of when this conversation was archived. */
+  archivedAt: string;
+  /** Full entries array — we store the whole thing in localStorage. */
+  entries: ConversationEntry[];
+}
+
+
 export interface AgentRunHandle {
   /** Run state of the most recent message (idle if no messages yet). */
   state: RunState;
@@ -82,10 +96,14 @@ export interface AgentRunHandle {
   entries: ConversationEntry[];
   /** Head of the conversation chain (most recent completed session_public_id), if any. */
   currentHead: string | null;
+  /** Past conversations, newest first. Populated from localStorage. */
+  recent: ConversationSummary[];
   /** Start a new message. Routes to /continue if there's a head, /runs otherwise. */
   start: (userMessage: string) => void;
   /** Cancel the in-flight message. */
   cancel: () => void;
-  /** Clear the conversation (forget the head, drop all entries). */
+  /** Archive the current conversation (if non-empty) and clear. */
   reset: () => void;
+  /** Load a past conversation as the current one. Archives the currently-open conversation first. */
+  loadConversation: (id: string) => void;
 }

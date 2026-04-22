@@ -1,16 +1,22 @@
 /**
  * React hook for driving a threaded agent conversation over SSE.
  *
- *   const { state, entries, start, cancel, reset, currentHead } = useAgentRun("scout");
+ *   const { state, entries, start, cancel, reset, loadConversation, recent }
+ *     = useAgentRun("scout");
  *
  * Each call to start(message) appends a user entry + a new agent entry
  * to the conversation. Routing:
  *   - No prior head → POST /runs (fresh conversation)
  *   - Prior head   → POST /runs/{head}/continue (follow-up)
  *
- * Call reset() to clear the conversation and forget the head.
+ * Call reset() to archive the current conversation (if non-empty) and
+ * start fresh. Call loadConversation(id) to restore a past one.
+ *
+ * Storage model (keyed by agent name):
+ *   intelligence.conversation.<agent>.v1  — the in-progress / most recent
+ *   intelligence.conversations.<agent>.v1 — archived list, newest first, max MAX_RECENT
  */
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   cancelAgentRun,
@@ -21,6 +27,7 @@ import {
 import type {
   AgentRunHandle,
   ConversationEntry,
+  ConversationSummary,
   LoopEvent,
   RunError,
   RunState,
@@ -29,9 +36,125 @@ import type {
 } from "./types";
 
 
+const STORAGE_VERSION = 1;
+const MAX_RECENT = 10;
+
+
+function currentKey(agentName: string): string {
+  return `intelligence.conversation.${agentName}.v${STORAGE_VERSION}`;
+}
+
+function recentKey(agentName: string): string {
+  return `intelligence.conversations.${agentName}.v${STORAGE_VERSION}`;
+}
+
+
+interface StoredConversation {
+  version: number;
+  entries: ConversationEntry[];
+}
+
+interface StoredRecent {
+  version: number;
+  items: ConversationSummary[];
+}
+
+
+function loadCurrent(agentName: string): ConversationEntry[] {
+  try {
+    const raw = localStorage.getItem(currentKey(agentName));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as StoredConversation;
+    if (parsed.version !== STORAGE_VERSION) return [];
+    if (!Array.isArray(parsed.entries)) return [];
+    // Any running entry left over from a prior session is stale.
+    return parsed.entries.map((e) =>
+      e.kind === "agent" && e.state === "running"
+        ? { ...e, state: "cancelled" as const }
+        : e,
+    );
+  } catch {
+    return [];
+  }
+}
+
+function saveCurrent(agentName: string, entries: ConversationEntry[]): void {
+  try {
+    const payload: StoredConversation = { version: STORAGE_VERSION, entries };
+    localStorage.setItem(currentKey(agentName), JSON.stringify(payload));
+  } catch {
+    // ignore
+  }
+}
+
+function clearCurrent(agentName: string): void {
+  try {
+    localStorage.removeItem(currentKey(agentName));
+  } catch {
+    // ignore
+  }
+}
+
+function loadRecent(agentName: string): ConversationSummary[] {
+  try {
+    const raw = localStorage.getItem(recentKey(agentName));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as StoredRecent;
+    if (parsed.version !== STORAGE_VERSION) return [];
+    if (!Array.isArray(parsed.items)) return [];
+    return parsed.items;
+  } catch {
+    return [];
+  }
+}
+
+function saveRecent(agentName: string, items: ConversationSummary[]): void {
+  try {
+    const payload: StoredRecent = { version: STORAGE_VERSION, items };
+    localStorage.setItem(recentKey(agentName), JSON.stringify(payload));
+  } catch {
+    // ignore
+  }
+}
+
+
+function summarize(
+  entries: ConversationEntry[],
+  fallbackId: string,
+): ConversationSummary {
+  const firstUser = entries.find((e) => e.kind === "user");
+  const rawTitle =
+    firstUser && firstUser.kind === "user" ? firstUser.text : "Untitled";
+  const title =
+    rawTitle.length > 80 ? `${rawTitle.slice(0, 80)}…` : rawTitle;
+  const head = computeHead(entries);
+  return {
+    id: head ?? fallbackId,
+    title,
+    archivedAt: new Date().toISOString(),
+    entries,
+  };
+}
+
+
 export function useAgentRun(agentName: string): AgentRunHandle {
   const [state, setState] = useState<RunState>("idle");
-  const [entries, setEntries] = useState<ConversationEntry[]>([]);
+  const [entries, setEntries] = useState<ConversationEntry[]>(() =>
+    loadCurrent(agentName),
+  );
+  const [recent, setRecent] = useState<ConversationSummary[]>(() =>
+    loadRecent(agentName),
+  );
+
+  // Persist current conversation on every change.
+  useEffect(() => {
+    saveCurrent(agentName, entries);
+  }, [agentName, entries]);
+
+  // Persist the recent list on every change.
+  useEffect(() => {
+    saveRecent(agentName, recent);
+  }, [agentName, recent]);
 
   // AbortController owns the in-flight fetch/stream lifecycle.
   const abortRef = useRef<AbortController | null>(null);
@@ -40,6 +163,18 @@ export function useAgentRun(agentName: string): AgentRunHandle {
   const activePublicIdRef = useRef<string | null>(null);
 
   const currentHead = computeHead(entries);
+
+  const archiveEntries = useCallback(
+    (toArchive: ConversationEntry[]) => {
+      if (toArchive.length === 0) return;
+      const summary = summarize(toArchive, randomId());
+      setRecent((prev) => {
+        const deduped = prev.filter((c) => c.id !== summary.id);
+        return [summary, ...deduped].slice(0, MAX_RECENT);
+      });
+    },
+    [],
+  );
 
   const start = useCallback(
     (userMessage: string) => {
@@ -64,8 +199,6 @@ export function useAgentRun(agentName: string): AgentRunHandle {
       abortRef.current = abort;
       activePublicIdRef.current = null;
 
-      // Snapshot the head before we mutate entries — computeHead sees prior
-      // state, so a continuation against the head is stable.
       const priorHead = currentHead;
 
       void (async () => {
@@ -123,29 +256,56 @@ export function useAgentRun(agentName: string): AgentRunHandle {
   }, []);
 
   const reset = useCallback(() => {
+    // Archive whatever's currently loaded before dropping it.
+    archiveEntries(entries);
     abortRef.current?.abort();
     abortRef.current = null;
     activePublicIdRef.current = null;
     setState("idle");
     setEntries([]);
-  }, []);
+    clearCurrent(agentName);
+  }, [agentName, archiveEntries, entries]);
+
+  const loadConversation = useCallback(
+    (id: string) => {
+      const target = recent.find((c) => c.id === id);
+      if (!target) return;
+      // Archive whatever's open first (unless it's the same one we're loading).
+      if (entries.length > 0 && computeHead(entries) !== id) {
+        archiveEntries(entries);
+      }
+      abortRef.current?.abort();
+      abortRef.current = null;
+      activePublicIdRef.current = null;
+      setRecent((prev) => prev.filter((c) => c.id !== id));
+      setEntries(target.entries);
+      setState("idle");
+    },
+    [archiveEntries, entries, recent],
+  );
 
   return {
     state,
     entries,
     currentHead,
+    recent,
     start,
     cancel,
     reset,
+    loadConversation,
   };
 }
 
 
-/**
- * Compute the head of the conversation chain — the session_public_id of
- * the most recent COMPLETED agent entry. Used to route subsequent messages
- * through /continue. Returns null if no agent entry has completed yet.
- */
+function randomId(): string {
+  // crypto.randomUUID is available in all supported browsers.
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+
 function computeHead(entries: ConversationEntry[]): string | null {
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];
@@ -156,10 +316,6 @@ function computeHead(entries: ConversationEntry[]): string | null {
 }
 
 
-/**
- * Update the last agent entry in the conversation. No-op if the last
- * entry is not an agent entry.
- */
 function updateLastAgent(
   entries: ConversationEntry[],
   update: (
@@ -173,10 +329,6 @@ function updateLastAgent(
 }
 
 
-/**
- * Apply a single LoopEvent to the conversation entries. Reducer-style.
- * All updates target the last agent entry.
- */
 function applyEvent(
   event: LoopEvent,
   setEntries: React.Dispatch<React.SetStateAction<ConversationEntry[]>>,
@@ -277,6 +429,8 @@ function applyEvent(
       const usage: Usage = {
         input_tokens: event.usage.input_tokens,
         output_tokens: event.usage.output_tokens,
+        cache_creation_input_tokens: event.usage.cache_creation_input_tokens ?? 0,
+        cache_read_input_tokens: event.usage.cache_read_input_tokens ?? 0,
       };
       setEntries((prev) =>
         updateLastAgent(prev, (a) => ({

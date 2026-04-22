@@ -13,10 +13,14 @@ import {
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { useAgentRun } from "./useAgentRun";
+import RecordCard, { extractRecord } from "./RecordCard";
 import type {
   ConversationEntry,
+  ConversationSummary,
   Turn,
   ToolCall,
 } from "./types";
@@ -92,15 +96,13 @@ export default function ScoutTray({ open, onClose }: ScoutTrayProps) {
         <header className="scout-tray-header">
           <h2 className="scout-tray-title">Scout</h2>
           <div className="scout-tray-header-actions">
-            {hasConversation && !running && (
-              <button
-                type="button"
-                className="scout-tray-new"
-                onClick={run.reset}
-                title="Start a new conversation"
-              >
-                New
-              </button>
+            {!running && (hasConversation || run.recent.length > 0) && (
+              <HistoryMenu
+                recent={run.recent}
+                onNew={run.reset}
+                onLoad={run.loadConversation}
+                disableNewWhenEmpty={!hasConversation}
+              />
             )}
             <button
               type="button"
@@ -168,6 +170,109 @@ export default function ScoutTray({ open, onClose }: ScoutTrayProps) {
 }
 
 
+function HistoryMenu({
+  recent,
+  onNew,
+  onLoad,
+  disableNewWhenEmpty,
+}: {
+  recent: ConversationSummary[];
+  onNew: () => void;
+  onLoad: (id: string) => void;
+  disableNewWhenEmpty: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="scout-history" ref={ref}>
+      <button
+        type="button"
+        className="scout-history-toggle"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        History ▾
+      </button>
+      {open && (
+        <div className="scout-history-panel" role="menu">
+          <button
+            type="button"
+            className="scout-history-new"
+            onClick={() => {
+              onNew();
+              setOpen(false);
+            }}
+            disabled={disableNewWhenEmpty}
+            role="menuitem"
+          >
+            + Start new conversation
+          </button>
+          {recent.length > 0 && (
+            <>
+              <div className="scout-history-sep" />
+              <div className="scout-history-label">Recent</div>
+              <ul className="scout-history-list">
+                {recent.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      className="scout-history-item"
+                      onClick={() => {
+                        onLoad(c.id);
+                        setOpen(false);
+                      }}
+                      role="menuitem"
+                    >
+                      <div className="scout-history-title">{c.title}</div>
+                      <div className="scout-history-meta">
+                        {relativeTime(c.archivedAt)}
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function relativeTime(iso: string): string {
+  const now = Date.now();
+  const then = new Date(iso).getTime();
+  const diffMs = now - then;
+  const s = Math.round(diffMs / 1000);
+  if (s < 60) return "just now";
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.round(h / 24);
+  return `${d}d ago`;
+}
+
+
 function isAwaitingFirstEvent(entries: ConversationEntry[]): boolean {
   if (entries.length === 0) return false;
   const last = entries[entries.length - 1];
@@ -220,7 +325,13 @@ function AgentBlock({
       )}
       {entry.state === "done" && entry.usage && (
         <div className="scout-usage">
-          tokens in/out = {entry.usage.input_tokens}/{entry.usage.output_tokens}
+          in {entry.usage.input_tokens} · out {entry.usage.output_tokens}
+          {(entry.usage.cache_read_input_tokens ?? 0) > 0 && (
+            <> · cached {entry.usage.cache_read_input_tokens}</>
+          )}
+          {(entry.usage.cache_creation_input_tokens ?? 0) > 0 && (
+            <> · wrote {entry.usage.cache_creation_input_tokens}</>
+          )}
           {entry.sessionPublicId ? ` · ${shortId(entry.sessionPublicId)}` : ""}
         </div>
       )}
@@ -261,11 +372,24 @@ function TurnBubble({ turn }: { turn: Turn }) {
         </ul>
       )}
 
-      {turn.text && <div className="scout-turn-text">{turn.text}</div>}
+      {turn.text && <TurnText text={turn.text} />}
 
       {!turn.complete && !turn.text && turn.toolCalls.length === 0 && (
         <div className="scout-turn-waiting">Thinking…</div>
       )}
+    </div>
+  );
+}
+
+
+function TurnText({ text }: { text: string }) {
+  const { cleanedText, record } = extractRecord(text);
+  return (
+    <div className="scout-turn-text">
+      {cleanedText && (
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{cleanedText}</ReactMarkdown>
+      )}
+      {record && <RecordCard record={record} />}
     </div>
   );
 }
