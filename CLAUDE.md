@@ -78,14 +78,22 @@ For each entity migration:
 ## Dev Server
 
 ```bash
-npm run dev          # http://localhost:3000 (proxies /api → :8000)
+npm run dev          # http://localhost:3000
 npm run build        # Production build to dist/
 npx tsc --noEmit     # Type check without building
 ```
 
-The API must be running on port 8000:
-```bash
-cd ../build.one.api
-source .venv/bin/activate
-python3 -m uvicorn app:app --reload --host localhost --port 8000
-```
+**Dev talks directly to prod API.** `.env` sets `VITE_API_BASE_URL` to the
+Azure App Service URL (currently `https://buildone-esgaducjg4d3eucf.eastus-01.azurewebsites.net`);
+all `client.ts` helpers and SSE readers prefix it automatically. No local
+API process, no `/api` proxy in `vite.config.ts`.
+
+**Consequence:** every local click that writes (create/edit/delete, bill
+completion → SharePoint + QBO push, etc.) mutates production data.
+Treat dev as a read-with-caution environment, same as the API repo's
+environment-isolation note.
+
+**Use `client.ts` helpers, not raw `fetch("/api/...")`.** Raw relative
+paths would hit `localhost:3000/api/...` with no proxy — 502. If an
+endpoint doesn't fit the envelope pattern (`{data: ...}`), use
+`rawRequest` directly; the other helpers unwrap automatically.

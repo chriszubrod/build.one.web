@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef, type DragEvent } from "react"
 import { useNavigate } from "react-router-dom";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
-import { uploadFile, getOne } from "../../api/client";
+import { uploadFile, getOne, rawRequest } from "../../api/client";
 import Pagination from "../../components/Pagination";
 import PageHeader from "../../components/PageHeader";
 import type { Bill, Vendor } from "../../types/api";
@@ -82,21 +82,16 @@ export default function BillList() {
   const handleProcessFolder = async () => {
     setProcessingFolder(true);
     try {
-      const { run_id } = await (await fetch("/api/v1/process/bill-folder", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${localStorage.getItem("access_token")}`,
-        },
-        credentials: "include",
-      }).then((r) => r.json())) as { run_id: string };
+      const { run_id } = await rawRequest<{ status: string; run_id: string }>(
+        "/api/v1/process/bill-folder",
+        { method: "POST" },
+      );
 
       // Poll for completion
       const poll = async () => {
-        const res = await fetch(`/api/v1/process/bill-folder/${run_id}`, {
-          credentials: "include",
-          headers: { "Authorization": `Bearer ${localStorage.getItem("access_token")}` },
-        });
-        const data = await res.json();
+        const data = await rawRequest<{ status: string; errors?: string[] }>(
+          `/api/v1/process/bill-folder/${run_id}`,
+        );
         if (data.status === "processing") {
           setTimeout(poll, 2000);
         } else {
