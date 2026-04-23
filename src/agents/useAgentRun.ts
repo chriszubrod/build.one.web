@@ -373,10 +373,20 @@ function updateLastAgent(
     agent: Extract<ConversationEntry, { kind: "agent" }>,
   ) => Extract<ConversationEntry, { kind: "agent" }>,
 ): ConversationEntry[] {
-  if (entries.length === 0) return entries;
-  const last = entries[entries.length - 1];
-  if (last.kind !== "agent") return entries;
-  return [...entries.slice(0, -1), update(last)];
+  // Find the most recent agent entry regardless of what follows it.
+  // Once approval entries are appended for this turn, they sit AFTER
+  // the agent; subsequent tool_call_end / turn_end / done events still
+  // need to update the agent entry correctly.
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i].kind === "agent") {
+      const agent = entries[i] as Extract<
+        ConversationEntry,
+        { kind: "agent" }
+      >;
+      return [...entries.slice(0, i), update(agent), ...entries.slice(i + 1)];
+    }
+  }
+  return entries;
 }
 
 
