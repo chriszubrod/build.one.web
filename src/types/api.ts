@@ -72,6 +72,34 @@ export interface Lookups {
   modules?: LookupModule[];
 }
 
+/** Current-user profile — returned by GET /api/v1/auth/me */
+
+export interface CurrentUserModule {
+  public_id: string;
+  name: string;
+  route: string | null;
+  can_create: boolean;
+  can_read: boolean;
+  can_update: boolean;
+  can_delete: boolean;
+  can_submit: boolean;
+  can_approve: boolean;
+  can_complete: boolean;
+}
+
+export interface CurrentUser {
+  auth: { public_id: string; username: string };
+  user: {
+    id: number;
+    public_id: string;
+    firstname: string | null;
+    lastname: string | null;
+  } | null;
+  role: { public_id: string; name: string } | null;
+  is_admin: boolean;
+  modules: CurrentUserModule[];
+}
+
 /** Full entity types — returned by CRUD endpoints */
 
 export interface Vendor {

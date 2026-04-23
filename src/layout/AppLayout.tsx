@@ -1,24 +1,21 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Outlet } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 import ScoutTray from "../agents/ScoutTray";
-import { rawRequest } from "../api/client";
-import type { LookupModule } from "../types/api";
+import { useCurrentUser } from "../hooks/useCurrentUser";
 
 export default function AppLayout() {
-  const [modules, setModules] = useState<LookupModule[]>([]);
   const [scoutOpen, setScoutOpen] = useState(false);
+  const { data: me } = useCurrentUser();
 
-  useEffect(() => {
-    rawRequest<{ data: { modules: LookupModule[] } }>("/api/v1/lookups?include=modules")
-      .then((res) => setModules(res.data.modules ?? []))
-      .catch(() => setModules([]));
-  }, []);
+  const visibleModules = (me?.modules ?? []).filter(
+    (m) => me?.is_admin || m.can_read,
+  );
 
   return (
     <div className="app-layout">
-      <Sidebar modules={modules} />
+      <Sidebar modules={visibleModules} />
       <div className="app-main">
         <Header
           scoutOpen={scoutOpen}

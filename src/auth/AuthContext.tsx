@@ -1,5 +1,7 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { rawRequest } from "../api/client";
+import { subscribeToProfileEvents } from "./profileEventsClient";
 import type { AuthResponse } from "../types/api";
 
 interface AuthState {
@@ -15,6 +17,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [username, setUsername] = useState<string | null>(() => {
     return localStorage.getItem("username");
   });
+  const queryClient = useQueryClient();
 
   const isAuthenticated = !!localStorage.getItem("access_token");
 
@@ -34,8 +37,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem("access_token");
     localStorage.removeItem("username");
     setUsername(null);
+    queryClient.removeQueries({ queryKey: ["me"] });
     window.location.href = "/login";
-  }, []);
+  }, [queryClient]);
+
+  // Subscribe to profile-change events while authenticated. The server emits
+  // `profile_changed` when an admin mutates the caller's UserRole or the
+  // RoleModules under their role. We respond by invalidating ['me'] so the
+  // Sidebar + anything else reading the profile refetches fresh data.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const unsubscribe = subscribeToProfileEvents(
+      (event) => {
+        if (event.event === "profile_changed") {
+          queryClient.invalidateQueries({ queryKey: ["me"] });
+        }
+      },
+    );
+    return unsubscribe;
+  }, [isAuthenticated, queryClient]);
 
   return (
     <AuthContext.Provider value={{ isAuthenticated, username, login, logout }}>

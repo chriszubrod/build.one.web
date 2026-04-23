@@ -1,8 +1,13 @@
 import { NavLink } from "react-router-dom";
-import type { LookupModule } from "../types/api";
+
+interface SidebarModule {
+  public_id: string;
+  name: string;
+  route: string | null;
+}
 
 interface SidebarProps {
-  modules: LookupModule[];
+  modules: SidebarModule[];
 }
 
 export default function Sidebar({ modules }: SidebarProps) {
