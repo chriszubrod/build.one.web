@@ -18,6 +18,7 @@ import remarkGfm from "remark-gfm";
 
 import { useAgentRun } from "./useAgentRun";
 import RecordCard, { extractRecord } from "./RecordCard";
+import ApprovalCard from "./ApprovalCard";
 import type {
   ConversationEntry,
   ConversationSummary,
@@ -122,7 +123,7 @@ export default function ScoutTray({ open, onClose }: ScoutTrayProps) {
             </p>
           )}
           {run.entries.map((entry, i) => (
-            <EntryBubble key={i} entry={entry} />
+            <EntryBubble key={i} entry={entry} onApprove={run.approve} />
           ))}
           {running && isAwaitingFirstEvent(run.entries) && (
             <ThinkingIndicator
@@ -287,9 +288,22 @@ function hasSessionId(entries: ConversationEntry[]): boolean {
 }
 
 
-function EntryBubble({ entry }: { entry: ConversationEntry }) {
+function EntryBubble({
+  entry,
+  onApprove,
+}: {
+  entry: ConversationEntry;
+  onApprove: (
+    requestId: string,
+    decision: "approve" | "reject" | "edit",
+    editedInput?: Record<string, unknown>,
+  ) => Promise<void>;
+}) {
   if (entry.kind === "user") {
     return <UserBubble text={entry.text} />;
+  }
+  if (entry.kind === "approval") {
+    return <ApprovalCard entry={entry} onDecide={onApprove} />;
   }
   return <AgentBlock entry={entry} />;
 }
@@ -332,6 +346,12 @@ function AgentBlock({
           {(entry.usage.cache_creation_input_tokens ?? 0) > 0 && (
             <> · wrote {entry.usage.cache_creation_input_tokens}</>
           )}
+          {entry.completedAt && entry.startedAt
+            ? ` · ${formatDuration(entry.completedAt - entry.startedAt)}`
+            : ""}
+          {typeof entry.costUsd === "number"
+            ? ` · ${formatCost(entry.costUsd)}`
+            : ""}
           {entry.sessionPublicId ? ` · ${shortId(entry.sessionPublicId)}` : ""}
         </div>
       )}
@@ -452,4 +472,20 @@ function renderOutput(output: string | unknown[] | undefined): string {
 
 function shortId(id: string): string {
   return id.length > 8 ? `${id.slice(0, 8)}…` : id;
+}
+
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.round(ms / 1000)}s`;
+}
+
+
+function formatCost(usd: number): string {
+  if (usd <= 0) return "$0";
+  if (usd < 0.001) return "<$0.001";
+  if (usd < 0.01) return `$${usd.toFixed(4)}`;
+  if (usd < 1) return `$${usd.toFixed(3)}`;
+  return `$${usd.toFixed(2)}`;
 }

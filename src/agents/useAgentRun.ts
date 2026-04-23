@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  approveAgentRun,
   cancelAgentRun,
   continueAgentRun,
   startAgentRun,
@@ -26,6 +27,7 @@ import {
 } from "./sseClient";
 import type {
   AgentRunHandle,
+  ApprovalEntry,
   ConversationEntry,
   ConversationSummary,
   LoopEvent,
@@ -181,6 +183,7 @@ export function useAgentRun(agentName: string): AgentRunHandle {
       const trimmed = userMessage.trim();
       if (!trimmed) return;
 
+      const now = Date.now();
       setState("running");
       setEntries((prev) => [
         ...prev,
@@ -191,7 +194,10 @@ export function useAgentRun(agentName: string): AgentRunHandle {
           turns: [],
           state: "running",
           usage: null,
+          costUsd: null,
           error: null,
+          startedAt: now,
+          completedAt: null,
         },
       ]);
 
@@ -222,9 +228,14 @@ export function useAgentRun(agentName: string): AgentRunHandle {
           }
         } catch (err: unknown) {
           const name = (err as { name?: string })?.name;
+          const completedAt = Date.now();
           if (name === "AbortError") {
             setEntries((prev) =>
-              updateLastAgent(prev, (a) => ({ ...a, state: "cancelled" })),
+              updateLastAgent(prev, (a) => ({
+                ...a,
+                state: "cancelled",
+                completedAt,
+              })),
             );
             setState((prev) => (prev === "done" ? prev : "cancelled"));
             return;
@@ -236,6 +247,7 @@ export function useAgentRun(agentName: string): AgentRunHandle {
               ...a,
               state: "error",
               error: runError,
+              completedAt,
             })),
           );
           setState("error");
@@ -284,6 +296,44 @@ export function useAgentRun(agentName: string): AgentRunHandle {
     [archiveEntries, entries, recent],
   );
 
+  const approve = useCallback(
+    async (
+      requestId: string,
+      decision: "approve" | "reject" | "edit",
+      editedInput?: Record<string, unknown>,
+    ): Promise<void> => {
+      // Find the approval entry to learn which session it belongs to.
+      const target = entries.find(
+        (e) => e.kind === "approval" && e.requestId === requestId,
+      );
+      if (!target || target.kind !== "approval") {
+        throw new Error(`No pending approval with request_id ${requestId}`);
+      }
+      await approveAgentRun(
+        target.sessionPublicId,
+        requestId,
+        decision,
+        editedInput,
+      );
+      // Optimistically mark the local entry as decided so the UI
+      // reflects the click immediately. The server's approval_decision
+      // event will arrive shortly and confirm the same state.
+      setEntries((prev) =>
+        prev.map((e) =>
+          e.kind === "approval" && e.requestId === requestId
+            ? {
+                ...e,
+                status: decision === "reject" ? "rejected" : "approved",
+                finalInput:
+                  decision === "edit" ? (editedInput ?? {}) : e.proposedInput,
+              }
+            : e,
+        ),
+      );
+    },
+    [entries],
+  );
+
   return {
     state,
     entries,
@@ -293,6 +343,7 @@ export function useAgentRun(agentName: string): AgentRunHandle {
     cancel,
     reset,
     loadConversation,
+    approve,
   };
 }
 
@@ -432,11 +483,15 @@ function applyEvent(
         cache_creation_input_tokens: event.usage.cache_creation_input_tokens ?? 0,
         cache_read_input_tokens: event.usage.cache_read_input_tokens ?? 0,
       };
+      const completedAt = Date.now();
+      const costUsd = event.cost_usd ?? null;
       setEntries((prev) =>
         updateLastAgent(prev, (a) => ({
           ...a,
           state: "done",
           usage,
+          costUsd,
+          completedAt,
         })),
       );
       setState("done");
@@ -444,14 +499,65 @@ function applyEvent(
     }
     case "error": {
       const error: RunError = { message: event.message, code: event.code };
+      const completedAt = Date.now();
       setEntries((prev) =>
         updateLastAgent(prev, (a) => ({
           ...a,
           state: "error",
           error,
+          completedAt,
         })),
       );
       setState("error");
+      return;
+    }
+    case "approval_request": {
+      // Append an approval entry just after the current agent entry.
+      // It inherits the agent entry's sessionPublicId so the approve
+      // action can POST to the right URL.
+      setEntries((prev) => {
+        // Find the most recent agent entry to get its sessionPublicId.
+        let sessionPublicId: string | null = null;
+        for (let i = prev.length - 1; i >= 0; i--) {
+          const e = prev[i];
+          if (e.kind === "agent" && e.sessionPublicId) {
+            sessionPublicId = e.sessionPublicId;
+            break;
+          }
+        }
+        if (!sessionPublicId) {
+          // Shouldn't happen — the server always sets session_public_id
+          // on the session row before emitting any events — but defend
+          // gracefully.
+          return prev;
+        }
+        const approval: ApprovalEntry = {
+          kind: "approval",
+          requestId: event.request_id,
+          sessionPublicId,
+          toolName: event.tool_name,
+          summary: event.summary,
+          proposedInput: event.proposed_input,
+          inputSchema: event.input_schema,
+          status: "pending",
+          finalInput: null,
+        };
+        return [...prev, approval];
+      });
+      return;
+    }
+    case "approval_decision": {
+      setEntries((prev) =>
+        prev.map((e) =>
+          e.kind === "approval" && e.requestId === event.request_id
+            ? {
+                ...e,
+                status: event.decision,
+                finalInput: event.final_input,
+              }
+            : e,
+        ),
+      );
       return;
     }
   }

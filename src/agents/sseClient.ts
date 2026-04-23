@@ -194,6 +194,49 @@ export async function continueAgentRun(
 
 
 /**
+ * Resolve a pending approval request with the user's decision.
+ * `decision`: "approve" | "reject" | "edit" (edit requires `editedInput`).
+ * Server returns 403 if the caller is not the run's requesting user.
+ */
+export async function approveAgentRun(
+  publicId: string,
+  requestId: string,
+  decision: "approve" | "reject" | "edit",
+  editedInput?: Record<string, unknown>,
+): Promise<void> {
+  const token = localStorage.getItem("access_token");
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const body: Record<string, unknown> = {
+    request_id: requestId,
+    decision,
+  };
+  if (decision === "edit") {
+    body.edited_input = editedInput ?? {};
+  }
+
+  const res = await fetch(
+    `${API_BASE}/api/v1/agents/runs/${publicId}/approve`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      credentials: "include",
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `Failed to decide approval: HTTP ${res.status}${text ? `: ${text}` : ""}`,
+    );
+  }
+}
+
+
+/**
  * Request cancellation of an in-flight run. Server returns 403 if the caller
  * is not the run's requesting user.
  */

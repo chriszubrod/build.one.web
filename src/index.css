@@ -1628,6 +1628,178 @@ button[type="submit"]:disabled {
   background: #fafbfc;
 }
 
+/* ── Approval card ────────────────────────────────────────────────────── */
+
+.scout-approval {
+  margin: 8px 0;
+  border: 1px solid var(--color-border);
+  border-left: 4px solid #d97706;   /* amber — draws the eye while pending */
+  border-radius: var(--radius);
+  background: #fffbeb;
+}
+
+.scout-approval-approved {
+  border-left-color: #16a34a;
+  background: #f0fdf4;
+}
+
+.scout-approval-rejected {
+  border-left-color: var(--color-error);
+  background: #fef2f2;
+}
+
+.scout-approval-timed_out {
+  border-left-color: #6b7280;
+  background: #f9fafb;
+  opacity: 0.85;
+}
+
+.scout-approval-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.scout-approval-approved .scout-approval-status { color: #16a34a; font-weight: 600; }
+.scout-approval-pending .scout-approval-status { color: #d97706; font-weight: 600; }
+.scout-approval-rejected .scout-approval-status { color: var(--color-error); font-weight: 600; }
+.scout-approval-timed_out .scout-approval-status { color: #6b7280; }
+
+.scout-approval-tool {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11.5px;
+}
+
+.scout-approval-summary {
+  padding: 0 12px 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.scout-approval-fields {
+  margin: 0;
+  padding: 0 12px 8px;
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 4px 10px;
+  font-size: 12.5px;
+}
+
+.scout-approval-field {
+  display: contents;
+}
+
+.scout-approval-fields dt {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding-top: 2px;
+}
+
+.scout-approval-fields dd {
+  margin: 0;
+  word-break: break-word;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+}
+
+.scout-approval-empty {
+  padding: 4px 12px 8px;
+  color: var(--color-text-muted);
+  font-style: italic;
+  font-size: 12px;
+}
+
+.scout-approval-form {
+  padding: 4px 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scout-approval-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12.5px;
+}
+
+.scout-approval-form-label {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.scout-approval-form-label-changed::after {
+  content: " · edited";
+  color: #d97706;
+  font-weight: 600;
+}
+
+.scout-approval-form-row input[type="text"],
+.scout-approval-form-row input[type="number"],
+.scout-approval-form-textarea {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  resize: vertical;
+}
+
+.scout-approval-form-row input[type="checkbox"] {
+  width: auto;
+  margin-right: 6px;
+}
+
+.scout-approval-form-help {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.scout-approval-actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 10px;
+  align-items: center;
+}
+
+.scout-approval-actions-spacer {
+  flex: 1;
+}
+
+.scout-approval-actions button {
+  width: auto;
+}
+
+.scout-approval-error {
+  padding: 6px 12px;
+  color: var(--color-error);
+  font-size: 12px;
+}
+
+.scout-approval-diff-note {
+  padding: 0 12px 10px;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+
 /* ── Record cards ─────────────────────────────────────────────────────── */
 
 .scout-record {
@@ -1646,6 +1818,23 @@ button[type="submit"]:disabled {
   padding: 8px 12px;
   background: var(--color-bg);
   border-bottom: 1px solid var(--color-border);
+}
+
+a.scout-record-header-link {
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.15s;
+  cursor: pointer;
+}
+
+a.scout-record-header-link:hover {
+  background: #eef2ff;
+}
+
+a.scout-record-header-link:hover .scout-record-name {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
 }
 
 .scout-record-entity {

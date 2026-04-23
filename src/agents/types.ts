@@ -27,7 +27,22 @@ export type LoopEvent =
   | { type: "tool_call_start"; id: string; name: string; input: Record<string, unknown> }
   | { type: "tool_call_end"; id: string; name: string; result: ToolResultPayload }
   | { type: "turn_end"; turn: number; usage: Usage; stop_reason: string | null }
-  | { type: "done"; reason: string; usage: Usage }
+  | {
+      type: "approval_request";
+      request_id: string;
+      tool_name: string;
+      summary: string;
+      proposed_input: Record<string, unknown>;
+      input_schema: Record<string, unknown>;
+    }
+  | {
+      type: "approval_decision";
+      request_id: string;
+      decision: "approved" | "rejected" | "timed_out";
+      final_input: Record<string, unknown> | null;
+      decided_by: string | null;
+    }
+  | { type: "done"; reason: string; usage: Usage; cost_usd?: number | null }
   | { type: "error"; message: string; code: string | null };
 
 // ─── Accumulated state exposed by the hook ───────────────────────────────
@@ -66,6 +81,27 @@ export interface RunError {
  * A single entry in the conversation. Each user message is followed by
  * an agent entry holding the scout's turns for that message.
  */
+/**
+ * Approval state — mirrors server-side status literals except that we
+ * also carry "pending" for the in-flight client-side state before the
+ * server responds.
+ */
+export type ApprovalStatus = "pending" | "approved" | "rejected" | "timed_out";
+
+
+export interface ApprovalEntry {
+  kind: "approval";
+  requestId: string;
+  sessionPublicId: string;     // the agent run this approval belongs to (for POST /approve)
+  toolName: string;
+  summary: string;
+  proposedInput: Record<string, unknown>;
+  inputSchema: Record<string, unknown>;
+  status: ApprovalStatus;
+  finalInput: Record<string, unknown> | null;
+}
+
+
 export type ConversationEntry =
   | { kind: "user"; text: string }
   | {
@@ -74,8 +110,12 @@ export type ConversationEntry =
       turns: Turn[];
       state: RunState;          // per-entry state (running while this is the live one)
       usage: Usage | null;
+      costUsd: number | null;   // server-computed; null when pricing unknown for the model
       error: RunError | null;
-    };
+      startedAt: number;        // ms since epoch when start() fired
+      completedAt: number | null; // ms when done/error/cancelled landed
+    }
+  | ApprovalEntry;
 
 export interface ConversationSummary {
   /** Stable client-side id — equal to the conversation's last known head, or a generated UUID for very short threads. */
@@ -106,4 +146,15 @@ export interface AgentRunHandle {
   reset: () => void;
   /** Load a past conversation as the current one. Archives the currently-open conversation first. */
   loadConversation: (id: string) => void;
+  /**
+   * Respond to an approval request. `decision` is the user's intent:
+   *   - "approve" → run with the proposed input
+   *   - "edit"    → run with `editedInput` (must be provided)
+   *   - "reject"  → skip the action
+   */
+  approve: (
+    requestId: string,
+    decision: "approve" | "reject" | "edit",
+    editedInput?: Record<string, unknown>,
+  ) => Promise<void>;
 }
