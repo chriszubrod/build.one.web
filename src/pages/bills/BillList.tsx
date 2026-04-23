@@ -119,12 +119,8 @@ export default function BillList() {
     staleWhileRevalidate: true,
     sessionPersistenceKey: "buildOne.billList",
   });
-  const vendorMap = useIdNameMap<Vendor>("/api/v1/get/vendors", (v) => v.name, {
-    staleWhileRevalidate: true,
-  });
-  const projectMap = useIdNameMap<{ id: number; name: string }>("/api/v1/get/projects", (p) => p.name, {
-    staleWhileRevalidate: true,
-  });
+  const vendorMap = useIdNameMap<Vendor>("/api/v1/get/vendors", (v) => v.name);
+  const projectMap = useIdNameMap<{ id: number; name: string }>("/api/v1/get/projects", (p) => p.name);
 
   // Resolve display values for sorting
   const resolvedItems = items.map((bill) => ({

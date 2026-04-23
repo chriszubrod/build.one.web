@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { getList, getOne, post, put, del, ApiError } from "../api/client";
 
 interface UseEntityListResult<T> {
@@ -15,34 +15,39 @@ interface UseEntityItemResult<T> {
   reload: () => void;
 }
 
+function retryIgnoringClientErrors(failureCount: number, error: unknown): boolean {
+  if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+    return false;
+  }
+  return failureCount < 1;
+}
+
 /**
  * Fetch a list of entities.
  * @param listPath - e.g. "/api/v1/get/vendors"
  */
 export function useEntityList<T>(listPath: string): UseEntityListResult<T> {
-  const [items, setItems] = useState<T[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  const load = useCallback(() => {
-    setLoading(true);
-    setError("");
-    getList<T>(listPath)
-      .then((res) => setItems(res.data))
-      .catch((err) => {
-        // 404 means "no records" for some endpoints — treat as empty list
+  const { data, isLoading, error, refetch } = useQuery<{ data: T[]; count: number }>({
+    queryKey: ["list", listPath],
+    queryFn: async () => {
+      try {
+        return await getList<T>(listPath);
+      } catch (err) {
         if (err instanceof ApiError && err.status === 404) {
-          setItems([]);
-        } else {
-          setError(err.message);
+          return { data: [], count: 0 };
         }
-      })
-      .finally(() => setLoading(false));
-  }, [listPath]);
+        throw err;
+      }
+    },
+    retry: retryIgnoringClientErrors,
+  });
 
-  useEffect(() => { load(); }, [load]);
-
-  return { items, loading, error, reload: load };
+  return {
+    items: data?.data ?? [],
+    loading: isLoading,
+    error: error ? (error as Error).message : "",
+    reload: () => { refetch(); },
+  };
 }
 
 /**
@@ -50,22 +55,18 @@ export function useEntityList<T>(listPath: string): UseEntityListResult<T> {
  * @param itemPath - e.g. "/api/v1/get/vendor/abc-123"
  */
 export function useEntityItem<T>(itemPath: string): UseEntityItemResult<T> {
-  const [item, setItem] = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const { data, isLoading, error, refetch } = useQuery<T>({
+    queryKey: ["item", itemPath],
+    queryFn: () => getOne<T>(itemPath),
+    retry: retryIgnoringClientErrors,
+  });
 
-  const load = useCallback(() => {
-    setLoading(true);
-    setError("");
-    getOne<T>(itemPath)
-      .then((data) => setItem(data))
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, [itemPath]);
-
-  useEffect(() => { load(); }, [load]);
-
-  return { item, loading, error, reload: load };
+  return {
+    item: data ?? null,
+    loading: isLoading,
+    error: error ? (error as Error).message : "",
+    reload: () => { refetch(); },
+  };
 }
 
 /**
