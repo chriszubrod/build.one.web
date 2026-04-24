@@ -97,12 +97,6 @@ import ReviewStatusView from "./pages/review-statuses/ReviewStatusView";
 import ReviewStatusEdit from "./pages/review-statuses/ReviewStatusEdit";
 import ReviewStatusCreate from "./pages/review-statuses/ReviewStatusCreate";
 
-// Classification Override
-import ClassificationOverrideList from "./pages/classification-overrides/ClassificationOverrideList";
-import ClassificationOverrideView from "./pages/classification-overrides/ClassificationOverrideView";
-import ClassificationOverrideEdit from "./pages/classification-overrides/ClassificationOverrideEdit";
-import ClassificationOverrideCreate from "./pages/classification-overrides/ClassificationOverrideCreate";
-
 // Taxpayer
 import TaxpayerList from "./pages/taxpayers/TaxpayerList";
 import TaxpayerView from "./pages/taxpayers/TaxpayerView";
@@ -186,6 +180,10 @@ import ContractLaborBills from "./pages/contract-labor/ContractLaborBills";
 // Legal
 import EulaPage from "./pages/legal/EulaPage";
 import PrivacyPage from "./pages/legal/PrivacyPage";
+
+// Admin
+import AdminDashboard from "./pages/admin/AdminDashboard";
+import WorkflowDetail from "./pages/admin/WorkflowDetail";
 
 export default function App() {
   return (
@@ -290,12 +288,6 @@ export default function App() {
               <Route path="/review-status/:id" element={<ReviewStatusView />} />
               <Route path="/review-status/:id/edit" element={<ReviewStatusEdit />} />
 
-              {/* Classification Override */}
-              <Route path="/classification-override/list" element={<ClassificationOverrideList />} />
-              <Route path="/classification-override/create" element={<ClassificationOverrideCreate />} />
-              <Route path="/classification-override/:id" element={<ClassificationOverrideView />} />
-              <Route path="/classification-override/:id/edit" element={<ClassificationOverrideEdit />} />
-
               {/* Taxpayer */}
               <Route path="/taxpayer/list" element={<TaxpayerList />} />
               <Route path="/taxpayer/create" element={<TaxpayerCreate />} />
@@ -379,6 +371,10 @@ export default function App() {
               {/* Legal */}
               <Route path="/legal/eula" element={<EulaPage />} />
               <Route path="/legal/privacy" element={<PrivacyPage />} />
+
+              {/* Admin */}
+              <Route path="/admin" element={<AdminDashboard />} />
+              <Route path="/admin/workflow/:id" element={<WorkflowDetail />} />
             </Route>
           </Route>
         </Routes>

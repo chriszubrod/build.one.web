@@ -262,20 +262,6 @@ export interface ReviewStatus {
   color: string | null;
 }
 
-export interface ClassificationOverride {
-  id: number;
-  public_id: string;
-  row_version: string;
-  created_datetime: string | null;
-  modified_datetime: string | null;
-  match_type: string;
-  match_value: string;
-  classification_type: string;
-  notes: string | null;
-  is_active: boolean;
-  created_by: string | null;
-}
-
 export interface Taxpayer {
   id: number;
   public_id: string;
