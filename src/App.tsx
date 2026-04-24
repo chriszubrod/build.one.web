@@ -180,6 +180,8 @@ import ContractLaborList from "./pages/contract-labor/ContractLaborList";
 import ContractLaborView from "./pages/contract-labor/ContractLaborView";
 import ContractLaborEdit from "./pages/contract-labor/ContractLaborEdit";
 import ContractLaborCreate from "./pages/contract-labor/ContractLaborCreate";
+import ContractLaborImport from "./pages/contract-labor/ContractLaborImport";
+import ContractLaborBills from "./pages/contract-labor/ContractLaborBills";
 
 // Legal
 import EulaPage from "./pages/legal/EulaPage";
@@ -369,6 +371,8 @@ export default function App() {
               {/* Contract Labor */}
               <Route path="/contract-labor/list" element={<ContractLaborList />} />
               <Route path="/contract-labor/create" element={<ContractLaborCreate />} />
+              <Route path="/contract-labor/import" element={<ContractLaborImport />} />
+              <Route path="/contract-labor/bills" element={<ContractLaborBills />} />
               <Route path="/contract-labor/:id" element={<ContractLaborView />} />
               <Route path="/contract-labor/:id/edit" element={<ContractLaborEdit />} />
 

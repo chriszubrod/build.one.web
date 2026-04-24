@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useEntityList } from "../../hooks/useEntity";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
 import DataTable, { type Column } from "../../components/DataTable";
@@ -51,6 +52,14 @@ export default function ContractLaborList() {
   return (
     <div className="page">
       <PageHeader title="Contract Labor" count={items.length} createPath="/contract-labor/create" />
+      <div style={{ display: "flex", gap: 8, margin: "0 0 16px" }}>
+        <Link to="/contract-labor/import" className="btn btn-secondary">
+          Import Excel
+        </Link>
+        <Link to="/contract-labor/bills" className="btn btn-secondary">
+          Generate Bills
+        </Link>
+      </div>
       <DataTable columns={columns} data={items} basePath="/contract-labor" />
     </div>
   );
