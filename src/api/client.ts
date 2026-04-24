@@ -1,5 +1,9 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
+// Cookie names — must match server (entities/auth/business/service.py).
+const CSRF_COOKIE = "token.csrf";
+const CSRF_HEADER = "X-CSRF-Token";
+
 export class ApiError extends Error {
   status: number;
   detail: string;
@@ -12,32 +16,98 @@ export class ApiError extends Error {
   }
 }
 
+function readCookie(name: string): string | null {
+  // Escape any regex metacharacters in the cookie name.
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = document.cookie.match(new RegExp("(^|; )" + escaped + "=([^;]+)"));
+  return match ? decodeURIComponent(match[2]) : null;
+}
+
+// Coalesces concurrent 401s into a single refresh. The promise is
+// cleared on the next microtask so later 401s (after a fresh refresh)
+// trigger a new refresh instead of reusing a stale success.
+let refreshInFlight: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    try {
+      const csrf = readCookie(CSRF_COOKIE);
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (csrf) headers[CSRF_HEADER] = csrf;
+      const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+      });
+      if (!res.ok) return null;
+      const body = await res.json().catch(() => null);
+      const newToken = body?.data?.token?.access_token;
+      if (typeof newToken === "string" && newToken.length > 0) {
+        localStorage.setItem("access_token", newToken);
+        return newToken;
+      }
+      return null;
+    } catch {
+      return null;
+    } finally {
+      // Clear on the next tick so a burst of 401s coalesces into one
+      // refresh, but subsequent 401s (later access-token expirations)
+      // trigger a fresh refresh instead of reusing this promise.
+      setTimeout(() => {
+        refreshInFlight = null;
+      }, 0);
+    }
+  })();
+  return refreshInFlight;
+}
+
+/** Redirect to /login, wiping local auth state. The one place this happens. */
+function redirectToLogin(): never {
+  localStorage.removeItem("access_token");
+  localStorage.removeItem("username");
+  window.location.href = "/login";
+  throw new ApiError(401, "Unauthorized");
+}
+
+/**
+ * Fetch that retries once on 401 after a successful refresh. Callers
+ * that need auth just pass `buildInit()` for their current token; if a
+ * retry is needed, we rebuild with the refreshed token from localStorage.
+ */
+async function fetchWithRefresh(
+  url: string,
+  buildInit: () => RequestInit,
+): Promise<Response> {
+  let res = await fetch(url, buildInit());
+  if (res.status !== 401) return res;
+
+  const newToken = await refreshAccessToken();
+  if (newToken === null) return res; // caller handles 401 → redirect
+
+  res = await fetch(url, buildInit());
+  return res;
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const token = localStorage.getItem("access_token");
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(options.headers as Record<string, string>),
+  const buildInit = (): RequestInit => {
+    const token = localStorage.getItem("access_token");
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(options.headers as Record<string, string>),
+    };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    return { ...options, headers, credentials: "include" };
   };
 
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
+  const res = await fetchWithRefresh(`${API_BASE}${path}`, buildInit);
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-    credentials: "include",
-  });
-
-  if (res.status === 401) {
-    localStorage.removeItem("access_token");
-    window.location.href = "/login";
-    throw new ApiError(401, "Unauthorized");
-  }
+  if (res.status === 401) redirectToLogin();
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
@@ -92,8 +162,11 @@ export async function del<T>(path: string): Promise<T> {
 }
 
 /** Upload a file via multipart form data — unwraps {"data": {...}} */
-export async function uploadFile<T>(path: string, file: File, extraFields?: Record<string, string>): Promise<T> {
-  const token = localStorage.getItem("access_token");
+export async function uploadFile<T>(
+  path: string,
+  file: File,
+  extraFields?: Record<string, string>,
+): Promise<T> {
   const formData = new FormData();
   formData.append("file", file);
   if (extraFields) {
@@ -102,24 +175,22 @@ export async function uploadFile<T>(path: string, file: File, extraFields?: Reco
     }
   }
 
-  const headers: Record<string, string> = {};
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-  // Do NOT set Content-Type — browser sets it with boundary for multipart
+  const buildInit = (): RequestInit => {
+    const token = localStorage.getItem("access_token");
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    // Do NOT set Content-Type — browser sets it with boundary for multipart.
+    return {
+      method: "POST",
+      headers,
+      body: formData,
+      credentials: "include",
+    };
+  };
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
-    headers,
-    body: formData,
-    credentials: "include",
-  });
+  const res = await fetchWithRefresh(`${API_BASE}${path}`, buildInit);
 
-  if (res.status === 401) {
-    localStorage.removeItem("access_token");
-    window.location.href = "/login";
-    throw new ApiError(401, "Unauthorized");
-  }
+  if (res.status === 401) redirectToLogin();
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
@@ -135,27 +206,30 @@ export async function uploadFile<T>(path: string, file: File, extraFields?: Reco
  * Sends Bearer token so iframe/navigation-style URLs are not required.
  */
 export async function fetchViewAttachmentBlob(publicId: string): Promise<Blob> {
-  const token = localStorage.getItem("access_token");
-  const headers: Record<string, string> = {};
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
+  const buildInit = (): RequestInit => {
+    const token = localStorage.getItem("access_token");
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    return {
+      method: "GET",
+      headers,
+      credentials: "include",
+    };
+  };
 
-  const res = await fetch(`${API_BASE}/api/v1/view/attachment/${publicId}`, {
-    method: "GET",
-    headers,
-    credentials: "include",
-  });
+  const res = await fetchWithRefresh(
+    `${API_BASE}/api/v1/view/attachment/${publicId}`,
+    buildInit,
+  );
 
-  if (res.status === 401) {
-    localStorage.removeItem("access_token");
-    window.location.href = "/login";
-    throw new ApiError(401, "Unauthorized");
-  }
+  if (res.status === 401) redirectToLogin();
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new ApiError(res.status, typeof body.detail === "string" ? body.detail : "Request failed");
+    throw new ApiError(
+      res.status,
+      typeof body.detail === "string" ? body.detail : "Request failed",
+    );
   }
 
   return res.blob();
