@@ -8,6 +8,12 @@ interface AuthState {
   isAuthenticated: boolean;
   username: string | null;
   login: (username: string, password: string) => Promise<void>;
+  signup: (
+    username: string,
+    password: string,
+    confirmPassword: string,
+    registrationCode: string,
+  ) => Promise<void>;
   logout: () => void;
 }
 
@@ -32,6 +38,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("username", auth.username);
     setUsername(auth.username);
   }, []);
+
+  const signup = useCallback(
+    async (
+      user: string,
+      password: string,
+      confirmPassword: string,
+      registrationCode: string,
+    ) => {
+      const res = await rawRequest<{ data: AuthResponse }>(
+        "/api/v1/signup/auth",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            username: user,
+            password,
+            confirm_password: confirmPassword,
+            registration_code: registrationCode,
+          }),
+        },
+      );
+      const { auth, token } = res.data;
+      localStorage.setItem("access_token", token.access_token);
+      localStorage.setItem("username", auth.username);
+      setUsername(auth.username);
+    },
+    [],
+  );
 
   const logout = useCallback(() => {
     localStorage.removeItem("access_token");
@@ -58,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [isAuthenticated, queryClient]);
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, username, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, username, login, signup, logout }}>
       {children}
     </AuthContext.Provider>
   );

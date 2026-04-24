@@ -3,6 +3,7 @@ import { AuthProvider } from "./auth/AuthContext";
 import { ToastProvider } from "./components/Toast";
 import ProtectedRoute from "./auth/ProtectedRoute";
 import LoginPage from "./auth/LoginPage";
+import SignupPage from "./auth/SignupPage";
 import AppLayout from "./layout/AppLayout";
 import Dashboard from "./pages/Dashboard";
 
@@ -191,6 +192,7 @@ export default function App() {
         <ToastProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<SignupPage />} />
 
           <Route element={<ProtectedRoute />}>
             <Route element={<AppLayout />}>
