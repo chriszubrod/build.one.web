@@ -523,16 +523,18 @@ function applyEvent(
     }
     case "approval_request": {
       // Append an approval entry just after the current agent entry.
-      // It inherits the agent entry's sessionPublicId so the approve
-      // action can POST to the right URL.
+      // The approval's sessionPublicId comes from the event itself when
+      // available (so sub-agent approvals POST to the sub-session URL),
+      // falling back to the parent agent entry's id for the legacy path.
       setEntries((prev) => {
-        // Find the most recent agent entry to get its sessionPublicId.
-        let sessionPublicId: string | null = null;
-        for (let i = prev.length - 1; i >= 0; i--) {
-          const e = prev[i];
-          if (e.kind === "agent" && e.sessionPublicId) {
-            sessionPublicId = e.sessionPublicId;
-            break;
+        let sessionPublicId: string | null = event.session_public_id ?? null;
+        if (!sessionPublicId) {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            const e = prev[i];
+            if (e.kind === "agent" && e.sessionPublicId) {
+              sessionPublicId = e.sessionPublicId;
+              break;
+            }
           }
         }
         if (!sessionPublicId) {

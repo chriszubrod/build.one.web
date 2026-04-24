@@ -34,6 +34,10 @@ export type LoopEvent =
       summary: string;
       proposed_input: Record<string, unknown>;
       input_schema: Record<string, unknown>;
+      // Identifies which session owns this approval — populated by the
+      // runner so sub-agent approvals POST to the sub-session URL when
+      // the request is forwarded onto a parent's stream.
+      session_public_id?: string | null;
     }
   | {
       type: "approval_decision";
