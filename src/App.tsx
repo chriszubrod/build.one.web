@@ -181,9 +181,6 @@ import ContractLaborBills from "./pages/contract-labor/ContractLaborBills";
 import EulaPage from "./pages/legal/EulaPage";
 import PrivacyPage from "./pages/legal/PrivacyPage";
 
-// Admin
-import AdminDashboard from "./pages/admin/AdminDashboard";
-import WorkflowDetail from "./pages/admin/WorkflowDetail";
 
 export default function App() {
   return (
@@ -372,9 +369,6 @@ export default function App() {
               <Route path="/legal/eula" element={<EulaPage />} />
               <Route path="/legal/privacy" element={<PrivacyPage />} />
 
-              {/* Admin */}
-              <Route path="/admin" element={<AdminDashboard />} />
-              <Route path="/admin/workflow/:id" element={<WorkflowDetail />} />
             </Route>
           </Route>
         </Routes>
