@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useEntityItem, updateEntity } from "../../hooks/useEntity";
 import { getList, post, del } from "../../api/client";
 import FormField from "../../components/FormField";
+import InlineContacts from "../../components/InlineContacts";
 import type { User, UserRole, Role } from "../../types/api";
 
 export default function UserEdit() {
@@ -158,6 +159,12 @@ export default function UserEdit() {
           </div>
         )}
       </div>
+
+      {item && (
+        <div className="detail-card" style={{ marginTop: 24 }}>
+          <InlineContacts parentEntity="user" parentId={item.id} />
+        </div>
+      )}
     </div>
   );
 }

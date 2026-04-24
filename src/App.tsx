@@ -180,6 +180,10 @@ import ContractLaborView from "./pages/contract-labor/ContractLaborView";
 import ContractLaborEdit from "./pages/contract-labor/ContractLaborEdit";
 import ContractLaborCreate from "./pages/contract-labor/ContractLaborCreate";
 
+// Legal
+import EulaPage from "./pages/legal/EulaPage";
+import PrivacyPage from "./pages/legal/PrivacyPage";
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -365,6 +369,10 @@ export default function App() {
               <Route path="/contract-labor/create" element={<ContractLaborCreate />} />
               <Route path="/contract-labor/:id" element={<ContractLaborView />} />
               <Route path="/contract-labor/:id/edit" element={<ContractLaborEdit />} />
+
+              {/* Legal */}
+              <Route path="/legal/eula" element={<EulaPage />} />
+              <Route path="/legal/privacy" element={<PrivacyPage />} />
             </Route>
           </Route>
         </Routes>

@@ -4,6 +4,7 @@ import { useEntityItem, deleteEntity } from "../../hooks/useEntity";
 import { useToast } from "../../components/Toast";
 import DetailView from "../../components/DetailView";
 import { entityCrumbs } from "../../components/Breadcrumb";
+import InlineContacts from "../../components/InlineContacts";
 import type { User } from "../../types/api";
 
 export default function UserView() {
@@ -41,6 +42,8 @@ export default function UserView() {
         { label: "First Name", value: item.firstname },
         { label: "Last Name", value: item.lastname },
       ]}
-    />
+    >
+      <InlineContacts parentEntity="user" parentId={item.id} readOnly />
+    </DetailView>
   );
 }
