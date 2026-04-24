@@ -70,6 +70,7 @@ export default function BillList() {
   };
   const [folderSummary, setFolderSummary] = useState<FolderSummary | null>(null);
   const [processingFolder, setProcessingFolder] = useState(false);
+  const [folderProgress, setFolderProgress] = useState<{ total: number; done: number; currentFile: string | null } | null>(null);
 
   const refreshFolderSummary = useCallback(() => {
     getOne<FolderSummary>("/api/v1/get/bill-folder-summary")
@@ -81,21 +82,36 @@ export default function BillList() {
 
   const handleProcessFolder = async () => {
     setProcessingFolder(true);
+    setFolderProgress(null);
     try {
-      const { run_id } = await rawRequest<{ status: string; run_id: string }>(
+      const { run_id } = await rawRequest<{ status: string; run_id: string; files_queued: number }>(
         "/api/v1/process/bill-folder",
         { method: "POST" },
       );
 
-      // Poll for completion
       const poll = async () => {
-        const data = await rawRequest<{ status: string; errors?: string[] }>(
-          `/api/v1/process/bill-folder/${run_id}`,
-        );
-        if (data.status === "processing") {
+        const data = await rawRequest<{
+          status: string;
+          files_total?: number;
+          files_processed?: number;
+          files_skipped?: number;
+          files_failed?: number;
+          files_queued?: number;
+          current_file?: string | null;
+          errors?: string[];
+        }>(`/api/v1/process/bill-folder/${run_id}`);
+
+        setFolderProgress({
+          total: data.files_total ?? 0,
+          done: (data.files_processed ?? 0) + (data.files_skipped ?? 0) + (data.files_failed ?? 0),
+          currentFile: data.current_file ?? null,
+        });
+
+        if (data.status === "processing" || data.status === "queued") {
           setTimeout(poll, 2000);
         } else {
           setProcessingFolder(false);
+          setFolderProgress(null);
           refreshFolderSummary();
           reload();
         }
@@ -103,6 +119,7 @@ export default function BillList() {
       setTimeout(poll, 2000);
     } catch {
       setProcessingFolder(false);
+      setFolderProgress(null);
     }
   };
 
@@ -251,8 +268,13 @@ export default function BillList() {
                 className="btn btn-primary btn-sm"
                 disabled={processingFolder}
                 onClick={handleProcessFolder}
+                title={folderProgress?.currentFile ?? undefined}
               >
-                {processingFolder ? "Processing..." : "Process Folder"}
+                {processingFolder
+                  ? folderProgress && folderProgress.total > 0
+                    ? `Processing ${folderProgress.done}/${folderProgress.total}...`
+                    : "Processing..."
+                  : "Process Folder"}
               </button>
             )}
             {folderSummary.folder_web_url && (
