@@ -28,7 +28,7 @@ function readCookie(name: string): string | null {
 // trigger a new refresh instead of reusing a stale success.
 let refreshInFlight: Promise<string | null> | null = null;
 
-async function refreshAccessToken(): Promise<string | null> {
+export async function refreshAccessToken(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
     try {
@@ -77,7 +77,7 @@ function redirectToLogin(): never {
  * that need auth just pass `buildInit()` for their current token; if a
  * retry is needed, we rebuild with the refreshed token from localStorage.
  */
-async function fetchWithRefresh(
+export async function fetchWithRefresh(
   url: string,
   buildInit: () => RequestInit,
 ): Promise<Response> {

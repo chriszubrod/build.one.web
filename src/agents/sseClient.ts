@@ -5,6 +5,9 @@
  * bearer-token auth requires. This module replaces it with a minimal hand-
  * parsed stream that:
  *   - Sends Authorization: Bearer <token> from localStorage
+ *   - Routes every fetch through fetchWithRefresh so a 401 triggers a silent
+ *     POST /api/v1/auth/refresh + retry before bubbling up — same as the rest
+ *     of the API client. Without this, scout-tray runs hit 30-min lockouts.
  *   - Yields parsed {event, data} records as an async generator
  *   - Propagates AbortSignal cleanly (for cancel / unmount)
  *
@@ -13,6 +16,7 @@
  *   data: <json>\n
  *   \n
  */
+import { fetchWithRefresh, refreshAccessToken } from "../api/client";
 import type { LoopEvent } from "./types";
 
 
@@ -25,6 +29,34 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 export interface SSEEnvelope<T> {
   event: string;
   data: T;
+}
+
+
+/**
+ * Build a RequestInit factory that re-reads the access token each call.
+ * Used as the `buildInit` arg for fetchWithRefresh so the retry picks up
+ * the freshly refreshed token automatically.
+ */
+function makeJsonInit(
+  method: "POST" | "GET",
+  body: unknown,
+  signal?: AbortSignal,
+): () => RequestInit {
+  return () => {
+    const token = localStorage.getItem("access_token");
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const init: RequestInit = {
+      method,
+      headers,
+      credentials: "include",
+    };
+    if (body !== undefined) init.body = JSON.stringify(body);
+    if (signal) init.signal = signal;
+    return init;
+  };
 }
 
 
@@ -101,22 +133,31 @@ function parseRecord<T>(raw: string): SSEEnvelope<T> | null {
 
 /**
  * Open the SSE stream for an active (or completed) agent session and yield
- * each LoopEvent as it arrives.
+ * each LoopEvent as it arrives. If the initial GET 401s on an expired
+ * token, refresh once and retry. Mid-stream expirations aren't recovered
+ * (would lose buffered state) — those would surface as a server-side
+ * error event.
  */
 export async function* streamAgentEvents(
   publicId: string,
   signal: AbortSignal,
 ): AsyncGenerator<LoopEvent> {
-  const token = localStorage.getItem("access_token");
-  const headers: Record<string, string> = { Accept: "text/event-stream" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const buildInit = (): RequestInit => {
+    const token = localStorage.getItem("access_token");
+    const headers: Record<string, string> = { Accept: "text/event-stream" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    return {
+      method: "GET",
+      headers,
+      signal,
+      credentials: "include",
+    };
+  };
 
-  const res = await fetch(`${API_BASE}/api/v1/agents/runs/${publicId}/events`, {
-    method: "GET",
-    headers,
-    signal,
-    credentials: "include",
-  });
+  const res = await fetchWithRefresh(
+    `${API_BASE}/api/v1/agents/runs/${publicId}/events`,
+    buildInit,
+  );
   if (!res.ok) {
     throw new Error(`Event stream failed: HTTP ${res.status}`);
   }
@@ -135,19 +176,10 @@ export async function startAgentRun(
   userMessage: string,
   signal: AbortSignal,
 ): Promise<string> {
-  const token = localStorage.getItem("access_token");
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  const res = await fetch(`${API_BASE}/api/v1/agents/${agentName}/runs`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ user_message: userMessage }),
-    signal,
-    credentials: "include",
-  });
+  const res = await fetchWithRefresh(
+    `${API_BASE}/api/v1/agents/${agentName}/runs`,
+    makeJsonInit("POST", { user_message: userMessage }, signal),
+  );
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Failed to start run: HTTP ${res.status}${text ? `: ${text}` : ""}`);
@@ -166,21 +198,9 @@ export async function continueAgentRun(
   userMessage: string,
   signal: AbortSignal,
 ): Promise<string> {
-  const token = localStorage.getItem("access_token");
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  const res = await fetch(
+  const res = await fetchWithRefresh(
     `${API_BASE}/api/v1/agents/runs/${previousPublicId}/continue`,
-    {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ user_message: userMessage }),
-      signal,
-      credentials: "include",
-    },
+    makeJsonInit("POST", { user_message: userMessage }, signal),
   );
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -204,12 +224,6 @@ export async function approveAgentRun(
   decision: "approve" | "reject" | "edit",
   editedInput?: Record<string, unknown>,
 ): Promise<void> {
-  const token = localStorage.getItem("access_token");
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
   const body: Record<string, unknown> = {
     request_id: requestId,
     decision,
@@ -218,14 +232,9 @@ export async function approveAgentRun(
     body.edited_input = editedInput ?? {};
   }
 
-  const res = await fetch(
+  const res = await fetchWithRefresh(
     `${API_BASE}/api/v1/agents/runs/${publicId}/approve`,
-    {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      credentials: "include",
-    },
+    makeJsonInit("POST", body),
   );
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -238,17 +247,28 @@ export async function approveAgentRun(
 
 /**
  * Request cancellation of an in-flight run. Server returns 403 if the caller
- * is not the run's requesting user.
+ * is not the run's requesting user. Best-effort — the stream ends when the
+ * server publishes the cancellation event; we don't await a body here.
+ *
+ * Cancel is the one path that doesn't go through fetchWithRefresh — if
+ * the cancel itself 401s, the user's session is already wedged enough
+ * that we'd just be restoring it for one final fire-and-forget call.
+ * Refresh proactively before calling so a stale token doesn't silently
+ * lose the cancel.
  */
 export async function cancelAgentRun(publicId: string): Promise<void> {
+  // Best-effort proactive refresh so the cancel reaches the server.
   const token = localStorage.getItem("access_token");
+  if (!token) {
+    await refreshAccessToken();
+  }
+  const refreshed = localStorage.getItem("access_token");
   const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (refreshed) headers["Authorization"] = `Bearer ${refreshed}`;
 
   await fetch(`${API_BASE}/api/v1/agents/runs/${publicId}/cancel`, {
     method: "POST",
     headers,
     credentials: "include",
   });
-  // Fire-and-forget — the stream will end when the server publishes the error.
 }
