@@ -277,7 +277,12 @@ function relativeTime(iso: string): string {
 function isAwaitingFirstEvent(entries: ConversationEntry[]): boolean {
   if (entries.length === 0) return false;
   const last = entries[entries.length - 1];
-  return last.kind === "agent" && last.turns.length === 0;
+  if (last.kind !== "agent") return false;
+  // No lanes yet, or every lane is empty → no events have arrived.
+  return (
+    !Array.isArray(last.lanes) ||
+    last.lanes.every((lane) => lane.turns.length === 0)
+  );
 }
 
 
