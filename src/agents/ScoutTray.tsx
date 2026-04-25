@@ -325,9 +325,31 @@ function AgentBlock({
 }) {
   return (
     <div className="scout-agent-block">
-      {entry.turns.map((turn) => (
-        <TurnBubble key={turn.turn} turn={turn} />
-      ))}
+      {entry.lanes.map((lane) => {
+        const isPrimary = lane.sourceSessionPublicId === null;
+        if (lane.turns.length === 0) return null;
+        return (
+          <div
+            key={lane.sourceSessionPublicId ?? "__primary__"}
+            className={`scout-lane${isPrimary ? "" : " scout-lane-sub"}`}
+          >
+            {!isPrimary && (
+              <div className="scout-lane-header">
+                ↳ delegated to{" "}
+                <span className="scout-lane-agent">
+                  {lane.sourceAgentName ?? "sub-agent"}
+                </span>
+              </div>
+            )}
+            {lane.turns.map((turn) => (
+              <TurnBubble
+                key={`${lane.sourceSessionPublicId ?? "p"}-${turn.turn}`}
+                turn={turn}
+              />
+            ))}
+          </div>
+        );
+      })}
       {entry.state === "error" && entry.error && (
         <div className="scout-error">
           <strong>Error:</strong> {entry.error.message}

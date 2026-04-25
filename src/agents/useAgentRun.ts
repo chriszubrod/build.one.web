@@ -32,13 +32,14 @@ import type {
   ConversationSummary,
   LoopEvent,
   RunError,
+  Lane,
   RunState,
   Turn,
   Usage,
 } from "./types";
 
 
-const STORAGE_VERSION = 1;
+const STORAGE_VERSION = 2;
 const MAX_RECENT = 10;
 
 
@@ -191,7 +192,16 @@ export function useAgentRun(agentName: string): AgentRunHandle {
         {
           kind: "agent",
           sessionPublicId: null,
-          turns: [],
+          // Start with the primary lane (orchestrator's own turns).
+          // Sub-agent lanes are appended on demand when forwarded
+          // events arrive bearing a session_public_id.
+          lanes: [
+            {
+              sourceSessionPublicId: null,
+              sourceAgentName: null,
+              turns: [],
+            },
+          ],
           state: "running",
           usage: null,
           costUsd: null,
@@ -390,6 +400,65 @@ function updateLastAgent(
 }
 
 
+/**
+ * Find the lane for this event (matching by sourceSessionPublicId),
+ * creating it if missing. Returns the agent with the lane updated by
+ * `mutator`. Lanes are created lazily so we don't need to know all
+ * sub-agents upfront — the first forwarded event from a sub-session
+ * spawns its lane.
+ */
+type AgentEntry = Extract<ConversationEntry, { kind: "agent" }>;
+
+function eventSource(event: LoopEvent): {
+  sourceSessionPublicId: string | null;
+  sourceAgentName: string | null;
+} {
+  // Only forwardable events carry source-id fields; scout's own
+  // events leave them undefined → primary lane (sourceSessionPublicId === null).
+  if ("session_public_id" in event && event.session_public_id) {
+    return {
+      sourceSessionPublicId: event.session_public_id,
+      sourceAgentName:
+        ("agent_name" in event && event.agent_name) || null,
+    };
+  }
+  return { sourceSessionPublicId: null, sourceAgentName: null };
+}
+
+function withLaneFor(
+  agent: AgentEntry,
+  source: { sourceSessionPublicId: string | null; sourceAgentName: string | null },
+  mutator: (lane: Lane) => Lane,
+): AgentEntry {
+  const idx = agent.lanes.findIndex(
+    (l) => l.sourceSessionPublicId === source.sourceSessionPublicId,
+  );
+  if (idx >= 0) {
+    const updated = mutator(agent.lanes[idx]);
+    return {
+      ...agent,
+      lanes: [
+        ...agent.lanes.slice(0, idx),
+        updated,
+        ...agent.lanes.slice(idx + 1),
+      ],
+    };
+  }
+  // Lane doesn't exist yet — create it.
+  const newLane: Lane = mutator({
+    sourceSessionPublicId: source.sourceSessionPublicId,
+    sourceAgentName: source.sourceAgentName,
+    turns: [],
+  });
+  return { ...agent, lanes: [...agent.lanes, newLane] };
+}
+
+function updateLastTurnInLane(lane: Lane, mutator: (turn: Turn) => Turn): Lane {
+  if (lane.turns.length === 0) return lane;
+  const last = lane.turns[lane.turns.length - 1];
+  return { ...lane, turns: [...lane.turns.slice(0, -1), mutator(last)] };
+}
+
 function applyEvent(
   event: LoopEvent,
   setEntries: React.Dispatch<React.SetStateAction<ConversationEntry[]>>,
@@ -397,6 +466,7 @@ function applyEvent(
 ): void {
   switch (event.type) {
     case "turn_start": {
+      const source = eventSource(event);
       const newTurn: Turn = {
         turn: event.turn,
         model: event.model,
@@ -406,83 +476,92 @@ function applyEvent(
         complete: false,
       };
       setEntries((prev) =>
-        updateLastAgent(prev, (a) => ({
-          ...a,
-          turns: [...a.turns, newTurn],
-        })),
+        updateLastAgent(prev, (a) =>
+          withLaneFor(a, source, (lane) => ({
+            ...lane,
+            turns: [...lane.turns, newTurn],
+          })),
+        ),
       );
       return;
     }
     case "text_delta": {
+      const source = eventSource(event);
       setEntries((prev) =>
-        updateLastAgent(prev, (a) => {
-          if (a.turns.length === 0) return a;
-          const lastTurn = a.turns[a.turns.length - 1];
-          const updated: Turn = {
-            ...lastTurn,
-            text: lastTurn.text + event.text,
-          };
-          return { ...a, turns: [...a.turns.slice(0, -1), updated] };
-        }),
+        updateLastAgent(prev, (a) =>
+          withLaneFor(a, source, (lane) =>
+            updateLastTurnInLane(lane, (turn) => ({
+              ...turn,
+              text: turn.text + event.text,
+            })),
+          ),
+        ),
       );
       return;
     }
     case "tool_call_start": {
+      const source = eventSource(event);
       setEntries((prev) =>
-        updateLastAgent(prev, (a) => {
-          if (a.turns.length === 0) return a;
-          const lastTurn = a.turns[a.turns.length - 1];
-          const updated: Turn = {
-            ...lastTurn,
-            toolCalls: [
-              ...lastTurn.toolCalls,
-              {
-                id: event.id,
-                name: event.name,
-                input: event.input,
-                isError: false,
-                complete: false,
-              },
-            ],
-          };
-          return { ...a, turns: [...a.turns.slice(0, -1), updated] };
-        }),
+        updateLastAgent(prev, (a) =>
+          withLaneFor(a, source, (lane) =>
+            updateLastTurnInLane(lane, (turn) => ({
+              ...turn,
+              toolCalls: [
+                ...turn.toolCalls,
+                {
+                  id: event.id,
+                  name: event.name,
+                  input: event.input,
+                  isError: false,
+                  complete: false,
+                },
+              ],
+            })),
+          ),
+        ),
       );
       return;
     }
     case "tool_call_end": {
+      // Find the matching tool call by id wherever it lives — across
+      // all lanes — since a tool_call_end may interleave with other
+      // sub-agents' events. We don't need the source for routing
+      // since `id` is globally unique.
       setEntries((prev) =>
         updateLastAgent(prev, (a) => ({
           ...a,
-          turns: a.turns.map((turn) => ({
-            ...turn,
-            toolCalls: turn.toolCalls.map((tc) =>
-              tc.id === event.id
-                ? {
-                    ...tc,
-                    output: event.result.content,
-                    isError: event.result.is_error,
-                    complete: true,
-                  }
-                : tc,
-            ),
+          lanes: a.lanes.map((lane) => ({
+            ...lane,
+            turns: lane.turns.map((turn) => ({
+              ...turn,
+              toolCalls: turn.toolCalls.map((tc) =>
+                tc.id === event.id
+                  ? {
+                      ...tc,
+                      output: event.result.content,
+                      isError: event.result.is_error,
+                      complete: true,
+                    }
+                  : tc,
+              ),
+            })),
           })),
         })),
       );
       return;
     }
     case "turn_end": {
+      const source = eventSource(event);
       setEntries((prev) =>
-        updateLastAgent(prev, (a) => {
-          if (a.turns.length === 0) return a;
-          const lastTurn = a.turns[a.turns.length - 1];
-          const updated: Turn = {
-            ...lastTurn,
-            stopReason: event.stop_reason,
-            complete: true,
-          };
-          return { ...a, turns: [...a.turns.slice(0, -1), updated] };
-        }),
+        updateLastAgent(prev, (a) =>
+          withLaneFor(a, source, (lane) =>
+            updateLastTurnInLane(lane, (turn) => ({
+              ...turn,
+              stopReason: event.stop_reason,
+              complete: true,
+            })),
+          ),
+        ),
       );
       return;
     }

@@ -1466,11 +1466,41 @@ button[type="submit"]:disabled {
   word-wrap: break-word;
 }
 
-/* Agent response block — groups the turns that answer one user message */
+/* Agent response block — groups the lanes that answer one user message */
 .scout-agent-block {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* A "lane" is a vertical slice of the conversation owned by one
+ * agent. The orchestrator's primary lane has no chrome; sub-agent
+ * lanes get an indent + left border + small header so concurrent
+ * delegations are visually grouped even when their events arrived
+ * interleaved on the wire. */
+.scout-lane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scout-lane-sub {
+  margin-left: 16px;
+  padding-left: 12px;
+  border-left: 2px solid var(--color-border);
+}
+
+.scout-lane-header {
+  font-size: 11px;
+  color: var(--color-text-muted, #6b7280);
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  margin-bottom: 2px;
+}
+
+.scout-lane-agent {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--color-text, #111827);
 }
 
 .scout-turn {

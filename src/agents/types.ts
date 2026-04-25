@@ -21,31 +21,38 @@ export interface ToolResultPayload {
   is_error: boolean;
 }
 
+/**
+ * Source-identification fields stamped on forwardable events when the
+ * delegation tool republishes a sub-agent's events onto a parent's
+ * stream. Lets the UI group concurrent sub-agent flows into per-
+ * specialist lanes. Unset = primary agent (scout's own events).
+ */
+interface EventSource {
+  session_public_id?: string | null;
+  agent_name?: string | null;
+}
+
 export type LoopEvent =
-  | { type: "turn_start"; turn: number; model: string }
-  | { type: "text_delta"; text: string }
-  | { type: "tool_call_start"; id: string; name: string; input: Record<string, unknown> }
-  | { type: "tool_call_end"; id: string; name: string; result: ToolResultPayload }
-  | { type: "turn_end"; turn: number; usage: Usage; stop_reason: string | null }
-  | {
+  | ({ type: "turn_start"; turn: number; model: string } & EventSource)
+  | ({ type: "text_delta"; text: string } & EventSource)
+  | ({ type: "tool_call_start"; id: string; name: string; input: Record<string, unknown> } & EventSource)
+  | ({ type: "tool_call_end"; id: string; name: string; result: ToolResultPayload } & EventSource)
+  | ({ type: "turn_end"; turn: number; usage: Usage; stop_reason: string | null } & EventSource)
+  | ({
       type: "approval_request";
       request_id: string;
       tool_name: string;
       summary: string;
       proposed_input: Record<string, unknown>;
       input_schema: Record<string, unknown>;
-      // Identifies which session owns this approval — populated by the
-      // runner so sub-agent approvals POST to the sub-session URL when
-      // the request is forwarded onto a parent's stream.
-      session_public_id?: string | null;
-    }
-  | {
+    } & EventSource)
+  | ({
       type: "approval_decision";
       request_id: string;
       decision: "approved" | "rejected" | "timed_out";
       final_input: Record<string, unknown> | null;
       decided_by: string | null;
-    }
+    } & EventSource)
   | { type: "done"; reason: string; usage: Usage; cost_usd?: number | null }
   | { type: "error"; message: string; code: string | null };
 
@@ -67,6 +74,20 @@ export interface Turn {
   toolCalls: ToolCall[];
   stopReason: string | null;
   complete: boolean;
+}
+
+/**
+ * A "lane" is a vertical slice of the conversation belonging to a
+ * single agent. The primary lane (`sourceSessionPublicId === null`)
+ * holds the orchestrator's own turns; each delegated sub-agent gets
+ * its own lane appended in spawn order. Concurrent sub-agent events
+ * may arrive interleaved on the wire, but they're routed to their
+ * own lane so each specialist's flow renders coherently.
+ */
+export interface Lane {
+  sourceSessionPublicId: string | null;
+  sourceAgentName: string | null;
+  turns: Turn[];
 }
 
 export type RunState =
@@ -111,7 +132,7 @@ export type ConversationEntry =
   | {
       kind: "agent";
       sessionPublicId: string | null;
-      turns: Turn[];
+      lanes: Lane[];            // primary lane + one per delegated sub-agent
       state: RunState;          // per-entry state (running while this is the live one)
       usage: Usage | null;
       costUsd: number | null;   // server-computed; null when pricing unknown for the model
