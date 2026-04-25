@@ -81,21 +81,25 @@ function migrateEntryV1ToV2(entry: unknown): ConversationEntry | null {
   }
   if (e.kind === "agent") {
     const oldTurns = Array.isArray(e.turns) ? (e.turns as unknown[]) : [];
-    const lanes =
+    const existingLanes =
       Array.isArray(e.lanes) && (e.lanes as unknown[]).length > 0
         ? (e.lanes as unknown)
-        : [
-            {
-              sourceSessionPublicId: null,
-              sourceAgentName: null,
-              turns: oldTurns,
-            },
-          ];
-    return {
-      ...(e as Record<string, unknown>),
-      lanes,
-      turns: undefined, // shed the v1 field; tsc + json strip undefined on save
-    } as unknown as ConversationEntry;
+        : null;
+    const lanes =
+      existingLanes ?? [
+        {
+          sourceSessionPublicId: null,
+          sourceAgentName: null,
+          turns: oldTurns,
+        },
+      ];
+    // Build a fresh object without the legacy `turns` field. Spreading
+    // and then setting turns: undefined leaves the property defined-but-
+    // undefined, which trips downstream code that treats `in` checks as
+    // truthy. Cleaner to omit the field entirely.
+    const { turns: _legacyTurns, ...rest } = e;
+    void _legacyTurns;
+    return { ...rest, lanes } as unknown as ConversationEntry;
   }
   return null;
 }

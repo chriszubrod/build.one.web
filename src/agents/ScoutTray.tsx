@@ -341,9 +341,9 @@ function AgentBlock({
                 </span>
               </div>
             )}
-            {lane.turns.map((turn) => (
+            {lane.turns.map((turn, idx) => (
               <TurnBubble
-                key={`${lane.sourceSessionPublicId ?? "p"}-${turn.turn}`}
+                key={`${lane.sourceSessionPublicId ?? "p"}-${idx}-${turn.turn}`}
                 turn={turn}
               />
             ))}
