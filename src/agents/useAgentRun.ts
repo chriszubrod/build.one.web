@@ -102,36 +102,40 @@ function migrateEntryV1ToV2(entry: unknown): ConversationEntry | null {
 
 function loadCurrent(agentName: string): ConversationEntry[] {
   try {
-    const raw = localStorage.getItem(currentKey(agentName));
-    if (raw) {
-      const parsed = JSON.parse(raw) as StoredConversation;
-      if (parsed.version === STORAGE_VERSION && Array.isArray(parsed.entries)) {
-        return parsed.entries.map((e) =>
-          e.kind === "agent" && e.state === "running"
-            ? { ...e, state: "cancelled" as const }
-            : e,
-        );
+    // Migrate v1 first — if v1 key exists, the user upgraded across a
+    // STORAGE_VERSION bump and v2 may have been auto-created empty by
+    // a transient save before the user produced any v2 content.
+    // Migrating wins regardless of v2's current state; we only have
+    // one v1 read to do.
+    const v1Key = `intelligence.conversation.${agentName}.v1`;
+    const v1Raw = localStorage.getItem(v1Key);
+    if (v1Raw) {
+      const v1Parsed = JSON.parse(v1Raw) as { version?: number; entries?: unknown[] };
+      if (v1Parsed.version === 1 && Array.isArray(v1Parsed.entries)) {
+        const migrated: ConversationEntry[] = v1Parsed.entries
+          .map(migrateEntryV1ToV2)
+          .filter((e): e is ConversationEntry => e !== null)
+          .map((e) =>
+            e.kind === "agent" && e.state === "running"
+              ? { ...e, state: "cancelled" as const }
+              : e,
+          );
+        saveCurrent(agentName, migrated);
+        localStorage.removeItem(v1Key);
+        return migrated;
       }
     }
 
-    // Fall back to v1 key — one-shot forward migration after a
-    // STORAGE_VERSION bump preserves the user's open conversation.
-    const v1Key = `intelligence.conversation.${agentName}.v1`;
-    const v1Raw = localStorage.getItem(v1Key);
-    if (!v1Raw) return [];
-    const v1Parsed = JSON.parse(v1Raw) as { version?: number; entries?: unknown[] };
-    if (v1Parsed.version !== 1 || !Array.isArray(v1Parsed.entries)) return [];
-    const migrated: ConversationEntry[] = v1Parsed.entries
-      .map(migrateEntryV1ToV2)
-      .filter((e): e is ConversationEntry => e !== null)
-      .map((e) =>
-        e.kind === "agent" && e.state === "running"
-          ? { ...e, state: "cancelled" as const }
-          : e,
-      );
-    saveCurrent(agentName, migrated);
-    localStorage.removeItem(v1Key);
-    return migrated;
+    const raw = localStorage.getItem(currentKey(agentName));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as StoredConversation;
+    if (parsed.version !== STORAGE_VERSION) return [];
+    if (!Array.isArray(parsed.entries)) return [];
+    return parsed.entries.map((e) =>
+      e.kind === "agent" && e.state === "running"
+        ? { ...e, state: "cancelled" as const }
+        : e,
+    );
   } catch {
     return [];
   }
@@ -156,49 +160,47 @@ function clearCurrent(agentName: string): void {
 
 function loadRecent(agentName: string): ConversationSummary[] {
   try {
-    const raw = localStorage.getItem(recentKey(agentName));
-    if (raw) {
-      const parsed = JSON.parse(raw) as StoredRecent;
-      if (parsed.version === STORAGE_VERSION && Array.isArray(parsed.items)) {
-        return parsed.items;
+    // Migrate v1 first — same reasoning as loadCurrent.
+    const v1Key = `intelligence.conversations.${agentName}.v1`;
+    const v1Raw = localStorage.getItem(v1Key);
+    if (v1Raw) {
+      const v1Parsed = JSON.parse(v1Raw) as { version?: number; items?: unknown[] };
+      if (v1Parsed.version === 1 && Array.isArray(v1Parsed.items)) {
+        const migrated: ConversationSummary[] = (v1Parsed.items as unknown[])
+          .map((raw) => {
+            if (!raw || typeof raw !== "object") return null;
+            const s = raw as Record<string, unknown>;
+            if (
+              typeof s.id !== "string" ||
+              typeof s.title !== "string" ||
+              typeof s.archivedAt !== "string" ||
+              !Array.isArray(s.entries)
+            ) {
+              return null;
+            }
+            const entries = (s.entries as unknown[])
+              .map(migrateEntryV1ToV2)
+              .filter((e): e is ConversationEntry => e !== null);
+            return {
+              id: s.id,
+              title: s.title,
+              archivedAt: s.archivedAt,
+              entries,
+            };
+          })
+          .filter((s): s is ConversationSummary => s !== null);
+        saveRecent(agentName, migrated);
+        localStorage.removeItem(v1Key);
+        return migrated;
       }
     }
 
-    // Fall back to v1 key — preserves the user's archived conversation
-    // history through a STORAGE_VERSION bump. Migrates each summary's
-    // entries (the same v1→v2 agent-entry conversion) and rewrites to
-    // the v2 key.
-    const v1Key = `intelligence.conversations.${agentName}.v1`;
-    const v1Raw = localStorage.getItem(v1Key);
-    if (!v1Raw) return [];
-    const v1Parsed = JSON.parse(v1Raw) as { version?: number; items?: unknown[] };
-    if (v1Parsed.version !== 1 || !Array.isArray(v1Parsed.items)) return [];
-    const migrated: ConversationSummary[] = (v1Parsed.items as unknown[])
-      .map((raw) => {
-        if (!raw || typeof raw !== "object") return null;
-        const s = raw as Record<string, unknown>;
-        if (
-          typeof s.id !== "string" ||
-          typeof s.title !== "string" ||
-          typeof s.archivedAt !== "string" ||
-          !Array.isArray(s.entries)
-        ) {
-          return null;
-        }
-        const entries = (s.entries as unknown[])
-          .map(migrateEntryV1ToV2)
-          .filter((e): e is ConversationEntry => e !== null);
-        return {
-          id: s.id,
-          title: s.title,
-          archivedAt: s.archivedAt,
-          entries,
-        };
-      })
-      .filter((s): s is ConversationSummary => s !== null);
-    saveRecent(agentName, migrated);
-    localStorage.removeItem(v1Key);
-    return migrated;
+    const raw = localStorage.getItem(recentKey(agentName));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as StoredRecent;
+    if (parsed.version !== STORAGE_VERSION) return [];
+    if (!Array.isArray(parsed.items)) return [];
+    return parsed.items;
   } catch {
     return [];
   }
