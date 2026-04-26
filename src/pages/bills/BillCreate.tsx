@@ -84,7 +84,7 @@ export default function BillCreate() {
 
         <div className="form-actions">
           <button type="submit" className="btn btn-primary" disabled={saving}>
-            {saving ? "Creating..." : "Create & Edit"}
+            {saving ? "Submitting..." : "Submit for Review"}
           </button>
           <button type="button" className="btn btn-secondary" onClick={() => navigate("/bill/list")}>Cancel</button>
         </div>
