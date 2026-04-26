@@ -12,6 +12,7 @@ import DateField from "../../components/DateField";
 import TextareaField from "../../components/TextareaField";
 import SelectField from "../../components/SelectField";
 import LineItemAttachment from "../../components/LineItemAttachment";
+import ReviewTimeline from "../../components/ReviewTimeline";
 import type { Bill, BillLineItem } from "../../types/api";
 
 interface LineItemRow {
@@ -236,6 +237,8 @@ export default function BillEdit() {
       <div className="page-header"><h1>Edit Bill {item?.bill_number}</h1></div>
       <form className="form-card" onSubmit={handleSubmit}>
         {saveError && <div className="form-error">{saveError}</div>}
+
+        {id && <ReviewTimeline parentType="bill" parentPublicId={id} />}
 
         <div className="form-header-grid">
           <FormField label="Bill Number" name="bill_number" value={form.bill_number} onChange={onChange} required />

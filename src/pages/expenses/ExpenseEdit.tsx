@@ -11,6 +11,7 @@ import TextareaField from "../../components/TextareaField";
 import SelectField from "../../components/SelectField";
 import InlineLineItems, { type LineItemFieldDef } from "../../components/InlineLineItems";
 import LineItemAttachment from "../../components/LineItemAttachment";
+import ReviewTimeline from "../../components/ReviewTimeline";
 import type { Expense, ExpenseLineItem } from "../../types/api";
 
 interface LineItemRow {
@@ -220,6 +221,8 @@ export default function ExpenseEdit() {
       <div className="page-header"><h1>Edit Expense {item?.reference_number}</h1></div>
       <form className="form-card" onSubmit={handleSubmit}>
         {saveError && <div className="form-error">{saveError}</div>}
+
+        {id && <ReviewTimeline parentType="expense" parentPublicId={id} />}
 
         <div className="form-header-grid">
           <SelectField

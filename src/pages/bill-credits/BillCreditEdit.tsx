@@ -9,6 +9,7 @@ import TextareaField from "../../components/TextareaField";
 import SelectField from "../../components/SelectField";
 import InlineLineItems, { type LineItemFieldDef } from "../../components/InlineLineItems";
 import LineItemAttachment from "../../components/LineItemAttachment";
+import ReviewTimeline from "../../components/ReviewTimeline";
 import type { BillCredit, BillCreditLineItem } from "../../types/api";
 
 interface LineItemRow {
@@ -181,6 +182,8 @@ export default function BillCreditEdit() {
       <div className="page-header"><h1>Edit Bill Credit {item?.credit_number}</h1></div>
       <form className="form-card" onSubmit={handleSubmit}>
         {saveError && <div className="form-error">{saveError}</div>}
+
+        {id && <ReviewTimeline parentType="bill_credit" parentPublicId={id} />}
 
         <div className="form-header-grid">
           <FormField label="Credit Number" name="credit_number" value={form.credit_number} onChange={onChange} required />

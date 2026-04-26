@@ -5,6 +5,7 @@ import { getList } from "../../api/client";
 import DetailView from "../../components/DetailView";
 import { entityCrumbs } from "../../components/Breadcrumb";
 import LineItemTable, { type LineItemColumn } from "../../components/LineItemTable";
+import ReviewTimeline from "../../components/ReviewTimeline";
 import type { BillCredit, BillCreditLineItem } from "../../types/api";
 
 function fmtMoney(v: string | null): string {
@@ -65,6 +66,7 @@ export default function BillCreditView() {
         },
       ]}
     >
+      {id && <ReviewTimeline parentType="bill_credit" parentPublicId={id} readOnly />}
       <LineItemTable columns={lineItemCols} items={lineItems} />
     </DetailView>
   );

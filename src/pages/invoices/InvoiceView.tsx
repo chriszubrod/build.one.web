@@ -5,6 +5,7 @@ import { getList } from "../../api/client";
 import DetailView from "../../components/DetailView";
 import { entityCrumbs } from "../../components/Breadcrumb";
 import LineItemTable, { type LineItemColumn } from "../../components/LineItemTable";
+import ReviewTimeline from "../../components/ReviewTimeline";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
 import type { Invoice, InvoiceLineItem, Project } from "../../types/api";
 
@@ -64,6 +65,7 @@ export default function InvoiceView() {
         },
       ]}
     >
+      {id && <ReviewTimeline parentType="invoice" parentPublicId={id} readOnly />}
       <LineItemTable columns={lineItemCols} items={lineItems} />
     </DetailView>
   );

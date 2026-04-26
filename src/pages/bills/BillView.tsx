@@ -6,6 +6,7 @@ import { useViewAttachmentObjectUrl } from "../../hooks/useViewAttachmentObjectU
 import DetailView from "../../components/DetailView";
 import { entityCrumbs } from "../../components/Breadcrumb";
 import LineItemTable, { type LineItemColumn } from "../../components/LineItemTable";
+import ReviewTimeline from "../../components/ReviewTimeline";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
 import type { Bill, BillLineItem, Vendor } from "../../types/api";
 import type { SubCostCode, Project } from "../../types/api";
@@ -107,6 +108,7 @@ export default function BillView() {
         },
       ]}
     >
+      {id && <ReviewTimeline parentType="bill" parentPublicId={id} readOnly />}
       <LineItemTable columns={makeLineItemCols(sccMap, projectMap)} items={lineItems} />
       {attachmentPublicId && (
         <div className="pdf-viewer">

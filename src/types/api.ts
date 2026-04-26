@@ -387,6 +387,33 @@ export interface Contact {
   vendor_id: number | null;
 }
 
+/** Review — audit trail of state transitions on transactional documents */
+
+export type ReviewParentType = "bill" | "expense" | "bill_credit" | "invoice";
+
+export interface Review {
+  id: number;
+  public_id: string;
+  row_version: string;
+  created_datetime: string | null;
+  modified_datetime: string | null;
+  review_status_id: number;
+  user_id: number;
+  comments: string | null;
+  bill_id: number | null;
+  expense_id: number | null;
+  bill_credit_id: number | null;
+  invoice_id: number | null;
+  // Denormalized JOINs (vw_Review)
+  status_name: string;
+  status_sort_order: number;
+  status_is_final: boolean;
+  status_is_declined: boolean;
+  status_color: string | null;
+  user_firstname: string | null;
+  user_lastname: string | null;
+}
+
 /** Tier 3 — Complex entities */
 
 export interface Bill {

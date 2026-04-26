@@ -9,6 +9,7 @@ import TextareaField from "../../components/TextareaField";
 import SelectField from "../../components/SelectField";
 import InlineLineItems, { type LineItemFieldDef } from "../../components/InlineLineItems";
 import LineItemAttachment from "../../components/LineItemAttachment";
+import ReviewTimeline from "../../components/ReviewTimeline";
 import type { Invoice, InvoiceLineItem } from "../../types/api";
 
 interface LineItemRow {
@@ -213,6 +214,8 @@ export default function InvoiceEdit() {
       <div className="page-header"><h1>Edit Invoice {item?.invoice_number}</h1></div>
       <form className="form-card" onSubmit={handleSubmit}>
         {saveError && <div className="form-error">{saveError}</div>}
+
+        {id && <ReviewTimeline parentType="invoice" parentPublicId={id} />}
 
         <div className="form-header-grid">
           <FormField label="Invoice Number" name="invoice_number" value={form.invoice_number} onChange={onChange} required />
