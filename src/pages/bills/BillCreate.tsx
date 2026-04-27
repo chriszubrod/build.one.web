@@ -1,12 +1,17 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { post } from "../../api/client";
+import { post, uploadFile } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
 import FormField from "../../components/FormField";
 import DateField from "../../components/DateField";
 import TextareaField from "../../components/TextareaField";
 import SelectField from "../../components/SelectField";
 import type { Bill } from "../../types/api";
+
+interface AttachmentResponse {
+  public_id: string;
+  content_type: string | null;
+}
 
 export default function BillCreate() {
   const navigate = useNavigate();
@@ -20,16 +25,42 @@ export default function BillCreate() {
     total_amount: "",
     memo: "",
   });
+  const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
   const onChange = (name: string, value: string) => setForm((prev) => ({ ...prev, [name]: value }));
 
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] ?? null;
+    if (f && f.type !== "application/pdf") {
+      setSaveError("Only PDF files are allowed.");
+      setFile(null);
+      e.target.value = "";
+      return;
+    }
+    setSaveError("");
+    setFile(f);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!file) {
+      setSaveError("A PDF attachment is required.");
+      return;
+    }
     setSaving(true);
     setSaveError("");
     try {
+      // Step 1: upload the PDF, get back attachment.public_id.
+      const attachment = await uploadFile<AttachmentResponse>(
+        "/api/v1/upload/attachment",
+        file,
+      );
+
+      // Step 2: create the bill, referencing the just-uploaded attachment.
+      // Server creates a placeholder BillLineItem and links the attachment
+      // to it; the user fills in line-item details on the edit page.
       const created = await post<Bill>("/api/v1/create/bill", {
         vendor_public_id: form.vendor_public_id,
         payment_term_public_id: form.payment_term_public_id || null,
@@ -39,6 +70,7 @@ export default function BillCreate() {
         total_amount: form.total_amount !== "" ? Number(form.total_amount) : null,
         memo: form.memo || null,
         is_draft: true,
+        attachment_public_id: attachment.public_id,
       });
       navigate(`/bill/${created.public_id}/edit`);
     } catch (err: any) {
@@ -76,6 +108,25 @@ export default function BillCreate() {
           <div className="full-width">
             <TextareaField label="Memo" name="memo" value={form.memo} onChange={onChange} />
           </div>
+          <div className="full-width">
+            <div className="form-group">
+              <label>
+                PDF Attachment <span style={{ color: "#c00" }}>*</span>
+              </label>
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={onFileChange}
+                required
+                disabled={saving}
+              />
+              {file && (
+                <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
+                  Selected: {file.name} ({Math.round(file.size / 1024)} KB)
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         <p className="text-muted" style={{ marginTop: 16, fontSize: 13 }}>
@@ -83,7 +134,7 @@ export default function BillCreate() {
         </p>
 
         <div className="form-actions">
-          <button type="submit" className="btn btn-primary" disabled={saving}>
+          <button type="submit" className="btn btn-primary" disabled={saving || !file}>
             {saving ? "Submitting..." : "Submit for Review"}
           </button>
           <button type="button" className="btn btn-secondary" onClick={() => navigate("/bill/list")}>Cancel</button>
