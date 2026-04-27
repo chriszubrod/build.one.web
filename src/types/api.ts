@@ -430,6 +430,8 @@ export interface Bill {
   total_amount: string | null;
   memo: string | null;
   is_draft: boolean;
+  intake_source: string | null;         // "manual" | "agent" | "script"
+  intake_source_detail: string | null;  // username / agent name / script name
 }
 
 export interface BillLineItem {

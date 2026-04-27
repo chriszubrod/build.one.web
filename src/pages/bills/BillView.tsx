@@ -24,6 +24,13 @@ function fmtDate(v: string | null): string {
   return d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
 }
 
+function fmtIntake(source: string | null, detail: string | null): string {
+  if (!source) return "—";
+  const labels: Record<string, string> = { manual: "Manual", agent: "Agent", script: "Script" };
+  const label = labels[source] ?? source;
+  return detail ? `${label}: ${detail}` : label;
+}
+
 function makeLineItemCols(
   sccMap: Map<number, string>,
   projectMap: Map<number, string>,
@@ -98,6 +105,7 @@ export default function BillView() {
         { label: "Due Date", value: fmtDate(item.due_date) },
         { label: "Total Amount", value: fmtMoney(item.total_amount) },
         { label: "Memo", value: item.memo },
+        { label: "Intake Source", value: fmtIntake(item.intake_source, item.intake_source_detail) },
         {
           label: "Status",
           value: (
