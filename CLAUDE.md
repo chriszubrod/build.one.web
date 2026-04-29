@@ -29,9 +29,10 @@ src/
 
 - **Page pattern**: Each entity gets a folder under `src/pages/` with up to 4 files: `List.tsx`, `View.tsx`, `Edit.tsx`, `Create.tsx`
 - **Route pattern**: Match the existing URL structure from Jinja2 — `/{entity}/list`, `/{entity}/{id}`, `/{entity}/{id}/edit`, `/{entity}/create`
+- **User entity is a single Profile page (2026-04-29).** `/user/:id` and `/user/:id/edit` both render `pages/users/UserProfile.tsx` (the old `UserView` + `UserEdit` split was retired). Sections: Profile basics, Credentials (admin only — POSTs to `/api/v1/admin/auth/set-credentials/:id`), Contacts (`<InlineContacts>`), Organizations, Companies, Roles, Modules, Projects. Admin gating reads `is_admin` from `useCurrentUser()` — non-admins see read-only sections with no add/remove/save controls. Companies dropdown is filtered to companies linked to the user's Organizations via the `OrganizationCompany` join. If no orgs are linked to companies yet, the empty-state hint renders inline `<Link>`s to each Organization's edit page.
 - **No state management library**: Use React state + context. Add Zustand or similar only if complexity demands it.
 - **CSS**: Single `index.css` with CSS custom properties. No CSS-in-JS, no Tailwind (yet). Use semantic class names.
-- **Types**: Define in `src/types/api.ts`. Keep in sync with API Pydantic schemas manually for now.
+- **Types**: Define in `src/types/api.ts`. Keep in sync with API Pydantic schemas manually for now. `CurrentUser` now includes `accessible_project_ids: number[]` (informational; no enforcement wired yet).
 
 ## Migration Plan (Phase 4)
 
