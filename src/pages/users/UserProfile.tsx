@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useEntityItem, updateEntity, deleteEntity } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
@@ -540,8 +540,29 @@ export default function UserProfile() {
 
         {isAdmin && userOrganizations.length > 0 && availableCompanies.length === 0 && (
           <p className="text-muted">
-            No companies available — link companies to the user's organizations
-            first (Organization edit page).
+            No companies linked to the user's organizations. Link companies on:{" "}
+            {userOrganizations
+              .map((uo) => {
+                const org = allOrganizations.find(
+                  (o) => o.id === uo.organization_id,
+                );
+                if (!org) return null;
+                return (
+                  <Link
+                    key={uo.public_id}
+                    to={`/organization/${org.public_id}/edit`}
+                  >
+                    {org.name}
+                  </Link>
+                );
+              })
+              .filter(Boolean)
+              .reduce<React.ReactNode[]>((acc, link, i) => {
+                if (i > 0) acc.push(", ");
+                acc.push(link);
+                return acc;
+              }, [])}
+            .
           </p>
         )}
 
