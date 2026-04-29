@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useEntityItem, updateEntity, deleteEntity } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
-import { getList, post, del } from "../../api/client";
+import { getList, getOne, post, del } from "../../api/client";
 import Breadcrumb, { entityCrumbs } from "../../components/Breadcrumb";
 import FormField from "../../components/FormField";
 import InlineContacts from "../../components/InlineContacts";
@@ -38,6 +38,13 @@ export default function UserProfile() {
   const [saveError, setSaveError] = useState("");
   const [deleting, setDeleting] = useState(false);
 
+  // Credentials
+  const [credUsername, setCredUsername] = useState("");
+  const [credPassword, setCredPassword] = useState("");
+  const [credCurrentUsername, setCredCurrentUsername] = useState<string | null>(null);
+  const [credHasAuth, setCredHasAuth] = useState<boolean | null>(null);
+  const [credSaving, setCredSaving] = useState(false);
+
   // Roles
   const [allRoles, setAllRoles] = useState<Role[]>([]);
   const [userRoles, setUserRoles] = useState<UserRole[]>([]);
@@ -71,6 +78,21 @@ export default function UserProfile() {
   const [orgCompanyLinks, setOrgCompanyLinks] = useState<OrganizationCompany[]>(
     [],
   );
+
+  // Load credential summary separately — admin-only endpoint, non-admins
+  // skip the call (would 403).
+  useEffect(() => {
+    if (!item || !id || !isAdmin) return;
+    getOne<{ username: string | null; has_auth: boolean }>(
+      `/api/v1/admin/auth/by-user/${id}`,
+    )
+      .then((res) => {
+        setCredCurrentUsername(res.username);
+        setCredHasAuth(res.has_auth);
+        setCredUsername(res.username ?? "");
+      })
+      .catch(() => {});
+  }, [item, id, isAdmin]);
 
   useEffect(() => {
     if (!item) return;
@@ -148,6 +170,33 @@ export default function UserProfile() {
     } catch (err: any) {
       toast(err.message, "error");
       setDeleting(false);
+    }
+  };
+
+  // ---- Credentials ----
+  const handleSetCredentials = async () => {
+    if (!credUsername.trim()) {
+      toast("Username is required.", "error");
+      return;
+    }
+    if (credPassword.length < 8) {
+      toast("Password must be at least 8 characters.", "error");
+      return;
+    }
+    setCredSaving(true);
+    try {
+      const res = await post<{ username: string; has_auth: boolean }>(
+        `/api/v1/admin/auth/set-credentials/${id}`,
+        { username: credUsername.trim(), password: credPassword },
+      );
+      setCredCurrentUsername(res.username);
+      setCredHasAuth(true);
+      setCredPassword("");
+      toast("Credentials saved.");
+    } catch (err: any) {
+      toast(err.message, "error");
+    } finally {
+      setCredSaving(false);
     }
   };
 
@@ -422,6 +471,54 @@ export default function UserProfile() {
           </dl>
         )}
       </form>
+
+      {/* Credentials (admin only) */}
+      {isAdmin && (
+        <div className="detail-card" style={{ marginTop: 24 }}>
+          <h3 className="line-items-heading">Credentials</h3>
+          <p className="text-muted" style={{ marginTop: -4, marginBottom: 12 }}>
+            {credHasAuth === null
+              ? "Loading…"
+              : credHasAuth
+                ? `Login enabled — username "${credCurrentUsername ?? ""}". Set a new password below to reset.`
+                : "No credentials set yet. Pick a username and password to enable login for this user."}
+          </p>
+          <div className="form-group">
+            <label htmlFor="cred_username">Username</label>
+            <input
+              id="cred_username"
+              type="text"
+              value={credUsername}
+              onChange={(e) => setCredUsername(e.target.value)}
+              autoComplete="off"
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor="cred_password">Password (min 8 chars)</label>
+            <input
+              id="cred_password"
+              type="password"
+              value={credPassword}
+              onChange={(e) => setCredPassword(e.target.value)}
+              autoComplete="new-password"
+            />
+          </div>
+          <div className="form-actions">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleSetCredentials}
+              disabled={
+                credSaving ||
+                !credUsername.trim() ||
+                credPassword.length < 8
+              }
+            >
+              {credSaving ? "Saving…" : "Set Credentials"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Contacts */}
       <div className="detail-card" style={{ marginTop: 24 }}>
