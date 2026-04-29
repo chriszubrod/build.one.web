@@ -98,6 +98,7 @@ export interface CurrentUser {
   role: { public_id: string; name: string } | null;
   is_admin: boolean;
   modules: CurrentUserModule[];
+  accessible_project_ids: number[];
 }
 
 /** Full entity types — returned by CRUD endpoints */
@@ -314,6 +315,36 @@ export interface UserProject {
   modified_datetime: string | null;
   user_id: number;
   project_id: number;
+}
+
+export interface UserOrganization {
+  id: number;
+  public_id: string;
+  row_version: string;
+  created_datetime: string | null;
+  modified_datetime: string | null;
+  user_id: number;
+  organization_id: number;
+}
+
+export interface UserCompany {
+  id: number;
+  public_id: string;
+  row_version: string;
+  created_datetime: string | null;
+  modified_datetime: string | null;
+  user_id: number;
+  company_id: number;
+}
+
+export interface OrganizationCompany {
+  id: number;
+  public_id: string;
+  row_version: string;
+  created_datetime: string | null;
+  modified_datetime: string | null;
+  organization_id: number;
+  company_id: number;
 }
 
 export interface RoleModule {

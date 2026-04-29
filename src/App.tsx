@@ -87,8 +87,7 @@ import SubCostCodeCreate from "./pages/sub-cost-codes/SubCostCodeCreate";
 
 // User
 import UserList from "./pages/users/UserList";
-import UserView from "./pages/users/UserView";
-import UserEdit from "./pages/users/UserEdit";
+import UserProfile from "./pages/users/UserProfile";
 import UserCreate from "./pages/users/UserCreate";
 
 // Review Status
@@ -276,8 +275,8 @@ export default function App() {
               {/* User */}
               <Route path="/user/list" element={<UserList />} />
               <Route path="/user/create" element={<UserCreate />} />
-              <Route path="/user/:id" element={<UserView />} />
-              <Route path="/user/:id/edit" element={<UserEdit />} />
+              <Route path="/user/:id" element={<UserProfile />} />
+              <Route path="/user/:id/edit" element={<UserProfile />} />
 
               {/* Review Status */}
               <Route path="/review-status/list" element={<ReviewStatusList />} />
