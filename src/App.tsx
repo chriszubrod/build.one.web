@@ -176,6 +176,10 @@ import ContractLaborCreate from "./pages/contract-labor/ContractLaborCreate";
 import ContractLaborImport from "./pages/contract-labor/ContractLaborImport";
 import ContractLaborBills from "./pages/contract-labor/ContractLaborBills";
 
+// Email Messages (read-only inbox view)
+import EmailList from "./pages/email-messages/EmailList";
+import EmailView from "./pages/email-messages/EmailView";
+
 // Legal
 import EulaPage from "./pages/legal/EulaPage";
 import PrivacyPage from "./pages/legal/PrivacyPage";
@@ -363,6 +367,10 @@ export default function App() {
               <Route path="/contract-labor/bills" element={<ContractLaborBills />} />
               <Route path="/contract-labor/:id" element={<ContractLaborView />} />
               <Route path="/contract-labor/:id/edit" element={<ContractLaborEdit />} />
+
+              {/* Email Messages (read-only inbox) */}
+              <Route path="/email-message/list" element={<EmailList />} />
+              <Route path="/email-message/:id" element={<EmailView />} />
 
               {/* Legal */}
               <Route path="/legal/eula" element={<EulaPage />} />

@@ -621,6 +621,70 @@ export interface ContractLabor {
   source_row: number | null;
 }
 
+/** Email-message types — polled invoice inbox + agent classification */
+
+export interface EmailAttachment {
+  id: number;
+  public_id: string;
+  email_message_id: number;
+  filename: string | null;
+  content_type: string | null;
+  size_bytes: number | null;
+  blob_url: string | null;
+  extraction_status: string | null;
+  extraction_error: string | null;
+  extracted_at: string | null;
+  // Typed Di* fields the agent fills in via record_extracted_fields
+  di_vendor_name: string | null;
+  di_invoice_number: string | null;
+  di_total_amount: string | null;
+  di_invoice_date: string | null;
+  di_due_date: string | null;
+  bridged_attachment_id: number | null;
+  bridged_attachment_public_id: string | null;
+}
+
+export interface LinkedBill {
+  id: number;
+  public_id: string;
+  bill_number: string | null;
+  total_amount: number | null;
+  is_draft: boolean;
+  created_datetime: string | null;
+  vendor_name: string | null;
+}
+
+export interface EmailMessage {
+  id: number;
+  public_id: string;
+  graph_message_id: string | null;
+  internet_message_id: string | null;
+  conversation_id: string | null;
+  mailbox_address: string | null;
+  from_address: string | null;
+  from_name: string | null;
+  to_recipients: string | null;
+  cc_recipients: string | null;
+  subject: string | null;
+  body_preview: string | null;
+  body_content: string | null;
+  body_content_type: string | null;
+  received_datetime: string | null;
+  created_datetime: string | null;
+  modified_datetime: string | null;
+  has_attachments: boolean;
+  web_link: string | null;
+  processing_status: string;
+  agent_session_id: number | null;
+  agent_classification: string | null;
+  agent_classification_reason: string | null;
+  agent_decided_action: string | null;
+  agent_classification_confidence: string | null;
+  // Detail-only fields (not on list rows)
+  attachments?: EmailAttachment[];
+  linked_bill?: LinkedBill | null;
+}
+
 /** Auth types */
 
 export interface AuthResponse {
