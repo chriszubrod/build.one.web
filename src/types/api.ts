@@ -238,6 +238,7 @@ export interface SubCostCode {
   name: string;
   description: string | null;
   cost_code_id: number;
+  aliases: string | null;
 }
 
 export interface User {

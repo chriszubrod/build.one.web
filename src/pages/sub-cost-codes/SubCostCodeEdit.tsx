@@ -23,6 +23,7 @@ export default function SubCostCodeEdit() {
       name: item.name,
       description: item.description ?? "",
       cost_code_public_id: "",
+      aliases: item.aliases ?? "",
       row_version: item.row_version,
     });
   }
@@ -48,6 +49,7 @@ export default function SubCostCodeEdit() {
         name: form.name,
         description: form.description || null,
         cost_code_public_id: form.cost_code_public_id,
+        aliases: form.aliases || null,
       });
       navigate(`/sub-cost-code/${id}`);
     } catch (err: any) {
@@ -75,6 +77,17 @@ export default function SubCostCodeEdit() {
           }))}
           required
         />
+        <div className="form-field">
+          <label htmlFor="aliases">Aliases</label>
+          <textarea
+            id="aliases"
+            name="aliases"
+            value={form.aliases}
+            onChange={(e) => setForm((prev: any) => ({ ...prev, aliases: e.target.value }))}
+            rows={2}
+            placeholder="Pipe-delimited shorthand the agent matches against PM-typed values (e.g. '13.1|Lumber & Hardware|materials'). Helps the agent resolve approvals like 'SCC 13.1' or 'Lumber & Hardware' to the right SubCostCode."
+          />
+        </div>
         <div className="form-actions">
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving..." : "Save"}</button>
           <button type="button" className="btn btn-secondary" onClick={() => navigate(`/sub-cost-code/${id}`)}>Cancel</button>
