@@ -246,6 +246,7 @@ export default function ProjectView() {
         { label: "Abbreviation", value: item.abbreviation },
         { label: "Status", value: item.status },
         { label: "Description", value: item.description },
+        { label: "Notes", value: item.notes || "—" },
         { label: "Public ID", value: <code>{item.public_id}</code> },
         { label: "Created", value: fmtDate(item.created_datetime) },
         { label: "Last Modified", value: fmtDate(item.modified_datetime) },

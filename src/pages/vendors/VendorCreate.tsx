@@ -15,6 +15,7 @@ export default function VendorCreate() {
     vendor_type_public_id: "",
     is_draft: true,
     is_contract_labor: false,
+    notes: "",
   });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -34,6 +35,7 @@ export default function VendorCreate() {
         vendor_type_public_id: form.vendor_type_public_id || null,
         is_draft: form.is_draft,
         is_contract_labor: form.is_contract_labor,
+        notes: form.notes || null,
       });
       navigate(`/vendor/${created.public_id}`);
     } catch (err: any) {
@@ -91,6 +93,17 @@ export default function VendorCreate() {
             onChange={(e) => setForm((prev) => ({ ...prev, is_draft: e.target.checked }))}
           />
           <label htmlFor="is_draft">Draft</label>
+        </div>
+        <div className="form-field">
+          <label htmlFor="notes">Notes</label>
+          <textarea
+            id="notes"
+            name="notes"
+            value={form.notes}
+            onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
+            rows={4}
+            placeholder="Free-text notes — visible to agents during invoice processing (e.g. 'Trim trailing /N from invoice numbers')."
+          />
         </div>
 
         <div className="form-actions">

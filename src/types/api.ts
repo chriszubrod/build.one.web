@@ -116,6 +116,7 @@ export interface Vendor {
   is_draft: boolean;
   is_deleted: boolean;
   is_contract_labor: boolean;
+  notes: string | null;
 }
 
 export interface VendorType {
@@ -213,6 +214,7 @@ export interface Project {
   status: string | null;
   customer_id: number | null;
   abbreviation: string | null;
+  notes: string | null;
 }
 
 export interface CostCode {

@@ -43,6 +43,7 @@ export default function VendorView() {
         { label: "Abbreviation", value: item.abbreviation },
         { label: "Contract Labor", value: item.is_contract_labor ? "Yes" : "No" },
         { label: "Status", value: item.is_draft ? "Draft" : "Active" },
+        { label: "Notes", value: item.notes || "—" },
       ]}
     >
       <InlineContacts parentEntity="vendor" parentId={item.id} readOnly />

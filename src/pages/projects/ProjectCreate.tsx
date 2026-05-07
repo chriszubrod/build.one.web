@@ -15,6 +15,7 @@ export default function ProjectCreate() {
     status: "",
     description: "",
     customer_public_id: "",
+    notes: "",
   });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -32,6 +33,7 @@ export default function ProjectCreate() {
         status: form.status,
         abbreviation: form.abbreviation || null,
         customer_public_id: form.customer_public_id || null,
+        notes: form.notes || null,
       });
       navigate(`/project/${created.public_id}`);
     } catch (err: any) {
@@ -59,6 +61,17 @@ export default function ProjectCreate() {
             label: c.name,
           }))}
         />
+        <div className="form-field">
+          <label htmlFor="notes">Notes</label>
+          <textarea
+            id="notes"
+            name="notes"
+            value={form.notes}
+            onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
+            rows={4}
+            placeholder="Free-text notes — visible to agents during invoice processing (e.g. address aliases like 'Also referred to as Bluebird Landing')."
+          />
+        </div>
         <div className="form-actions">
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Creating..." : "Create"}</button>
           <button type="button" className="btn btn-secondary" onClick={() => navigate("/project/list")}>Cancel</button>

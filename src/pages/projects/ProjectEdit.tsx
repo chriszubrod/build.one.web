@@ -33,6 +33,7 @@ export default function ProjectEdit() {
       status: item.status ?? "",
       description: item.description ?? "",
       customer_public_id: "",
+      notes: item.notes ?? "",
       row_version: item.row_version,
     });
   }
@@ -55,6 +56,7 @@ export default function ProjectEdit() {
         status: form.status,
         abbreviation: form.abbreviation || null,
         customer_public_id: form.customer_public_id || null,
+        notes: form.notes,
       });
       navigate(`/project/${id}`);
     } catch (err: any) {
@@ -82,6 +84,17 @@ export default function ProjectEdit() {
             label: c.name,
           }))}
         />
+        <div className="form-field">
+          <label htmlFor="notes">Notes</label>
+          <textarea
+            id="notes"
+            name="notes"
+            value={form.notes}
+            onChange={(e) => setForm((prev: any) => ({ ...prev, notes: e.target.value }))}
+            rows={4}
+            placeholder="Free-text notes — visible to agents during invoice processing (e.g. address aliases like 'Also referred to as Bluebird Landing')."
+          />
+        </div>
         {item && (
           <div style={{ marginTop: 16, fontSize: 12, color: "var(--color-text-muted)" }}>
             Created: {fmtDate(item.created_datetime)} &nbsp;|&nbsp; Last Modified: {fmtDate(item.modified_datetime)}

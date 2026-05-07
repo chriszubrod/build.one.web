@@ -24,6 +24,7 @@ export default function VendorEdit() {
       vendor_type_public_id: "", // TODO: would need vendor_type_public_id on Vendor response
       is_draft: item.is_draft,
       is_contract_labor: item.is_contract_labor,
+      notes: item.notes ?? "",
       row_version: item.row_version,
     });
   }
@@ -48,6 +49,7 @@ export default function VendorEdit() {
         vendor_type_public_id: form.vendor_type_public_id || null,
         is_draft: form.is_draft,
         is_contract_labor: form.is_contract_labor,
+        notes: form.notes,
       });
       navigate(`/vendor/${id}`);
     } catch (err: any) {
@@ -105,6 +107,17 @@ export default function VendorEdit() {
             onChange={(e) => setForm((prev: any) => ({ ...prev, is_draft: e.target.checked }))}
           />
           <label htmlFor="is_draft">Draft</label>
+        </div>
+        <div className="form-field">
+          <label htmlFor="notes">Notes</label>
+          <textarea
+            id="notes"
+            name="notes"
+            value={form.notes}
+            onChange={(e) => setForm((prev: any) => ({ ...prev, notes: e.target.value }))}
+            rows={4}
+            placeholder="Free-text notes — visible to agents during invoice processing (e.g. 'Trim trailing /N from invoice numbers')."
+          />
         </div>
 
         <div className="form-actions">
