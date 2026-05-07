@@ -466,6 +466,11 @@ export interface Bill {
   is_draft: boolean;
   intake_source: string | null;         // "manual" | "agent" | "script"
   intake_source_detail: string | null;  // username / agent name / script name
+  // Latest Review state — only on /get/bills list response (Wave 3 Phase D);
+  // null when no Review row exists for the bill yet.
+  review_status?: string | null;
+  review_status_is_final?: boolean | null;
+  review_status_is_declined?: boolean | null;
 }
 
 export interface BillLineItem {

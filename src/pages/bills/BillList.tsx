@@ -409,7 +409,8 @@ export default function BillList() {
               { key: "_date", label: "Date" },
               { key: "_project", label: "Project" },
               { key: "_amount", label: "Amount" },
-              { key: "is_draft", label: "Status" },
+              { key: "is_draft", label: "Draft" },
+              { key: "review_status", label: "Review" },
             ].map((col) => (
               <th
                 key={col.key}
@@ -441,11 +442,28 @@ export default function BillList() {
                   {bill.is_draft ? "Draft" : "Finalized"}
                 </span>
               </td>
+              <td>
+                {bill.review_status ? (
+                  <span
+                    className={`status-badge ${
+                      bill.review_status_is_declined
+                        ? "declined"
+                        : bill.review_status_is_final
+                        ? "approved"
+                        : "in-review"
+                    }`}
+                  >
+                    {bill.review_status}
+                  </span>
+                ) : (
+                  <span className="text-muted">—</span>
+                )}
+              </td>
             </tr>
           ))}
           {sortedItems.length === 0 && (
             <tr>
-              <td colSpan={6} className="empty-state">
+              <td colSpan={7} className="empty-state">
                 {search ? "No matching bills." : "No bills found."}
               </td>
             </tr>
