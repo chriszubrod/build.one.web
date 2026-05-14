@@ -607,6 +607,7 @@ export interface ContractLabor {
   vendor_id: number;
   project_id: number | null;
   employee_name: string;
+  job_name: string | null;
   work_date: string;
   time_in: string | null;
   time_out: string | null;

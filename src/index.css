@@ -2200,3 +2200,118 @@ a.scout-record-header-link:hover .scout-record-name {
   background: var(--color-surface-3);
   color: var(--color-text-muted);
 }
+
+/* Contract Labor list page */
+.cl-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  align-items: flex-end;
+  padding: var(--space-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-md);
+}
+
+.cl-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+  flex: 1;
+}
+
+.cl-filter-group label {
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cl-filter-group input,
+.cl-filter-group select {
+  padding: 8px var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-footnote);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.cl-filter-actions {
+  display: flex;
+  align-items: flex-end;
+}
+
+.cl-bulk-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-sm);
+}
+
+.cl-bulk-left,
+.cl-bulk-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.cl-selected-count {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-footnote);
+}
+
+.cl-results-summary {
+  font-size: var(--font-size-footnote);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-sm);
+}
+
+.cl-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--space-md);
+}
+
+.cl-pagination-info {
+  font-size: var(--font-size-footnote);
+  color: var(--color-text-muted);
+}
+
+.cl-pagination-controls {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.cl-empty-state {
+  text-align: center;
+  padding: var(--space-2xl);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.cl-empty-state h3 {
+  margin: 0 0 var(--space-sm);
+}
+
+.cl-empty-state p {
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-md);
+}
+
+.cl-empty-actions {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: center;
+}
