@@ -598,6 +598,43 @@ export interface InvoiceLineItem {
   is_draft: boolean;
 }
 
+export interface ContractLaborLineItem {
+  id: number;
+  public_id: string;
+  row_version: string;
+  created_datetime: string | null;
+  modified_datetime: string | null;
+  contract_labor_id: number;
+  bill_line_item_id: number | null;
+  line_date: string | null;
+  project_id: number | null;
+  sub_cost_code_id: number | null;
+  description: string | null;
+  hours: string | null;
+  rate: string | null;
+  markup: string | null;
+  price: string | null;
+  is_billable: boolean;
+  is_overhead: boolean;
+}
+
+export interface ContractLaborDailySummary {
+  total_imported_hours: number;
+  entry_count: number;
+  allocated_other_entries: number;
+  allocated_this_entry: number;
+  remaining_to_allocate: number;
+}
+
+export interface ContractLaborVendorConfig {
+  [vendorName: string]: {
+    address: string | null;
+    city_state_zip: string | null;
+    rate: string | null;
+    markup: string | null;
+  };
+}
+
 export interface ContractLabor {
   id: number;
   public_id: string;
@@ -623,6 +660,10 @@ export interface ContractLabor {
   billing_period_start: string | null;
   status: string;
   bill_line_item_id: number | null;
+  bill_vendor_id: number | null;
+  bill_date: string | null;
+  due_date: string | null;
+  bill_number: string | null;
   import_batch_id: string | null;
   source_file: string | null;
   source_row: number | null;
