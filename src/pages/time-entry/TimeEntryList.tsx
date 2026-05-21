@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+
+const STORAGE_KEY = "buildOne.timeEntryList.params";
+const SCROLL_KEY = "buildOne.timeEntryList.scrollTop";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, getList, getOne } from "../../api/client";
 import { useEntityList } from "../../hooks/useEntity";
@@ -54,6 +57,28 @@ export default function TimeEntryList() {
   const navigate = useNavigate();
   const { data: me } = useCurrentUser();
   const isAdmin = me?.is_admin ?? false;
+
+  // Restore filters from sessionStorage on mount when URL is empty.
+  // Runs once per component instance; the [] deps + ref guard ensure it
+  // does not fire again when the URL changes from this very restore.
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    if (params.toString() !== "") return;
+    let saved: string | null = null;
+    try { saved = sessionStorage.getItem(STORAGE_KEY); } catch { /* ignore */ }
+    if (saved && saved.length > 0) {
+      setParams(new URLSearchParams(saved), { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist URL params (filters + page) so a navigate-back finds them.
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    try { sessionStorage.setItem(STORAGE_KEY, params.toString()); } catch { /* ignore */ }
+  }, [params]);
 
   const search = params.get("search") ?? "";
   const status = params.get("status") ?? "";
@@ -129,6 +154,8 @@ export default function TimeEntryList() {
         throw err;
       }
     },
+    // Navigate-back within this window reuses the cached data instantly
+    staleTime: 30_000,
   });
 
   const countQuery = useQuery({
@@ -137,6 +164,7 @@ export default function TimeEntryList() {
       const res = await getOne<CountEnvelope>(`/api/v1/time-entries/count?${filterParams.toString()}`);
       return res.count ?? 0;
     },
+    staleTime: 30_000,
   });
 
   const users = useEntityList<User>("/api/v1/get/users").items;
@@ -171,6 +199,37 @@ export default function TimeEntryList() {
 
   const entries = listQuery.data?.data ?? [];
   const totalCount = countQuery.data ?? 0;
+
+  // Scroll restoration: when the user clicks a row we save scrollTop; on
+  // mount with rows visible we apply it. Double rAF lets the table render
+  // first. One-shot: we clear the saved value after applying.
+  const scrollAppliedRef = useRef(false);
+  useEffect(() => {
+    if (scrollAppliedRef.current) return;
+    if (entries.length === 0) return;
+    let saved: string | null = null;
+    try { saved = sessionStorage.getItem(SCROLL_KEY); } catch { /* ignore */ }
+    if (!saved) return;
+    const top = Number(saved);
+    if (!isFinite(top)) return;
+    scrollAppliedRef.current = true;
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const sc = document.getElementById("content");
+        if (sc) sc.scrollTop = top;
+        try { sessionStorage.removeItem(SCROLL_KEY); } catch { /* ignore */ }
+      }),
+    );
+  }, [entries.length]);
+
+  function handleRowClick(viewPath: string) {
+    const sc = document.getElementById("content");
+    if (sc) {
+      try { sessionStorage.setItem(SCROLL_KEY, String(sc.scrollTop)); } catch { /* ignore */ }
+    }
+    navigate(viewPath);
+  }
+
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const hasFilters = Boolean(
     search || status || userIdFilter || projectIdFilter || startDate || endDate,
@@ -326,7 +385,7 @@ export default function TimeEntryList() {
                   <tr
                     key={entry.public_id}
                     className="clickable-row"
-                    onClick={() => navigate(viewPath)}
+                    onClick={() => handleRowClick(viewPath)}
                   >
                     <td>{fmtDate(entry.work_date)}</td>
                     <td>{workerName}</td>
