@@ -218,6 +218,48 @@ export default function TimeEntryView() {
   // Guard against pending auto-save firing after a destructive action
   const isSavingRef = useRef(false);
 
+  // Self-heal the list cache: when this View fetches an entry, push the
+  // user-visible fields into every cached list page so a stale row (e.g.,
+  // status changed via iOS or another tab while the list was cached) is
+  // corrected without waiting for a refetch.
+  useEffect(() => {
+    if (!entry) return;
+    queryClient.setQueriesData<{ data: TimeEntry[]; count: number }>(
+      { queryKey: ["time-entry-list"] },
+      (prev) => {
+        if (!prev) return prev;
+        let changed = false;
+        const next = prev.data.map((e) => {
+          if (e.public_id !== entry.public_id) return e;
+          if (
+            e.current_status === entry.current_status &&
+            e.work_date === entry.work_date &&
+            e.note === entry.note &&
+            e.user_id === entry.user_id
+          ) {
+            return e;
+          }
+          changed = true;
+          return {
+            ...e,
+            current_status: entry.current_status,
+            work_date: entry.work_date,
+            note: entry.note,
+            user_id: entry.user_id,
+          };
+        });
+        return changed ? { ...prev, data: next } : prev;
+      },
+    );
+  }, [
+    queryClient,
+    entry?.public_id,
+    entry?.current_status,
+    entry?.work_date,
+    entry?.note,
+    entry?.user_id,
+  ]);
+
   // Hydrate form + logs from server response (re-runs when entry changes —
   // e.g., after refetch following Submit / Approve / Reject).
   useEffect(() => {
