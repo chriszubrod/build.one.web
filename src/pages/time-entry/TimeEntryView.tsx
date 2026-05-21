@@ -529,10 +529,29 @@ export default function TimeEntryView() {
       });
       setApprovalNote("");
       toast("Time entry approved.", "success");
-      await refreshAfterStatusChange();
+      // Optimistically flip the cached list row to 'approved' before we
+      // navigate, so the list mounts with the correct badge — no stale
+      // "Submitted" flash while a refetch runs.
+      queryClient.setQueriesData<{ data: TimeEntry[]; count: number }>(
+        { queryKey: ["time-entry-list"] },
+        (prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            data: prev.data.map((e) =>
+              e.public_id === publicId ? { ...e, current_status: "approved" } : e,
+            ),
+          };
+        },
+      );
+      // Counts span multiple filter combos (e.g., status=submitted); safer
+      // to invalidate than to guess decrements. Drop the detail cache so a
+      // re-open refetches fresh.
+      await queryClient.invalidateQueries({ queryKey: ["time-entry-count"] });
+      queryClient.removeQueries({ queryKey: ["time-entry", publicId] });
+      navigate("/time-entry/list");
     } catch (err) {
       toast(err instanceof Error ? err.message : "Failed to approve", "error");
-    } finally {
       setPageBusy(null);
     }
   }
