@@ -179,7 +179,6 @@ import ContractLaborBills from "./pages/contract-labor/ContractLaborBills";
 // Time Entry
 import TimeEntryList from "./pages/time-entry/TimeEntryList";
 import TimeEntryView from "./pages/time-entry/TimeEntryView";
-import TimeEntryEdit from "./pages/time-entry/TimeEntryEdit";
 import TimeEntryCreate from "./pages/time-entry/TimeEntryCreate";
 
 // Email Messages (read-only inbox view)
@@ -378,7 +377,6 @@ export default function App() {
               <Route path="/time-entry/list" element={<TimeEntryList />} />
               <Route path="/time-entry/create" element={<TimeEntryCreate />} />
               <Route path="/time-entry/:id" element={<TimeEntryView />} />
-              <Route path="/time-entry/:id/edit" element={<TimeEntryEdit />} />
 
               {/* Email Messages (read-only inbox) */}
               <Route path="/email-message/list" element={<EmailList />} />

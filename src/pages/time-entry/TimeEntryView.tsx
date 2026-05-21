@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, getOne, post } from "../../api/client";
+import { ApiError, del, getOne, post, put } from "../../api/client";
+import { useAutoSave } from "../../hooks/useAutoSave";
 import { useEntityList } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
@@ -9,6 +10,7 @@ import PageHeader from "../../components/PageHeader";
 import type {
   Project,
   TimeEntry,
+  TimeLog,
   TimeEntryStatusValue,
   User,
 } from "../../types/api";
@@ -28,6 +30,34 @@ const STATUS_CLASSES: Record<TimeEntryStatusValue, string> = {
   rejected: "declined",
   billed: "finalized",
 };
+
+interface HeaderForm {
+  row_version: string;
+  user_public_id: string;
+  work_date: string;
+  note: string;
+}
+
+interface LogRow {
+  // Server identity (null = unsaved new row)
+  id: number | null;
+  public_id: string | null;
+  row_version: string | null;
+  // Editable fields kept as strings to avoid coercion issues
+  clock_in: string; // datetime-local "YYYY-MM-DDTHH:MM"
+  clock_out: string;
+  log_type: "work" | "break";
+  project_id: string; // BIGINT as string, "" = none
+  note: string;
+  // Server-computed (display only)
+  duration: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  // Per-row UX state
+  dirty: boolean;
+  saving: boolean;
+  error: string;
+}
 
 function fmtDate(v: string | null | undefined): string {
   if (!v) return "—";
@@ -73,22 +103,73 @@ function gpsLink(lat: string | null, lng: string | null): string | null {
   return `https://www.google.com/maps?q=${a},${o}`;
 }
 
+// API "YYYY-MM-DD HH:MM:SS" → HTML "YYYY-MM-DDTHH:MM"
+function apiToLocal(v: string | null): string {
+  if (!v) return "";
+  const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/.exec(v);
+  return m ? `${m[1]}T${m[2]}` : "";
+}
+
+// HTML "YYYY-MM-DDTHH:MM" → API "YYYY-MM-DD HH:MM:SS"
+function localToApi(v: string): string | null {
+  if (!v) return null;
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(:(\d{2}))?$/.exec(v);
+  if (!m) return null;
+  return `${m[1]} ${m[2]}:${m[4] ?? "00"}`;
+}
+
+function logFromServer(log: TimeLog): LogRow {
+  return {
+    id: log.id,
+    public_id: log.public_id,
+    row_version: log.row_version,
+    clock_in: apiToLocal(log.clock_in),
+    clock_out: apiToLocal(log.clock_out),
+    log_type: (log.log_type as "work" | "break") || "work",
+    project_id: log.project_id != null ? String(log.project_id) : "",
+    note: log.note ?? "",
+    duration: log.duration,
+    latitude: log.latitude,
+    longitude: log.longitude,
+    dirty: false,
+    saving: false,
+    error: "",
+  };
+}
+
+function emptyLog(workDate: string): LogRow {
+  return {
+    id: null,
+    public_id: null,
+    row_version: null,
+    clock_in: workDate ? `${workDate}T08:00` : "",
+    clock_out: workDate ? `${workDate}T17:00` : "",
+    log_type: "work",
+    project_id: "",
+    note: "",
+    duration: null,
+    latitude: null,
+    longitude: null,
+    dirty: true,
+    saving: false,
+    error: "",
+  };
+}
+
 export default function TimeEntryView() {
   const { id: publicId } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data: me } = useCurrentUser();
+  const isAdmin = me?.is_admin ?? false;
 
   const canApprove = useMemo(() => {
     const mod = me?.modules?.find((m) => m.name === "Time Tracking");
     return Boolean(mod?.can_update);
   }, [me]);
 
-  const [rejectOpen, setRejectOpen] = useState(false);
-  const [rejectNote, setRejectNote] = useState("");
-  const [approvalNote, setApprovalNote] = useState("");
-  const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
-
+  // === Server-fetched entry ===
   const { data: entry, isLoading, error } = useQuery<TimeEntry>({
     queryKey: ["time-entry", publicId],
     queryFn: () => getOne<TimeEntry>(`/api/v1/time-entries/${publicId}`),
@@ -104,6 +185,15 @@ export default function TimeEntryView() {
     }
     return m;
   }, [users]);
+  const sortedUsers = useMemo(
+    () =>
+      [...users].sort((a, b) => {
+        const an = [a.firstname, a.lastname].filter(Boolean).join(" ").toLowerCase();
+        const bn = [b.firstname, b.lastname].filter(Boolean).join(" ").toLowerCase();
+        return an.localeCompare(bn);
+      }),
+    [users],
+  );
 
   const projects = useEntityList<Project>("/api/v1/get/projects").items;
   const projectMap = useMemo(() => {
@@ -111,7 +201,75 @@ export default function TimeEntryView() {
     for (const p of projects) m.set(p.id, p.name);
     return m;
   }, [projects]);
+  const sortedProjects = useMemo(
+    () => [...projects].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
+    [projects],
+  );
 
+  // === Mutable form state (only used when status === 'draft') ===
+  const [form, setForm] = useState<HeaderForm | null>(null);
+  const [logs, setLogs] = useState<LogRow[]>([]);
+  const [pageBusy, setPageBusy] = useState<"submit" | "delete" | "approve" | "reject" | null>(null);
+  const [headerError, setHeaderError] = useState("");
+  const [approvalNote, setApprovalNote] = useState("");
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectNote, setRejectNote] = useState("");
+
+  // Guard against pending auto-save firing after a destructive action
+  const isSavingRef = useRef(false);
+
+  // Hydrate form + logs from server response (re-runs when entry changes —
+  // e.g., after refetch following Submit / Approve / Reject).
+  useEffect(() => {
+    if (!entry) return;
+    const worker = users.find((u) => u.id === entry.user_id);
+    setForm({
+      row_version: entry.row_version,
+      user_public_id: worker?.public_id ?? "",
+      work_date: entry.work_date ?? "",
+      note: entry.note ?? "",
+    });
+    setLogs((entry.time_logs ?? []).map(logFromServer));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry?.public_id, entry?.row_version, users.length]);
+
+  const currentStatus = (entry?.current_status ?? "draft") as TimeEntryStatusValue;
+  const isDraft = currentStatus === "draft";
+  const isSubmitted = currentStatus === "submitted";
+  const isTerminal = currentStatus === "approved" || currentStatus === "rejected" || currentStatus === "billed";
+
+  // === Header auto-save (draft only) ===
+  const autoSaveHeader = useCallback(async () => {
+    if (!form || !publicId || isSavingRef.current) return;
+    isSavingRef.current = true;
+    setHeaderError("");
+    try {
+      const updated = await put<TimeEntry>(`/api/v1/time-entries/${publicId}`, {
+        row_version: form.row_version,
+        user_public_id: form.user_public_id || undefined,
+        work_date: form.work_date,
+        note: form.note || null,
+      });
+      setForm((prev) => (prev ? { ...prev, row_version: updated.row_version } : prev));
+      // Patch the entry cache so the row_version we hold matches what's in cache
+      queryClient.setQueryData<TimeEntry | undefined>(["time-entry", publicId], (prev) =>
+        prev ? { ...prev, row_version: updated.row_version, work_date: updated.work_date, note: updated.note, user_id: updated.user_id } : prev,
+      );
+    } catch (err) {
+      setHeaderError(err instanceof Error ? err.message : "Auto-save failed");
+    } finally {
+      isSavingRef.current = false;
+    }
+  }, [form, publicId, queryClient]);
+
+  const { flush: flushAutoSave, cancel: cancelAutoSave } = useAutoSave(
+    autoSaveHeader,
+    [form?.user_public_id, form?.work_date, form?.note],
+    300,
+    !!form && !!entry && isDraft,
+  );
+
+  // === Guards ===
   if (!publicId) return <div className="page-error">Missing time entry id.</div>;
   if (isLoading) return <div className="page-loading">Loading...</div>;
   if (error) {
@@ -121,32 +279,199 @@ export default function TimeEntryView() {
         : (error as Error).message;
     return <div className="page-error">{msg}</div>;
   }
-  if (!entry) return <div className="page-error">Time entry not found.</div>;
+  if (!entry || !form) return null;
 
-  const current = (entry.current_status ?? "draft") as TimeEntryStatusValue;
   const workerName = entry.user_id != null ? userMap.get(entry.user_id) ?? "—" : "—";
-  const logs = entry.time_logs ?? [];
   const history = entry.status_history ?? [];
 
-  async function refresh() {
+  // === Handlers ===
+  function onHeaderChange(name: string, value: string) {
+    setForm((prev) => (prev ? { ...prev, [name]: value } : prev));
+  }
+
+  function setLog(index: number, patch: Partial<LogRow>) {
+    setLogs((prev) =>
+      prev.map((row, i) => (i === index ? { ...row, ...patch, dirty: true, error: "" } : row)),
+    );
+  }
+
+  function addLog() {
+    setLogs((prev) => [...prev, emptyLog(form?.work_date ?? "")]);
+  }
+
+  async function saveLog(index: number) {
+    const row = logs[index];
+    if (!row) return;
+    const clockInApi = localToApi(row.clock_in);
+    if (!clockInApi) {
+      setLogs((prev) =>
+        prev.map((r, i) => (i === index ? { ...r, error: "Clock in is required." } : r)),
+      );
+      return;
+    }
+    const clockOutApi = row.clock_out ? localToApi(row.clock_out) : null;
+    if (row.clock_out && !clockOutApi) {
+      setLogs((prev) =>
+        prev.map((r, i) => (i === index ? { ...r, error: "Clock out time is invalid." } : r)),
+      );
+      return;
+    }
+    const payload = {
+      clock_in: clockInApi,
+      clock_out: clockOutApi,
+      log_type: row.log_type,
+      project_id: row.project_id ? Number(row.project_id) : null,
+      note: row.note || null,
+    };
+    setLogs((prev) =>
+      prev.map((r, i) => (i === index ? { ...r, saving: true, error: "" } : r)),
+    );
+    try {
+      if (row.public_id) {
+        const updated = await put<TimeLog>(`/api/v1/time-logs/${row.public_id}`, {
+          ...payload,
+          row_version: row.row_version!,
+        });
+        setLogs((prev) =>
+          prev.map((r, i) =>
+            i === index
+              ? {
+                  ...r,
+                  saving: false,
+                  dirty: false,
+                  row_version: updated.row_version,
+                  duration: updated.duration,
+                  latitude: updated.latitude,
+                  longitude: updated.longitude,
+                }
+              : r,
+          ),
+        );
+      } else {
+        const created = await post<TimeLog>(`/api/v1/time-entries/${publicId}/logs`, payload);
+        setLogs((prev) =>
+          prev.map((r, i) =>
+            i === index
+              ? {
+                  ...r,
+                  saving: false,
+                  dirty: false,
+                  id: created.id,
+                  public_id: created.public_id,
+                  row_version: created.row_version,
+                  duration: created.duration,
+                  latitude: created.latitude,
+                  longitude: created.longitude,
+                }
+              : r,
+          ),
+        );
+      }
+      toast("Time log saved.", "success");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to save";
+      setLogs((prev) =>
+        prev.map((r, i) => (i === index ? { ...r, saving: false, error: msg } : r)),
+      );
+    }
+  }
+
+  async function deleteLog(index: number) {
+    const row = logs[index];
+    if (!row) return;
+    if (!row.public_id) {
+      // Unsaved row — just drop it
+      setLogs((prev) => prev.filter((_, i) => i !== index));
+      return;
+    }
+    if (!window.confirm("Delete this time log? This cannot be undone.")) return;
+    setLogs((prev) =>
+      prev.map((r, i) => (i === index ? { ...r, saving: true, error: "" } : r)),
+    );
+    try {
+      await del(`/api/v1/time-logs/${row.public_id}`);
+      setLogs((prev) => prev.filter((_, i) => i !== index));
+      toast("Time log deleted.", "success");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to delete";
+      setLogs((prev) =>
+        prev.map((r, i) => (i === index ? { ...r, saving: false, error: msg } : r)),
+      );
+    }
+  }
+
+  async function refreshAfterStatusChange() {
     await queryClient.invalidateQueries({ queryKey: ["time-entry", publicId] });
     await queryClient.invalidateQueries({ queryKey: ["time-entry-list"] });
     await queryClient.invalidateQueries({ queryKey: ["time-entry-count"] });
   }
 
+  async function handleSubmit() {
+    const unsavedRows = logs.filter((r) => r.dirty || r.public_id == null);
+    if (unsavedRows.length > 0) {
+      toast("Save or remove all log rows before submitting.", "error");
+      return;
+    }
+    if (logs.length === 0) {
+      toast("Add at least one time log before submitting.", "error");
+      return;
+    }
+    setPageBusy("submit");
+    try {
+      await flushAutoSave();
+      await post(`/api/v1/time-entries/${publicId}/submit`, {});
+      toast("Time entry submitted for review.", "success");
+      await refreshAfterStatusChange();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed to submit", "error");
+    } finally {
+      setPageBusy(null);
+    }
+  }
+
+  async function handleDelete() {
+    if (!window.confirm("Delete this time entry and all its logs? This cannot be undone.")) return;
+    // Guard against pending auto-save firing after the row is gone
+    isSavingRef.current = true;
+    cancelAutoSave();
+    setPageBusy("delete");
+    try {
+      await del(`/api/v1/time-entries/${publicId}`);
+      toast("Time entry deleted.", "success");
+      // Surgically remove from cached list pages so the list mounts
+      // with the row already gone (no stale-row flash).
+      queryClient.setQueriesData<{ data: TimeEntry[]; count: number }>(
+        { queryKey: ["time-entry-list"] },
+        (prev) => {
+          if (!prev) return prev;
+          const filtered = prev.data.filter((e) => e.public_id !== publicId);
+          if (filtered.length === prev.data.length) return prev;
+          return { ...prev, data: filtered, count: Math.max(0, prev.count - 1) };
+        },
+      );
+      queryClient.removeQueries({ queryKey: ["time-entry", publicId] });
+      await queryClient.invalidateQueries({ queryKey: ["time-entry-count"] });
+      navigate("/time-entry/list");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed to delete", "error");
+      isSavingRef.current = false;
+      setPageBusy(null);
+    }
+  }
+
   async function doApprove() {
-    setBusy("approve");
+    setPageBusy("approve");
     try {
       await post(`/api/v1/time-entries/${publicId}/approve`, {
         note: approvalNote.trim() || null,
       });
       setApprovalNote("");
       toast("Time entry approved.", "success");
-      await refresh();
+      await refreshAfterStatusChange();
     } catch (err) {
       toast(err instanceof Error ? err.message : "Failed to approve", "error");
     } finally {
-      setBusy(null);
+      setPageBusy(null);
     }
   }
 
@@ -155,7 +480,7 @@ export default function TimeEntryView() {
       toast("Please add a reason for rejection.", "error");
       return;
     }
-    setBusy("reject");
+    setPageBusy("reject");
     try {
       await post(`/api/v1/time-entries/${publicId}/reject`, {
         note: rejectNote.trim(),
@@ -163,85 +488,222 @@ export default function TimeEntryView() {
       setRejectNote("");
       setRejectOpen(false);
       toast("Time entry rejected and returned to the worker.", "success");
-      await refresh();
+      await refreshAfterStatusChange();
     } catch (err) {
       toast(err instanceof Error ? err.message : "Failed to reject", "error");
     } finally {
-      setBusy(null);
+      setPageBusy(null);
     }
   }
 
-  const isSubmitted = current === "submitted";
-  const isDraft = current === "draft";
-
+  // === Render ===
   return (
-    <div className="page">
+    <div className="page form-page-wide">
       <PageHeader title={`Time Entry — ${fmtDate(entry.work_date)}`}>
-        <Link to="/time-entry/list" className="btn btn-secondary">
+        <button type="button" className="btn btn-secondary" onClick={() => navigate("/time-entry/list")}>
           Back to List
-        </Link>
-        {isDraft && (
-          <Link to={`/time-entry/${publicId}/edit`} className="btn btn-primary">
-            Edit
-          </Link>
-        )}
+        </button>
       </PageHeader>
 
-      <div className="detail-section">
-        <div className="detail-grid">
-          <div>
-            <div className="detail-label">Worker</div>
-            <div className="detail-value">{workerName}</div>
-          </div>
-          <div>
-            <div className="detail-label">Work Date</div>
-            <div className="detail-value">{fmtDate(entry.work_date)}</div>
-          </div>
-          <div>
-            <div className="detail-label">Status</div>
+      {/* Status banner for terminal states */}
+      {isTerminal && (
+        <div className="detail-section" style={{ background: "var(--color-info-bg, #f0f4f8)", padding: 12, borderRadius: 6 }}>
+          This entry is <strong>{STATUS_LABELS[currentStatus]}</strong> and cannot be edited.
+          {currentStatus === "approved" && " Reject it to return it to draft for changes."}
+        </div>
+      )}
+
+      {/* === Header === */}
+      <div className="form-card">
+        {headerError && <div className="form-error">{headerError}</div>}
+        <div className="form-header-grid">
+          {isDraft && isAdmin ? (
+            <div className="form-group">
+              <label htmlFor="user_public_id">Worker</label>
+              <select
+                id="user_public_id"
+                name="user_public_id"
+                value={form.user_public_id}
+                onChange={(e) => onHeaderChange("user_public_id", e.target.value)}
+              >
+                <option value="">Select…</option>
+                {sortedUsers.map((u) => {
+                  const name =
+                    [u.firstname, u.lastname].filter(Boolean).join(" ").trim() || "Unknown";
+                  return (
+                    <option key={u.public_id} value={u.public_id}>
+                      {name}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          ) : (
+            <div className="form-group">
+              <label>Worker</label>
+              <div className="detail-value">{workerName}</div>
+            </div>
+          )}
+
+          {isDraft ? (
+            <div className="form-group">
+              <label htmlFor="work_date">
+                Work Date<span className="required">*</span>
+              </label>
+              <input
+                id="work_date"
+                name="work_date"
+                type="date"
+                value={form.work_date}
+                onChange={(e) => onHeaderChange("work_date", e.target.value)}
+                required
+              />
+            </div>
+          ) : (
+            <div className="form-group">
+              <label>Work Date</label>
+              <div className="detail-value">{fmtDate(entry.work_date)}</div>
+            </div>
+          )}
+
+          <div className="form-group">
+            <label>Status</label>
             <div className="detail-value">
-              <span className={`status-badge ${STATUS_CLASSES[current] ?? ""}`}>
-                {STATUS_LABELS[current] ?? current}
+              <span className={`status-badge ${STATUS_CLASSES[currentStatus] ?? ""}`}>
+                {STATUS_LABELS[currentStatus] ?? currentStatus}
               </span>
             </div>
           </div>
-          <div style={{ gridColumn: "1 / -1" }}>
-            <div className="detail-label">Worker Note</div>
-            <div className="detail-value">{entry.note || <span className="text-muted">—</span>}</div>
+
+          <div className="full-width">
+            <label htmlFor="note">Worker Note</label>
+            {isDraft ? (
+              <textarea
+                id="note"
+                name="note"
+                value={form.note}
+                onChange={(e) => onHeaderChange("note", e.target.value)}
+                rows={2}
+                placeholder="Optional note about the day…"
+              />
+            ) : (
+              <div className="detail-value">{entry.note || <span className="text-muted">—</span>}</div>
+            )}
           </div>
         </div>
       </div>
 
-      <div className="detail-section">
-        <h2>Time Logs ({logs.length})</h2>
+      {/* === Time Logs === */}
+      <div className="form-card" style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <h2 style={{ margin: 0 }}>Time Logs ({logs.length})</h2>
+          {isDraft && (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={addLog} disabled={pageBusy !== null}>
+              + Add Log
+            </button>
+          )}
+        </div>
+
         {logs.length === 0 ? (
-          <p className="text-muted">No time logs recorded.</p>
+          <p className="text-muted">
+            {isDraft ? "No logs yet. Add at least one before submitting." : "No time logs recorded."}
+          </p>
         ) : (
           <table className="data-table">
             <thead>
               <tr>
-                <th>Type</th>
+                <th style={{ width: 90 }}>Type</th>
                 <th>Clock In</th>
                 <th>Clock Out</th>
-                <th>Duration</th>
+                <th style={{ width: 80 }}>Duration</th>
                 <th>Project</th>
                 <th>Note</th>
-                <th>GPS</th>
+                <th style={{ width: 60 }}>GPS</th>
+                {isDraft && <th style={{ width: 180 }}>Actions</th>}
               </tr>
             </thead>
             <tbody>
-              {logs.map((log) => {
-                const link = gpsLink(log.latitude, log.longitude);
+              {logs.map((row, index) => {
+                const link = gpsLink(row.latitude, row.longitude);
                 const projectName =
-                  log.project_id != null ? projectMap.get(log.project_id) ?? "—" : "—";
+                  row.project_id !== "" ? projectMap.get(Number(row.project_id)) ?? "—" : "—";
                 return (
-                  <tr key={log.public_id}>
-                    <td style={{ textTransform: "capitalize" }}>{log.log_type ?? "—"}</td>
-                    <td>{fmtTime(log.clock_in)}</td>
-                    <td>{log.clock_out ? fmtTime(log.clock_out) : <em className="text-muted">still clocked in</em>}</td>
-                    <td>{fmtDuration(log.duration)}</td>
-                    <td>{projectName}</td>
-                    <td>{log.note || <span className="text-muted">—</span>}</td>
+                  <tr key={row.public_id ?? `new-${index}`}>
+                    <td>
+                      {isDraft ? (
+                        <select
+                          value={row.log_type}
+                          onChange={(e) =>
+                            setLog(index, { log_type: e.target.value as "work" | "break" })
+                          }
+                          disabled={row.saving}
+                        >
+                          <option value="work">Work</option>
+                          <option value="break">Break</option>
+                        </select>
+                      ) : (
+                        <span style={{ textTransform: "capitalize" }}>{row.log_type}</span>
+                      )}
+                    </td>
+                    <td>
+                      {isDraft ? (
+                        <input
+                          type="datetime-local"
+                          value={row.clock_in}
+                          onChange={(e) => setLog(index, { clock_in: e.target.value })}
+                          disabled={row.saving}
+                        />
+                      ) : (
+                        fmtTime(row.clock_in.replace("T", " "))
+                      )}
+                    </td>
+                    <td>
+                      {isDraft ? (
+                        <input
+                          type="datetime-local"
+                          value={row.clock_out}
+                          onChange={(e) => setLog(index, { clock_out: e.target.value })}
+                          disabled={row.saving}
+                          placeholder="(still clocked in)"
+                        />
+                      ) : row.clock_out ? (
+                        fmtTime(row.clock_out.replace("T", " "))
+                      ) : (
+                        <em className="text-muted">still clocked in</em>
+                      )}
+                    </td>
+                    <td>{fmtDuration(row.duration)}</td>
+                    <td>
+                      {isDraft ? (
+                        <select
+                          value={row.project_id}
+                          onChange={(e) => setLog(index, { project_id: e.target.value })}
+                          disabled={row.saving}
+                        >
+                          <option value="">(none)</option>
+                          {sortedProjects.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        projectName
+                      )}
+                    </td>
+                    <td>
+                      {isDraft ? (
+                        <input
+                          type="text"
+                          value={row.note}
+                          onChange={(e) => setLog(index, { note: e.target.value })}
+                          disabled={row.saving}
+                          placeholder="Optional"
+                        />
+                      ) : (
+                        row.note || <span className="text-muted">—</span>
+                      )}
+                    </td>
                     <td>
                       {link ? (
                         <a href={link} target="_blank" rel="noopener noreferrer">
@@ -251,6 +713,33 @@ export default function TimeEntryView() {
                         <span className="text-muted">—</span>
                       )}
                     </td>
+                    {isDraft && (
+                      <td>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            onClick={() => saveLog(index)}
+                            disabled={row.saving || (!row.dirty && row.public_id != null)}
+                          >
+                            {row.saving ? "Saving…" : row.public_id ? "Save" : "Add"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            onClick={() => deleteLog(index)}
+                            disabled={row.saving}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                        {row.error && (
+                          <div style={{ color: "var(--color-error)", fontSize: 12, marginTop: 4 }}>
+                            {row.error}
+                          </div>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -259,7 +748,8 @@ export default function TimeEntryView() {
         )}
       </div>
 
-      <div className="detail-section">
+      {/* === Status History === */}
+      <div className="detail-section" style={{ marginTop: 16 }}>
         <h2>Status History</h2>
         {history.length === 0 ? (
           <p className="text-muted">No transitions recorded.</p>
@@ -296,8 +786,30 @@ export default function TimeEntryView() {
         )}
       </div>
 
+      {/* === Actions === */}
+      {isDraft && (
+        <div className="form-actions" style={{ marginTop: 16, display: "flex", gap: 8 }}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleSubmit}
+            disabled={pageBusy !== null}
+          >
+            {pageBusy === "submit" ? "Submitting…" : "Submit for Review"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-danger"
+            onClick={handleDelete}
+            disabled={pageBusy !== null}
+          >
+            {pageBusy === "delete" ? "Deleting…" : "Delete Entry"}
+          </button>
+        </div>
+      )}
+
       {isSubmitted && canApprove && (
-        <div className="detail-section">
+        <div className="detail-section" style={{ marginTop: 16 }}>
           <h2>Review</h2>
           {!rejectOpen ? (
             <div style={{ display: "flex", gap: 8, alignItems: "flex-start", flexDirection: "column", maxWidth: 640 }}>
@@ -317,15 +829,15 @@ export default function TimeEntryView() {
                   type="button"
                   className="btn btn-primary"
                   onClick={doApprove}
-                  disabled={busy !== null}
+                  disabled={pageBusy !== null}
                 >
-                  {busy === "approve" ? "Approving…" : "Approve"}
+                  {pageBusy === "approve" ? "Approving…" : "Approve"}
                 </button>
                 <button
                   type="button"
                   className="btn btn-danger"
                   onClick={() => setRejectOpen(true)}
-                  disabled={busy !== null}
+                  disabled={pageBusy !== null}
                 >
                   Reject
                 </button>
@@ -350,9 +862,9 @@ export default function TimeEntryView() {
                   type="button"
                   className="btn btn-danger"
                   onClick={doReject}
-                  disabled={busy !== null || !rejectNote.trim()}
+                  disabled={pageBusy !== null || !rejectNote.trim()}
                 >
-                  {busy === "reject" ? "Rejecting…" : "Confirm Reject"}
+                  {pageBusy === "reject" ? "Rejecting…" : "Confirm Reject"}
                 </button>
                 <button
                   type="button"
@@ -361,7 +873,7 @@ export default function TimeEntryView() {
                     setRejectOpen(false);
                     setRejectNote("");
                   }}
-                  disabled={busy !== null}
+                  disabled={pageBusy !== null}
                 >
                   Cancel
                 </button>

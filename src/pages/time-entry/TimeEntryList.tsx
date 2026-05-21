@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 const STORAGE_KEY = "buildOne.timeEntryList.params";
 const SCROLL_KEY = "buildOne.timeEntryList.scrollTop";
@@ -371,7 +371,6 @@ export default function TimeEntryList() {
                 <th>Worker</th>
                 <th>Note</th>
                 <th>Status</th>
-                <th style={{ width: 120 }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -380,7 +379,6 @@ export default function TimeEntryList() {
                 const workerName =
                   entry.user_id != null ? userMap.get(entry.user_id) ?? "—" : "—";
                 const viewPath = `/time-entry/${entry.public_id}`;
-                const editPath = `/time-entry/${entry.public_id}/edit`;
                 return (
                   <tr
                     key={entry.public_id}
@@ -396,17 +394,6 @@ export default function TimeEntryList() {
                       <span className={`status-badge ${STATUS_CLASSES[current] ?? ""}`}>
                         {STATUS_LABELS[current] ?? current}
                       </span>
-                    </td>
-                    <td onClick={(e) => e.stopPropagation()}>
-                      {current === "draft" ? (
-                        <Link to={editPath} className="btn btn-secondary btn-sm">
-                          Edit
-                        </Link>
-                      ) : (
-                        <Link to={viewPath} className="btn btn-secondary btn-sm">
-                          View
-                        </Link>
-                      )}
                     </td>
                   </tr>
                 );
