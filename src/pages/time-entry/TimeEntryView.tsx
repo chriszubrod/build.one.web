@@ -260,9 +260,14 @@ export default function TimeEntryView() {
     entry?.user_id,
   ]);
 
-  // Hydrate form + logs from server response. Re-runs when entry changes
-  // (initial load, refetch after Submit/Approve/Reject, or row_version bump
-  // from the header auto-save patching the entry cache).
+  // Hydrate form + logs from server response. Re-runs when entry changes —
+  // initial load, header auto-save patching row_version, Submit / Approve /
+  // Reject changing current_status, or users finishing load.
+  //
+  // current_status must be a dep: Submit only inserts a TimeEntryStatus row
+  // (no TimeEntry update), so row_version is unchanged after the refetch.
+  // Without current_status here the local logs/form would never re-sync with
+  // server state on transitions.
   //
   // Logs must NOT be blindly overwritten on every re-run — that would wipe
   // in-progress row edits + reset the dirty flag, silently disabling Save.
@@ -288,7 +293,7 @@ export default function TimeEntryView() {
       return [...merged, ...unsavedNew];
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entry?.public_id, entry?.row_version, users.length]);
+  }, [entry?.public_id, entry?.row_version, entry?.current_status, users.length]);
 
   const currentStatus = (entry?.current_status ?? "draft") as TimeEntryStatusValue;
   const isDraft = currentStatus === "draft";
