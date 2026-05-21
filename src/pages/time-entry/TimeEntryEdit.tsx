@@ -362,7 +362,23 @@ export default function TimeEntryEdit() {
     try {
       await del(`/api/v1/time-entries/${publicId}`);
       toast("Time entry deleted.", "success");
-      await queryClient.invalidateQueries({ queryKey: ["time-entry-list"] });
+      // Surgically remove the deleted row from every cached list page so
+      // the user lands on /time-entry/list with the row already gone,
+      // instead of seeing the stale cached row flash before the refetch.
+      queryClient.setQueriesData<{ data: TimeEntry[]; count: number }>(
+        { queryKey: ["time-entry-list"] },
+        (prev) => {
+          if (!prev) return prev;
+          const filtered = prev.data.filter((e) => e.public_id !== publicId);
+          if (filtered.length === prev.data.length) return prev;
+          return { ...prev, data: filtered, count: Math.max(0, prev.count - 1) };
+        },
+      );
+      // Also drop the detail cache — re-opening this id should 404, not
+      // serve the stale detail payload.
+      queryClient.removeQueries({ queryKey: ["time-entry", publicId] });
+      // Count totals span multiple filter combos; invalidate so each
+      // refetches on next observation rather than guessing decrements.
       await queryClient.invalidateQueries({ queryKey: ["time-entry-count"] });
       navigate("/time-entry/list");
     } catch (err) {
