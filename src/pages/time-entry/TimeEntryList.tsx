@@ -79,6 +79,26 @@ export default function TimeEntryList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
 
+  // Date inputs use the same debounce pattern as search so picking a start
+  // date then an end date in quick succession results in one refetch, not two.
+  const [startInput, setStartInput] = useState(startDate);
+  const [endInput, setEndInput] = useState(endDate);
+  useEffect(() => { setStartInput(startDate); }, [startDate]);
+  useEffect(() => { setEndInput(endDate); }, [endDate]);
+  const debouncedStart = useDebouncedValue(startInput, 600);
+  const debouncedEnd = useDebouncedValue(endInput, 600);
+  useEffect(() => {
+    if (debouncedStart === startDate && debouncedEnd === endDate) return;
+    const next = new URLSearchParams(params);
+    if (debouncedStart) next.set("start_date", debouncedStart);
+    else next.delete("start_date");
+    if (debouncedEnd) next.set("end_date", debouncedEnd);
+    else next.delete("end_date");
+    next.set("page", "1");
+    setParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedStart, debouncedEnd]);
+
   const filterParams = useMemo(() => {
     const qs = new URLSearchParams();
     if (search) qs.set("search_term", search);
@@ -173,6 +193,8 @@ export default function TimeEntryList() {
   function clearFilters() {
     setParams(new URLSearchParams(), { replace: true });
     setSearchInput("");
+    setStartInput("");
+    setEndInput("");
   }
 
   const pageWindow: number[] = [];
@@ -224,8 +246,8 @@ export default function TimeEntryList() {
           <input
             id="te-start"
             type="date"
-            value={startDate}
-            onChange={(e) => updateParam("start_date", e.target.value)}
+            value={startInput}
+            onChange={(e) => setStartInput(e.target.value)}
           />
         </div>
         <div className="cl-filter-group">
@@ -233,8 +255,8 @@ export default function TimeEntryList() {
           <input
             id="te-end"
             type="date"
-            value={endDate}
-            onChange={(e) => updateParam("end_date", e.target.value)}
+            value={endInput}
+            onChange={(e) => setEndInput(e.target.value)}
           />
         </div>
         {isAdmin && (
