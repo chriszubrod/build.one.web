@@ -733,6 +733,59 @@ export interface EmailMessage {
   linked_bill?: LinkedBill | null;
 }
 
+/** Time Tracking — entries from iOS clock-in/out + status workflow */
+
+export type TimeEntryStatusValue =
+  | "draft"
+  | "submitted"
+  | "approved"
+  | "rejected"
+  | "billed";
+
+export interface TimeLog {
+  id: number;
+  public_id: string;
+  row_version: string;
+  created_datetime: string | null;
+  modified_datetime: string | null;
+  time_entry_id: number;
+  clock_in: string | null;
+  clock_out: string | null;
+  log_type: string | null; // 'work' | 'break'
+  duration: string | null; // decimal hours, server-computed
+  latitude: string | null;
+  longitude: string | null;
+  project_id: number | null;
+  note: string | null;
+}
+
+export interface TimeEntryStatus {
+  id: number;
+  public_id: string;
+  row_version: string;
+  created_datetime: string | null;
+  time_entry_id: number;
+  status: TimeEntryStatusValue;
+  user_id: number | null;
+  note: string | null;
+}
+
+export interface TimeEntry {
+  id: number;
+  public_id: string;
+  row_version: string;
+  created_datetime: string | null;
+  modified_datetime: string | null;
+  user_id: number | null;
+  work_date: string | null;
+  note: string | null;
+  // Injected by the API on list + detail responses
+  current_status?: TimeEntryStatusValue | null;
+  // Present on detail response only
+  time_logs?: TimeLog[];
+  status_history?: TimeEntryStatus[];
+}
+
 /** Auth types */
 
 export interface AuthResponse {

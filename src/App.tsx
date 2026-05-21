@@ -176,6 +176,12 @@ import ContractLaborCreate from "./pages/contract-labor/ContractLaborCreate";
 import ContractLaborImport from "./pages/contract-labor/ContractLaborImport";
 import ContractLaborBills from "./pages/contract-labor/ContractLaborBills";
 
+// Time Entry
+import TimeEntryList from "./pages/time-entry/TimeEntryList";
+import TimeEntryView from "./pages/time-entry/TimeEntryView";
+import TimeEntryEdit from "./pages/time-entry/TimeEntryEdit";
+import TimeEntryCreate from "./pages/time-entry/TimeEntryCreate";
+
 // Email Messages (read-only inbox view)
 import EmailList from "./pages/email-messages/EmailList";
 import EmailView from "./pages/email-messages/EmailView";
@@ -367,6 +373,12 @@ export default function App() {
               <Route path="/contract-labor/bills" element={<ContractLaborBills />} />
               <Route path="/contract-labor/:id" element={<ContractLaborView />} />
               <Route path="/contract-labor/:id/edit" element={<ContractLaborEdit />} />
+
+              {/* Time Entry */}
+              <Route path="/time-entry/list" element={<TimeEntryList />} />
+              <Route path="/time-entry/create" element={<TimeEntryCreate />} />
+              <Route path="/time-entry/:id" element={<TimeEntryView />} />
+              <Route path="/time-entry/:id/edit" element={<TimeEntryEdit />} />
 
               {/* Email Messages (read-only inbox) */}
               <Route path="/email-message/list" element={<EmailList />} />
