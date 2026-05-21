@@ -260,8 +260,14 @@ export default function TimeEntryView() {
     entry?.user_id,
   ]);
 
-  // Hydrate form + logs from server response (re-runs when entry changes —
-  // e.g., after refetch following Submit / Approve / Reject).
+  // Hydrate form + logs from server response. Re-runs when entry changes
+  // (initial load, refetch after Submit/Approve/Reject, or row_version bump
+  // from the header auto-save patching the entry cache).
+  //
+  // Logs must NOT be blindly overwritten on every re-run — that would wipe
+  // in-progress row edits + reset the dirty flag, silently disabling Save.
+  // We merge: preserve any locally-dirty or in-flight rows, refresh clean
+  // ones from server, keep unsaved-new rows appended.
   useEffect(() => {
     if (!entry) return;
     const worker = users.find((u) => u.id === entry.user_id);
@@ -271,7 +277,16 @@ export default function TimeEntryView() {
       work_date: entry.work_date ?? "",
       note: entry.note ?? "",
     });
-    setLogs((entry.time_logs ?? []).map(logFromServer));
+    setLogs((prev) => {
+      const incoming = (entry.time_logs ?? []).map(logFromServer);
+      if (prev.length === 0) return incoming;
+      const merged = incoming.map((serverRow) => {
+        const existing = prev.find((r) => r.public_id === serverRow.public_id);
+        return existing && (existing.dirty || existing.saving) ? existing : serverRow;
+      });
+      const unsavedNew = prev.filter((r) => r.public_id == null);
+      return [...merged, ...unsavedNew];
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entry?.public_id, entry?.row_version, users.length]);
 
