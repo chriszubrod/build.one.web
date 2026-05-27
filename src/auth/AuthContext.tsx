@@ -70,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem("access_token");
     localStorage.removeItem("username");
     setUsername(null);
-    queryClient.removeQueries({ queryKey: ["me"] });
+    queryClient.clear();
     window.location.href = "/login";
   }, [queryClient]);
 
