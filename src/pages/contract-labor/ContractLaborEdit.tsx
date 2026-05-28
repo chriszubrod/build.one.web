@@ -401,7 +401,7 @@ export default function ContractLaborEdit() {
     <div className="page form-page-wide">
       <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <h1 style={{ margin: 0 }}>Create Bill from Time Entry</h1>
+          <h1 style={{ margin: 0 }}>Contract Labor</h1>
           {statusBadge}
         </div>
         <Link to="/contract-labor/list" className="btn btn-secondary">
