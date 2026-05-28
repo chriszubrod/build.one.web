@@ -784,6 +784,10 @@ export interface ContractLabor {
    *  Optional in the type so the badge gracefully hides if the API hasn't
    *  added the field to its response yet. */
   source_time_entry_id?: number | null;
+  /** Public_id of the source TimeEntry — set by Phase 5b's LEFT JOIN in
+   *  ReadContractLaborByPublicId. Lets the Edit page fetch the source
+   *  TimeEntry's TimeLogs for the "Time Log Details" section. */
+  source_time_entry_public_id?: string | null;
 }
 
 /** Downstream lineage for a TimeEntry — what labor row was created and

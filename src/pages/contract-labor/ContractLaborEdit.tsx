@@ -10,6 +10,7 @@ import type {
   ContractLaborVendorConfig,
   Project,
   SubCostCode,
+  TimeEntry,
   Vendor,
 } from "../../types/api";
 
@@ -104,6 +105,20 @@ function fmtMoney(n: number): string {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
+// API time format "YYYY-MM-DD HH:MM:SS[.fff]" → "h:mm A" via Date.
+function fmtClockTime(v: string | null | undefined): string {
+  if (!v) return "—";
+  const d = new Date(v.includes("T") ? v : v.replace(" ", "T"));
+  if (isNaN(d.getTime())) return v;
+  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function fmtShortDate(v: string | null | undefined): string {
+  if (!v) return "—";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v);
+  return m ? `${m[2]}/${m[3]}/${m[1]}` : v;
+}
+
 export default function ContractLaborEdit() {
   const { id: publicId } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -152,6 +167,16 @@ export default function ContractLaborEdit() {
   const vendorConfigQuery = useQuery<ContractLaborVendorConfig>({
     queryKey: ["cl-vendor-config"],
     queryFn: () => getOne<ContractLaborVendorConfig>("/api/v1/contract-labor/vendor-config"),
+  });
+
+  // Source TimeEntry — fetched only when the row was aggregated from
+  // TimeTracking (Excel-imported rows have source_time_entry_public_id = null).
+  // Used to render the "Time Log Details" section with per-log clock-in/out.
+  const sourceTimeEntryPublicId = entry?.source_time_entry_public_id ?? null;
+  const sourceTimeEntryQuery = useQuery<TimeEntry>({
+    queryKey: ["cl-source-time-entry", sourceTimeEntryPublicId],
+    queryFn: () => getOne<TimeEntry>(`/api/v1/time-entries/${sourceTimeEntryPublicId}`),
+    enabled: Boolean(sourceTimeEntryPublicId),
   });
 
   // Initial load: entry + line items
@@ -394,21 +419,35 @@ export default function ContractLaborEdit() {
         {entry.source_row && <span><strong>Row:</strong> {entry.source_row}</span>}
       </div>
 
-      {/* Time Entry Details — read-only */}
+      {/* Time Entry Details — read-only. Only the populated fields render;
+          for iOS-fed rows (TimeTracking lineage) the Excel-only columns
+          (Job, TimeIn, TimeOut, Break, Regular, Overtime) are null, so
+          they're hidden. Per-log breakdown lives in the next section. */}
       <section className="cl-edit-section">
         <h3>
-          Time Entry Details <span className="cl-section-badge">From Import</span>
+          Time Entry Details{" "}
+          <span className="cl-section-badge">
+            {sourceTimeEntryPublicId ? "From TimeTracking" : "From Import"}
+          </span>
         </h3>
         <div className="cl-readonly-grid">
-          <ReadOnlyItem label="Work Date" value={entry.work_date || "N/A"} />
-          <ReadOnlyItem label="Worker Name" value={entry.employee_name || "N/A"} />
-          <ReadOnlyItem label="Job" value={entry.job_name || "N/A"} />
-          <ReadOnlyItem label="Time In" value={entry.time_in || "N/A"} />
-          <ReadOnlyItem label="Time Out" value={entry.time_out || "N/A"} />
-          <ReadOnlyItem label="Break" value={entry.break_time || "N/A"} />
-          <ReadOnlyItem label="Regular Hours" value={Number(entry.regular_hours ?? 0).toFixed(2)} />
-          <ReadOnlyItem label="Overtime Hours" value={Number(entry.overtime_hours ?? 0).toFixed(2)} />
-          <ReadOnlyItem label="Total Hours" value={`${Number(entry.total_hours ?? 0).toFixed(2)} (${fmtHHMM(entry.total_hours)})`} highlight />
+          {entry.work_date && <ReadOnlyItem label="Work Date" value={entry.work_date} />}
+          {entry.employee_name && <ReadOnlyItem label="Worker Name" value={entry.employee_name} />}
+          {entry.job_name && <ReadOnlyItem label="Job" value={entry.job_name} />}
+          {entry.time_in && <ReadOnlyItem label="Time In" value={entry.time_in} />}
+          {entry.time_out && <ReadOnlyItem label="Time Out" value={entry.time_out} />}
+          {entry.break_time && <ReadOnlyItem label="Break" value={entry.break_time} />}
+          {entry.regular_hours != null && (
+            <ReadOnlyItem label="Regular Hours" value={Number(entry.regular_hours).toFixed(2)} />
+          )}
+          {entry.overtime_hours != null && (
+            <ReadOnlyItem label="Overtime Hours" value={Number(entry.overtime_hours).toFixed(2)} />
+          )}
+          <ReadOnlyItem
+            label="Total Hours"
+            value={`${Number(entry.total_hours ?? 0).toFixed(2)} (${fmtHHMM(entry.total_hours)})`}
+            highlight
+          />
         </div>
         {entry.description && (
           <div className="cl-readonly-notes">
@@ -417,6 +456,79 @@ export default function ContractLaborEdit() {
           </div>
         )}
       </section>
+
+      {/* Time Log Details — only for TimeTracking-sourced rows. Pulls the
+          per-log breakdown from the source TimeEntry so a reviewer can
+          cross-check clock-in/out + break vs. what's been allocated below. */}
+      {sourceTimeEntryPublicId && (
+        <section className="cl-edit-section">
+          <div className="cl-section-header">
+            <h3>
+              Time Log Details{" "}
+              <span className="cl-section-badge">From TimeTracking</span>
+            </h3>
+            <Link
+              to={`/time-entry/${sourceTimeEntryPublicId}`}
+              className="btn btn-secondary btn-sm"
+            >
+              View Source TimeEntry
+            </Link>
+          </div>
+          {sourceTimeEntryQuery.isLoading ? (
+            <p className="text-muted">Loading logs…</p>
+          ) : sourceTimeEntryQuery.error ? (
+            <p className="cl-empty">
+              Could not load source TimeEntry logs:{" "}
+              {(sourceTimeEntryQuery.error as Error).message}
+            </p>
+          ) : (sourceTimeEntryQuery.data?.time_logs?.length ?? 0) === 0 ? (
+            <p className="cl-empty">Source TimeEntry has no time logs.</p>
+          ) : (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Clock In</th>
+                  <th>Clock Out</th>
+                  <th style={{ textAlign: "right" }}>Duration</th>
+                  <th>Type</th>
+                  <th>Project</th>
+                  <th>Note</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(sourceTimeEntryQuery.data?.time_logs ?? []).map((log) => {
+                  const projectName =
+                    log.project_id != null
+                      ? sortedProjects.find((p) => p.id === log.project_id)?.name ?? `#${log.project_id}`
+                      : "—";
+                  return (
+                    <tr key={log.public_id}>
+                      <td>{fmtShortDate(log.clock_in)}</td>
+                      <td>{fmtClockTime(log.clock_in)}</td>
+                      <td>
+                        {log.clock_out ? fmtClockTime(log.clock_out) : (
+                          <em className="text-muted">still clocked in</em>
+                        )}
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        {log.duration != null
+                          ? `${Number(log.duration).toFixed(2)} (${fmtHHMM(log.duration)})`
+                          : "—"}
+                      </td>
+                      <td style={{ textTransform: "capitalize" }}>
+                        {log.log_type ?? "—"}
+                      </td>
+                      <td>{projectName}</td>
+                      <td>{log.note || <span className="text-muted">—</span>}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </section>
+      )}
 
       {/* Bill header */}
       <section className="cl-edit-section">
