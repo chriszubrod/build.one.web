@@ -51,11 +51,15 @@ function toNum(s: string): number {
   return isFinite(n) ? n : 0;
 }
 
+// Amount = Hours × Rate (pre-markup). Treats Rate as an hourly rate.
+function computeAmount(row: LineRow): number {
+  return toNum(row.hours) * toNum(row.rate);
+}
+
+// Price = Amount × (1 + Markup). What we actually bill the client.
 function computePrice(row: LineRow): number {
-  const hours = toNum(row.hours);
-  const rate = toNum(row.rate);
   const markup = toNum(row.markup_percent) / 100;
-  return (hours / 8) * rate * (1 + markup);
+  return computeAmount(row) * (1 + markup);
 }
 
 function emptyRow(workDate: string): LineRow {
@@ -240,6 +244,10 @@ export default function ContractLaborEdit() {
   // Aggregates
   const allocatedThisEntry = useMemo(
     () => lines.reduce((sum, r) => sum + toNum(r.hours), 0),
+    [lines],
+  );
+  const totalAmount = useMemo(
+    () => lines.reduce((sum, r) => sum + computeAmount(r), 0),
     [lines],
   );
   const totalPrice = useMemo(
@@ -568,6 +576,7 @@ export default function ContractLaborEdit() {
           <p className="cl-empty">No line items yet. Click "+ Add Line Item" to add billing details.</p>
         ) : (
           lines.map((row, index) => {
+            const amount = computeAmount(row);
             const price = computePrice(row);
             return (
               <div key={row.public_id ?? `new-${index}`} className="cl-line-item-card">
@@ -639,7 +648,7 @@ export default function ContractLaborEdit() {
                     />
                   </div>
                   <div className="cl-field cl-field-sm">
-                    <label>Rate (per day)</label>
+                    <label>Rate (per hour)</label>
                     <input
                       type="number"
                       step="0.01"
@@ -649,6 +658,10 @@ export default function ContractLaborEdit() {
                       placeholder="0.00"
                       disabled={isBilled}
                     />
+                  </div>
+                  <div className="cl-field cl-field-sm">
+                    <label>Amount</label>
+                    <input type="text" value={fmtMoney(amount)} readOnly className="cl-calculated" />
                   </div>
                   <div className="cl-field cl-field-sm">
                     <label>Markup (%)</label>
@@ -694,6 +707,7 @@ export default function ContractLaborEdit() {
         )}
         <div className="cl-line-items-total">
           <span><strong>Total Hours:</strong> {allocatedThisEntry.toFixed(2)} ({fmtHHMM(allocatedThisEntry)})</span>
+          <span><strong>Total Amount:</strong> {fmtMoney(totalAmount)}</span>
           <span><strong>Total Price:</strong> {fmtMoney(totalPrice)}</span>
         </div>
       </section>
