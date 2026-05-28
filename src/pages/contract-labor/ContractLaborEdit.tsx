@@ -125,10 +125,11 @@ export default function ContractLaborEdit() {
 
   const [entry, setEntry] = useState<ContractLabor | null>(null);
   const [rowVersion, setRowVersion] = useState<string>("");
-  const [billVendorId, setBillVendorId] = useState<string>("");
-  const [billNumber, setBillNumber] = useState<string>("");
-  const [billDate, setBillDate] = useState<string>("");
-  const [dueDate, setDueDate] = useState<string>("");
+  // Bill metadata (vendor / number / date / due) used to be entered here;
+  // they're now derived at Generate-Bills time. The state is gone — the
+  // VENDOR_CONFIG defaults key off entry.vendor_id (the contract-labor
+  // vendor, bound during ingest) instead of a separately-selected billing
+  // vendor.
   const [lines, setLines] = useState<LineRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string>("");
@@ -140,10 +141,9 @@ export default function ContractLaborEdit() {
   const { items: projects } = useEntityList<Project>("/api/v1/get/projects");
   const { items: subCostCodes } = useEntityList<SubCostCode>("/api/v1/get/sub-cost-codes");
 
-  const sortedVendors = useMemo(
-    () => [...vendors].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
-    [vendors],
-  );
+  // vendors[] is still loaded for VENDOR_CONFIG lookup by name in vendorDefaults;
+  // the sortedVendors memo (used to power the now-removed Vendor dropdown) is
+  // no longer needed.
   const sortedProjects = useMemo(
     () => [...projects].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
     [projects],
@@ -192,10 +192,8 @@ export default function ContractLaborEdit() {
         if (cancelled) return;
         setEntry(e);
         setRowVersion(e.row_version);
-        setBillVendorId(e.bill_vendor_id != null ? String(e.bill_vendor_id) : "");
-        setBillNumber(e.bill_number ?? "");
-        setBillDate(e.bill_date ?? "");
-        setDueDate(e.due_date ?? "");
+        // Bill metadata is no longer populated from this page —
+        // the Generate Bills flow derives it at billing time.
         const mapped = items.data.map((li) => fromServer(li, e.work_date));
         setLines(mapped.length > 0 ? mapped : [emptyRow(e.work_date)]);
       } catch (err) {
@@ -210,10 +208,13 @@ export default function ContractLaborEdit() {
     };
   }, [publicId]);
 
-  // Vendor → rate + markup defaults from VENDOR_CONFIG
+  // Vendor → rate + markup defaults from VENDOR_CONFIG.
+  // Keyed off entry.vendor_id (the contract-labor vendor, already bound
+  // during ingest by the time_tracking_specialist or Excel import) rather
+  // than a separately-selected billing vendor.
   const vendorDefaults = useMemo(() => {
-    if (!billVendorId || !vendorConfigQuery.data) return null;
-    const v = vendors.find((x) => String(x.id) === billVendorId);
+    if (!entry?.vendor_id || !vendorConfigQuery.data) return null;
+    const v = vendors.find((x) => x.id === entry.vendor_id);
     if (!v) return null;
     const cfg = vendorConfigQuery.data[v.name];
     if (!cfg) return null;
@@ -221,7 +222,7 @@ export default function ContractLaborEdit() {
       rate: cfg.rate ?? "",
       markupPercent: cfg.markup != null ? String(Number(cfg.markup) * 100) : "",
     };
-  }, [billVendorId, vendorConfigQuery.data, vendors]);
+  }, [entry?.vendor_id, vendorConfigQuery.data, vendors]);
 
   // When vendor changes, fill rate/markup on EMPTY lines only
   useEffect(() => {
@@ -305,9 +306,7 @@ export default function ContractLaborEdit() {
 
   function validateForMarkReady(): string | null {
     const missing: string[] = [];
-    if (!billVendorId) missing.push("Vendor");
-    if (!billDate) missing.push("Bill Date");
-    if (!billNumber) missing.push("Bill Number");
+    if (!entry?.vendor_id) missing.push("Contract Labor Vendor (not bound on this row)");
     if (lines.length === 0) missing.push("At least one Line Item");
     if (missing.length > 0) return `Missing required fields: ${missing.join(", ")}`;
     return null;
@@ -327,10 +326,13 @@ export default function ContractLaborEdit() {
 
     const payload = {
       row_version: rowVersion,
-      bill_vendor_id: billVendorId ? Number(billVendorId) : null,
-      bill_date: billDate || null,
-      due_date: dueDate || null,
-      bill_number: billNumber || null,
+      // Bill metadata is no longer set here — Generate Bills derives
+      // it (vendor defaults to entry.vendor_id; bill_number is auto-
+      // generated; bill_date / due_date come from the billing period).
+      bill_vendor_id: null,
+      bill_date: null,
+      due_date: null,
+      bill_number: null,
       status: markAsReady ? "ready" : undefined,
       line_items: lines.map((row) => ({
         id: row.id,
@@ -529,63 +531,6 @@ export default function ContractLaborEdit() {
           )}
         </section>
       )}
-
-      {/* Bill header */}
-      <section className="cl-edit-section">
-        <h3>Bill Information</h3>
-        <div className="cl-form-row">
-          <div className="cl-field">
-            <label htmlFor="bill_vendor">Vendor <span className="required">*</span></label>
-            <select
-              id="bill_vendor"
-              value={billVendorId}
-              onChange={(e) => setBillVendorId(e.target.value)}
-              disabled={isBilled}
-            >
-              <option value="">— Select Vendor —</option>
-              {sortedVendors.map((v) => (
-                <option key={v.id} value={v.id}>{v.name}</option>
-              ))}
-            </select>
-            {entry.employee_name && (
-              <p className="cl-hint">Imported as: "{entry.employee_name}"</p>
-            )}
-          </div>
-          <div className="cl-field">
-            <label htmlFor="bill_number">Bill Number <span className="required">*</span></label>
-            <input
-              id="bill_number"
-              type="text"
-              value={billNumber}
-              onChange={(e) => setBillNumber(e.target.value)}
-              placeholder="e.g., CL-2026-001"
-              disabled={isBilled}
-            />
-          </div>
-        </div>
-        <div className="cl-form-row">
-          <div className="cl-field">
-            <label htmlFor="bill_date">Bill Date <span className="required">*</span></label>
-            <input
-              id="bill_date"
-              type="date"
-              value={billDate}
-              onChange={(e) => setBillDate(e.target.value)}
-              disabled={isBilled}
-            />
-          </div>
-          <div className="cl-field">
-            <label htmlFor="due_date">Due Date</label>
-            <input
-              id="due_date"
-              type="date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              disabled={isBilled}
-            />
-          </div>
-        </div>
-      </section>
 
       {/* Daily Hours Summary */}
       <section className="cl-edit-section cl-hours-summary">
