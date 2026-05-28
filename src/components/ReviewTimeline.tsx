@@ -10,21 +10,25 @@ interface ReviewTimelineProps {
 }
 
 // API URL slug per parent type. Three of four match snake_case; bill_credit
-// uses a hyphen on the API surface.
+// + contract_labor use a hyphen on the API surface.
 const URL_SLUG: Record<ReviewParentType, string> = {
   bill: "bill",
   expense: "expense",
   bill_credit: "bill-credit",
   invoice: "invoice",
+  contract_labor: "contract-labor",
 };
 
 // dbo.Modules.Name per parent. Buttons hide if the current user lacks
-// can_update on this module (the same gate the API enforces).
+// can_update on this module (the same gate the API enforces). ContractLabor
+// review actions are gated on "Time Tracking" rather than "Contract Labor"
+// because TimeTracking-sourced rows share an actor with TimeEntry review.
 const MODULE_NAME: Record<ReviewParentType, string> = {
   bill: "Bills",
   expense: "Expenses",
   bill_credit: "Bill Credits",
   invoice: "Invoices",
+  contract_labor: "Time Tracking",
 };
 
 type ActionKind = "submit" | "advance" | "decline";

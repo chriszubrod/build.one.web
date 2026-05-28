@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ApiError, del, getList, getOne, put } from "../../api/client";
+import { ApiError, del, getList, getOne, post, put } from "../../api/client";
 import { useEntityList } from "../../hooks/useEntity";
+import ReviewTimeline from "../../components/ReviewTimeline";
 import type {
   ContractLabor,
   ContractLaborDailySummary,
@@ -138,6 +139,7 @@ export default function ContractLaborEdit() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  const [submittingReview, setSubmittingReview] = useState(false);
   const [saveStatus, setSaveStatus] = useState<{ tone: "success" | "error"; msg: string } | null>(null);
 
   // Lookups
@@ -383,6 +385,34 @@ export default function ContractLaborEdit() {
     }
   }
 
+  // Save Changes + submit the review in one shot. The PUT persists any
+  // pending edits; on success we POST the review submit endpoint, which
+  // creates the initial Review row and surfaces it via <ReviewTimeline>'s
+  // refetch (it polls on mount + after its own action calls).
+  async function saveAndSubmitForReview(): Promise<boolean> {
+    if (!publicId || !entry) return false;
+    // Persist line-item edits first so reviewers see what they're approving.
+    setSubmittingReview(true);
+    try {
+      await save(false);
+      await post<unknown>(`/api/v1/submit/review/contract-labor/${publicId}`, {
+        comments: null,
+      });
+      showStatus("success", "Submitted for review.", 2500);
+      // Force the ReviewTimeline to refetch by lightly bouncing the page.
+      // (Component reads the list endpoint on mount + after its own
+      // submit/advance/decline calls; manual refresh isn't surfaced yet.)
+      window.setTimeout(() => window.location.reload(), 600);
+      return true;
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.detail : "Failed to submit for review";
+      showStatus("error", msg);
+      return false;
+    } finally {
+      setSubmittingReview(false);
+    }
+  }
+
   async function handleDelete() {
     if (!publicId) return;
     if (!window.confirm("Delete this entry and all its line items? This cannot be undone.")) return;
@@ -428,6 +458,12 @@ export default function ContractLaborEdit() {
         <span><strong>Source:</strong> {entry.source_file || "Manual"}</span>
         {entry.source_row && <span><strong>Row:</strong> {entry.source_row}</span>}
       </div>
+
+      {/* Review timeline — mirror of the Bill review surface. Mounts once
+          a Review row exists for this ContractLabor (after Submit For Review).
+          Shows the state machine + Advance / Decline buttons for reviewers
+          with Time Tracking can_update. */}
+      <ReviewTimeline parentType="contract_labor" parentPublicId={entry.public_id} />
 
       {/* Time Entry Details — read-only. Only the populated fields render;
           for iOS-fed rows (TimeTracking lineage) the Excel-only columns
@@ -717,8 +753,17 @@ export default function ContractLaborEdit() {
           <button type="button" className="btn btn-primary" onClick={() => save(false)} disabled={saving || isBilled}>
             {saving ? "Saving..." : "Save Changes"}
           </button>
-          <button type="button" className="btn btn-primary" onClick={() => save(true)} disabled={saving || isBilled}>
-            Save &amp; Mark Ready
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={async () => {
+              if (await saveAndSubmitForReview()) {
+                /* in-place re-render via reviewTimelineRefreshKey */
+              }
+            }}
+            disabled={saving || submittingReview || isBilled}
+          >
+            {submittingReview ? "Submitting…" : "Submit For Review"}
           </button>
         </div>
         <div style={{ display: "flex", gap: 8 }}>

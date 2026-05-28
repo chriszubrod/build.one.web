@@ -534,7 +534,7 @@ export interface Contact {
 
 /** Review — audit trail of state transitions on transactional documents */
 
-export type ReviewParentType = "bill" | "expense" | "bill_credit" | "invoice";
+export type ReviewParentType = "bill" | "expense" | "bill_credit" | "invoice" | "contract_labor";
 
 export interface Review {
   id: number;
