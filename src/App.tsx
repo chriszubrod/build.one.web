@@ -7,6 +7,15 @@ import SignupPage from "./auth/SignupPage";
 import AppLayout from "./layout/AppLayout";
 import Dashboard from "./pages/Dashboard";
 
+// Employee
+import EmployeeList from "./pages/employees/EmployeeList";
+import EmployeeView from "./pages/employees/EmployeeView";
+import EmployeeEdit from "./pages/employees/EmployeeEdit";
+import EmployeeCreate from "./pages/employees/EmployeeCreate";
+
+// Employee Labor (TimeTracking-aggregated, no Bill — feeds Invoice directly)
+import EmployeeLaborList from "./pages/employee-labor/EmployeeLaborList";
+
 // Vendor
 import VendorList from "./pages/vendors/VendorList";
 import VendorView from "./pages/vendors/VendorView";
@@ -202,6 +211,15 @@ export default function App() {
           <Route element={<ProtectedRoute />}>
             <Route element={<AppLayout />}>
               <Route path="/" element={<Dashboard />} />
+
+              {/* Employee */}
+              <Route path="/employee/list" element={<EmployeeList />} />
+              <Route path="/employee/create" element={<EmployeeCreate />} />
+              <Route path="/employee/:id" element={<EmployeeView />} />
+              <Route path="/employee/:id/edit" element={<EmployeeEdit />} />
+
+              {/* Employee Labor */}
+              <Route path="/employee-labor/list" element={<EmployeeLaborList />} />
 
               {/* Vendor */}
               <Route path="/vendor/list" element={<VendorList />} />

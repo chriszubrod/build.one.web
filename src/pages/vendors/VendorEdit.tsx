@@ -25,6 +25,8 @@ export default function VendorEdit() {
       is_draft: item.is_draft,
       is_contract_labor: item.is_contract_labor,
       notes: item.notes ?? "",
+      hourly_rate: item.hourly_rate ?? "",
+      markup: item.markup ?? "",
       row_version: item.row_version,
     });
   }
@@ -50,6 +52,8 @@ export default function VendorEdit() {
         is_draft: form.is_draft,
         is_contract_labor: form.is_contract_labor,
         notes: form.notes,
+        hourly_rate: form.hourly_rate || null,
+        markup: form.markup || null,
       });
       navigate(`/vendor/${id}`);
     } catch (err: any) {
@@ -108,6 +112,20 @@ export default function VendorEdit() {
           />
           <label htmlFor="is_draft">Draft</label>
         </div>
+        <FormField
+          label="Hourly Rate (Default)"
+          name="hourly_rate"
+          value={form.hourly_rate}
+          onChange={onChange}
+          placeholder="e.g. 260.00 — used for contract-labor billing"
+        />
+        <FormField
+          label="Markup (Default)"
+          name="markup"
+          value={form.markup}
+          onChange={onChange}
+          placeholder="e.g. 0.50 for 50%"
+        />
         <div className="form-field">
           <label htmlFor="notes">Notes</label>
           <textarea

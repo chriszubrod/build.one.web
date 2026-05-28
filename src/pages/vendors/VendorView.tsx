@@ -42,6 +42,8 @@ export default function VendorView() {
         { label: "Name", value: item.name },
         { label: "Abbreviation", value: item.abbreviation },
         { label: "Contract Labor", value: item.is_contract_labor ? "Yes" : "No" },
+        { label: "Hourly Rate", value: item.hourly_rate ? `$${item.hourly_rate}` : "—" },
+        { label: "Markup", value: item.markup ? `${(Number(item.markup) * 100).toFixed(0)}%` : "—" },
         { label: "Status", value: item.is_draft ? "Draft" : "Active" },
         { label: "Notes", value: item.notes || "—" },
       ]}

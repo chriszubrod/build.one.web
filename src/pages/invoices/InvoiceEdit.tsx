@@ -32,6 +32,7 @@ const SOURCE_TYPE_OPTIONS = [
   { value: "BillLineItem", label: "BillLineItem" },
   { value: "ExpenseLineItem", label: "ExpenseLineItem" },
   { value: "BillCreditLineItem", label: "BillCreditLineItem" },
+  { value: "EmployeeLaborLineItem", label: "EmployeeLaborLineItem" },
   { value: "Manual", label: "Manual" },
 ];
 

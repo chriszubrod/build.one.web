@@ -7,6 +7,22 @@ export interface LookupVendor {
   is_contract_labor: boolean;
 }
 
+export interface LookupContractLaborVendor {
+  id: number;
+  public_id: string;
+  name: string;
+  abbreviation: string | null;
+}
+
+export interface LookupEmployee {
+  id: number;
+  public_id: string;
+  firstname: string;
+  lastname: string;
+  /** Convenience pre-joined "Firstname Lastname" for picker labels. */
+  label: string;
+}
+
 export interface LookupProject {
   public_id: string;
   name: string;
@@ -61,6 +77,8 @@ export interface LookupModule {
 
 export interface Lookups {
   vendors?: LookupVendor[];
+  contract_labor_vendors?: LookupContractLaborVendor[];
+  employees?: LookupEmployee[];
   projects?: LookupProject[];
   sub_cost_codes?: LookupSubCostCode[];
   cost_codes?: LookupCostCode[];
@@ -103,6 +121,24 @@ export interface CurrentUser {
 
 /** Full entity types — returned by CRUD endpoints */
 
+export interface Employee {
+  id: number;
+  public_id: string;
+  row_version: string;
+  created_datetime: string | null;
+  modified_datetime: string | null;
+  firstname: string;
+  lastname: string;
+  email: string | null;
+  /** DECIMAL — transported as string to preserve precision. */
+  hourly_rate: string | null;
+  /** DECIMAL — e.g. "0.50" = 50%. */
+  markup: string | null;
+  is_active: boolean;
+  is_deleted: boolean;
+  notes: string | null;
+}
+
 export interface Vendor {
   id: number;
   public_id: string;
@@ -117,6 +153,48 @@ export interface Vendor {
   is_deleted: boolean;
   is_contract_labor: boolean;
   notes: string | null;
+  /** Default contract-labor rate. DECIMAL transported as string. NULL = unset. */
+  hourly_rate: string | null;
+  /** Markup as decimal (e.g. "0.50" = 50%). NULL = unset. */
+  markup: string | null;
+}
+
+/** Per-(Vendor × Project) rate override. NULL fields inherit from Vendor defaults. */
+export interface VendorProjectRate {
+  id: number;
+  public_id: string;
+  row_version: string;
+  created_datetime: string | null;
+  modified_datetime: string | null;
+  vendor_id: number;
+  project_id: number;
+  hourly_rate: string | null;
+  markup: string | null;
+  notes: string | null;
+  is_deleted: boolean;
+  vendor_name?: string | null;
+  vendor_public_id?: string | null;
+  project_name?: string | null;
+  project_public_id?: string | null;
+}
+
+/** Per-(Employee × Project) rate override. Mirror of VendorProjectRate. */
+export interface EmployeeProjectRate {
+  id: number;
+  public_id: string;
+  row_version: string;
+  created_datetime: string | null;
+  modified_datetime: string | null;
+  employee_id: number;
+  project_id: number;
+  hourly_rate: string | null;
+  markup: string | null;
+  notes: string | null;
+  is_deleted: boolean;
+  employee_name?: string | null;
+  employee_public_id?: string | null;
+  project_name?: string | null;
+  project_public_id?: string | null;
 }
 
 export interface VendorType {
@@ -249,6 +327,9 @@ export interface User {
   modified_datetime: string | null;
   firstname: string;
   lastname: string | null;
+  /** Worker linkage — at most one is non-null. NULL = User is not a billable worker. */
+  employee_id: number | null;
+  vendor_id: number | null;
 }
 
 export interface ReviewStatus {

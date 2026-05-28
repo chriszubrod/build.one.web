@@ -2,8 +2,9 @@ import { Link, useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useEntityItem, updateEntity, deleteEntity } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { useLookups } from "../../hooks/useLookups";
 import { useToast } from "../../components/Toast";
-import { getList, getOne, post, del } from "../../api/client";
+import { getList, getOne, post, put, del } from "../../api/client";
 import Breadcrumb, { entityCrumbs } from "../../components/Breadcrumb";
 import FormField from "../../components/FormField";
 import InlineContacts from "../../components/InlineContacts";
@@ -44,6 +45,15 @@ export default function UserProfile() {
   const [credCurrentUsername, setCredCurrentUsername] = useState<string | null>(null);
   const [credHasAuth, setCredHasAuth] = useState<boolean | null>(null);
   const [credSaving, setCredSaving] = useState(false);
+
+  // Worker linkage (Employee XOR Vendor — TimeTracking integration Phase 1)
+  const [workerType, setWorkerType] = useState<"none" | "employee" | "vendor">("none");
+  const [workerPublicId, setWorkerPublicId] = useState("");
+  const [workerSaving, setWorkerSaving] = useState(false);
+  const [workerError, setWorkerError] = useState("");
+  const { data: workerLookups } = useLookups("employees,contract_labor_vendors");
+  const employeeOptions = workerLookups.employees ?? [];
+  const clVendorOptions = workerLookups.contract_labor_vendors ?? [];
 
   // Roles
   const [allRoles, setAllRoles] = useState<Role[]>([]);
@@ -133,6 +143,24 @@ export default function UserProfile() {
     });
   }
 
+  // Hydrate worker-section state once `item` + the lookups are both loaded.
+  // Resolves item.employee_id / item.vendor_id (internal BIGINT) → public_id.
+  useEffect(() => {
+    if (!item) return;
+    if (item.employee_id != null) {
+      const match = employeeOptions.find((e) => e.id === item.employee_id);
+      setWorkerType("employee");
+      setWorkerPublicId(match?.public_id ?? "");
+    } else if (item.vendor_id != null) {
+      const match = clVendorOptions.find((v) => v.id === item.vendor_id);
+      setWorkerType("vendor");
+      setWorkerPublicId(match?.public_id ?? "");
+    } else {
+      setWorkerType("none");
+      setWorkerPublicId("");
+    }
+  }, [item, employeeOptions, clVendorOptions]);
+
   if (loading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
   if (!item || !form) return null;
@@ -157,6 +185,35 @@ export default function UserProfile() {
       setSaveError(err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // ---- Worker linkage (Employee XOR Vendor) ----
+  const handleSaveWorker = async () => {
+    if (!item) return;
+    setWorkerSaving(true);
+    setWorkerError("");
+    try {
+      const body =
+        workerType === "none"
+          ? { row_version: item.row_version, worker_type: null, worker_public_id: null }
+          : workerType === "employee"
+            ? { row_version: item.row_version, worker_type: "employee", worker_public_id: workerPublicId }
+            : { row_version: item.row_version, worker_type: "vendor", worker_public_id: workerPublicId };
+
+      if (workerType !== "none" && !workerPublicId) {
+        setWorkerError("Pick a worker before saving.");
+        setWorkerSaving(false);
+        return;
+      }
+
+      await put(`/api/v1/update/user/${id}/worker-link`, body);
+      toast("Worker linkage saved.");
+      reload();
+    } catch (err: any) {
+      setWorkerError(err.message);
+    } finally {
+      setWorkerSaving(false);
     }
   };
 
@@ -471,6 +528,132 @@ export default function UserProfile() {
           </dl>
         )}
       </form>
+
+      {/* Worker linkage — Employee XOR Vendor (TimeTracking Phase 1) */}
+      <div className="detail-card" style={{ marginTop: 24 }}>
+        <h3 className="line-items-heading">Worker</h3>
+        <p className="text-muted" style={{ marginTop: -4, marginBottom: 12 }}>
+          Link this User to an Employee or a contract-labor Vendor so their
+          time entries can be aggregated into payroll or billable contract labor.
+        </p>
+        {workerError && <div className="form-error">{workerError}</div>}
+
+        {isAdmin ? (
+          <>
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <label style={{ marginRight: 12 }}>
+                <input
+                  type="radio"
+                  name="worker_type"
+                  value="none"
+                  checked={workerType === "none"}
+                  onChange={() => {
+                    setWorkerType("none");
+                    setWorkerPublicId("");
+                  }}
+                />{" "}
+                None
+              </label>
+              <label style={{ marginRight: 12 }}>
+                <input
+                  type="radio"
+                  name="worker_type"
+                  value="employee"
+                  checked={workerType === "employee"}
+                  onChange={() => {
+                    setWorkerType("employee");
+                    setWorkerPublicId("");
+                  }}
+                />{" "}
+                Employee
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="worker_type"
+                  value="vendor"
+                  checked={workerType === "vendor"}
+                  onChange={() => {
+                    setWorkerType("vendor");
+                    setWorkerPublicId("");
+                  }}
+                />{" "}
+                Contract-labor Vendor
+              </label>
+            </div>
+
+            {workerType === "employee" && (
+              <div className="form-group">
+                <label htmlFor="worker_employee">Employee</label>
+                <select
+                  id="worker_employee"
+                  value={workerPublicId}
+                  onChange={(e) => setWorkerPublicId(e.target.value)}
+                >
+                  <option value="">Select...</option>
+                  {employeeOptions.map((e) => (
+                    <option key={e.public_id} value={e.public_id}>
+                      {e.label}
+                    </option>
+                  ))}
+                </select>
+                {employeeOptions.length === 0 && (
+                  <p className="text-muted" style={{ marginTop: 4 }}>
+                    No employees yet. <Link to="/employee/create">Create one</Link>.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {workerType === "vendor" && (
+              <div className="form-group">
+                <label htmlFor="worker_vendor">Contract-labor Vendor</label>
+                <select
+                  id="worker_vendor"
+                  value={workerPublicId}
+                  onChange={(e) => setWorkerPublicId(e.target.value)}
+                >
+                  <option value="">Select...</option>
+                  {clVendorOptions.map((v) => (
+                    <option key={v.public_id} value={v.public_id}>
+                      {v.name}
+                      {v.abbreviation ? ` (${v.abbreviation})` : ""}
+                    </option>
+                  ))}
+                </select>
+                {clVendorOptions.length === 0 && (
+                  <p className="text-muted" style={{ marginTop: 4 }}>
+                    No vendors flagged "Contract Labor" yet. Flag a vendor via
+                    the <Link to="/vendor/list">Vendors</Link> page.
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="form-actions">
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={workerSaving}
+                onClick={handleSaveWorker}
+              >
+                {workerSaving ? "Saving…" : "Save Worker Linkage"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <dl className="detail-fields">
+            <div className="detail-row">
+              <dt>Linked</dt>
+              <dd>
+                {workerType === "employee" && employeeOptions.find((e) => e.public_id === workerPublicId)?.label}
+                {workerType === "vendor" && clVendorOptions.find((v) => v.public_id === workerPublicId)?.name}
+                {workerType === "none" && <span className="text-muted">Not a billable worker</span>}
+              </dd>
+            </div>
+          </dl>
+        )}
+      </div>
 
       {/* Credentials (admin only) */}
       {isAdmin && (
