@@ -597,7 +597,13 @@ export default function ContractLaborEdit() {
                       <option value="">— Select Project —</option>
                       {sortedProjects.map((p) => (
                         <option key={p.id} value={p.id}>
-                          {p.abbreviation ? `${p.abbreviation} - ${p.name}` : p.name}
+                          {/* Project.name typically embeds the abbreviation (e.g.
+                              "MR2-MAIN - 1577 Moran Rd"), so prefixing again would
+                              duplicate it. Only prepend when the name doesn't
+                              already start with the abbreviation. */}
+                          {p.abbreviation && !p.name.startsWith(p.abbreviation)
+                            ? `${p.abbreviation} - ${p.name}`
+                            : p.name}
                         </option>
                       ))}
                     </select>
