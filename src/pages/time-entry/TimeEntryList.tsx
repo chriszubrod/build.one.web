@@ -187,11 +187,6 @@ export default function TimeEntryList() {
   );
 
   const projects = useEntityList<Project>("/api/v1/get/projects").items;
-  const projectMap = useMemo(() => {
-    const m = new Map<number, string>();
-    for (const p of projects) m.set(p.id, p.name);
-    return m;
-  }, [projects]);
   const sortedProjects = useMemo(
     () => [...projects].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
     [projects],
