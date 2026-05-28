@@ -15,6 +15,9 @@ import EmployeeCreate from "./pages/employees/EmployeeCreate";
 
 // Employee Labor (TimeTracking-aggregated, no Bill — feeds Invoice directly)
 import EmployeeLaborList from "./pages/employee-labor/EmployeeLaborList";
+import EmployeeLaborView from "./pages/employee-labor/EmployeeLaborView";
+import EmployeeLaborEdit from "./pages/employee-labor/EmployeeLaborEdit";
+import EmployeeLaborCreate from "./pages/employee-labor/EmployeeLaborCreate";
 
 // Vendor
 import VendorList from "./pages/vendors/VendorList";
@@ -220,6 +223,9 @@ export default function App() {
 
               {/* Employee Labor */}
               <Route path="/employee-labor/list" element={<EmployeeLaborList />} />
+              <Route path="/employee-labor/create" element={<EmployeeLaborCreate />} />
+              <Route path="/employee-labor/:id" element={<EmployeeLaborView />} />
+              <Route path="/employee-labor/:id/edit" element={<EmployeeLaborEdit />} />
 
               {/* Vendor */}
               <Route path="/vendor/list" element={<VendorList />} />

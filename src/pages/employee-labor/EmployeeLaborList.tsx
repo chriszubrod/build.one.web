@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import PageHeader from "../../components/PageHeader";
 import { rawRequest } from "../../api/client";
 
@@ -68,7 +69,7 @@ export default function EmployeeLaborList() {
 
   return (
     <div className="page">
-      <PageHeader title="Employee Labor" count={items.length} createPath="" />
+      <PageHeader title="Employee Labor" count={items.length} createPath="/employee-labor/create" />
 
       <div style={{ marginBottom: 16 }}>
         <label style={{ marginRight: 8 }}>Billing Period Start:</label>
@@ -106,7 +107,11 @@ export default function EmployeeLaborList() {
           <tbody>
             {items.map((r) => (
               <tr key={r.public_id}>
-                <td>{r.employee_name ?? `Employee #${r.employee_id}`}</td>
+                <td>
+                  <Link to={`/employee-labor/${r.public_id}`}>
+                    {r.employee_name ?? `Employee #${r.employee_id}`}
+                  </Link>
+                </td>
                 <td>{r.project_name ?? (r.project_id ? `#${r.project_id}` : "—")}</td>
                 <td>{r.work_date}</td>
                 <td style={{ textAlign: "right" }}>{r.total_hours ?? "—"}</td>

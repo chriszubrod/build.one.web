@@ -24,12 +24,16 @@ export interface LookupEmployee {
 }
 
 export interface LookupProject {
+  /** Phase 7b — added so picker forms can hydrate from item.project_id (internal BIGINT). */
+  id: number;
   public_id: string;
   name: string;
   abbreviation: string | null;
 }
 
 export interface LookupSubCostCode {
+  /** Phase 7b — added so picker forms can hydrate from item.sub_cost_code_id. */
+  id: number;
   public_id: string;
   number: string;
   name: string;
@@ -137,6 +141,32 @@ export interface Employee {
   is_active: boolean;
   is_deleted: boolean;
   notes: string | null;
+}
+
+/** EmployeeLabor — internal employee labor aggregation row. Flows to Invoice (no Bill). */
+export interface EmployeeLabor {
+  id: number;
+  public_id: string;
+  row_version: string;
+  created_datetime: string | null;
+  modified_datetime: string | null;
+  employee_id: number;
+  project_id: number | null;
+  work_date: string | null;
+  billing_period_start: string | null;
+  billing_period_end: string | null;
+  total_hours: string | null;
+  hourly_rate: string | null;
+  markup: string | null;
+  total_amount: string | null;
+  sub_cost_code_id: number | null;
+  description: string | null;
+  /** pending_review → ready → invoiced */
+  status: string | null;
+  source_time_entry_id: number | null;
+  invoice_line_item_id: number | null;
+  employee_name?: string | null;
+  project_name?: string | null;
 }
 
 export interface Vendor {
@@ -748,6 +778,31 @@ export interface ContractLabor {
   import_batch_id: string | null;
   source_file: string | null;
   source_row: number | null;
+  /** Phase 5 lineage — non-null when the row was aggregated from a TimeEntry
+   *  (rather than imported from Excel). React UI uses this to surface a
+   *  "From TimeTracking" vs "From Excel" badge when the backend exposes it.
+   *  Optional in the type so the badge gracefully hides if the API hasn't
+   *  added the field to its response yet. */
+  source_time_entry_id?: number | null;
+}
+
+/** Downstream lineage for a TimeEntry — what labor row was created and
+ *  whether it's been billed/invoiced. Returned by GET
+ *  /api/v1/time-entries/{public_id}/billed-lineage. */
+export interface TimeEntryBilledLineageRow {
+  target_table: "ContractLabor" | "EmployeeLabor";
+  target_id: number;
+  target_public_id: string;
+  labor_status: string;
+  work_date: string;
+  worker_id: number;
+  worker_name: string | null;
+  total_amount: string | null;
+  /** Non-null when the labor row has been Billed (vendor path) or Invoiced (employee path). */
+  linked_target_table: "Bill" | "Invoice" | null;
+  linked_target_id: number | null;
+  linked_target_public_id: string | null;
+  linked_target_number: string | null;
 }
 
 /** Email-message types — polled invoice inbox + agent classification */

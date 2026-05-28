@@ -460,6 +460,29 @@ export default function ContractLaborList() {
                     <td>{entry.work_date || "N/A"}</td>
                     <td>
                       <strong>{vendorName}</strong>
+                      {/* Source badge — only renders when the backend has
+                          surfaced source_time_entry_id (defensive: the
+                          field is optional in the type so we degrade
+                          silently if absent). */}
+                      {entry.source_time_entry_id !== undefined && (
+                        entry.source_time_entry_id != null ? (
+                          <span
+                            className="status-badge"
+                            title="Aggregated from a TimeEntry"
+                            style={{ marginLeft: 8, fontSize: "0.7em" }}
+                          >
+                            TT
+                          </span>
+                        ) : (
+                          <span
+                            className="status-badge"
+                            title="Imported from Excel"
+                            style={{ marginLeft: 8, fontSize: "0.7em", opacity: 0.6 }}
+                          >
+                            XLS
+                          </span>
+                        )
+                      )}
                     </td>
                     <td>{entry.job_name || "—"}</td>
                     <td>{fmtHoursHHMM(entry.total_hours)}</td>

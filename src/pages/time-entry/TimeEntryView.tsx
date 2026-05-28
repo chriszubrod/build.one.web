@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, del, getOne, post, put } from "../../api/client";
+import { ApiError, del, getList, getOne, post, put } from "../../api/client";
 import { useAutoSave } from "../../hooks/useAutoSave";
 import { useEntityList } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
@@ -10,6 +10,7 @@ import PageHeader from "../../components/PageHeader";
 import type {
   Project,
   TimeEntry,
+  TimeEntryBilledLineageRow,
   TimeLog,
   TimeEntryStatusValue,
   User,
@@ -175,6 +176,16 @@ export default function TimeEntryView() {
     queryFn: () => getOne<TimeEntry>(`/api/v1/time-entries/${publicId}`),
     enabled: !!publicId,
   });
+
+  // === Downstream lineage (Phase 7c) — what ContractLabor/EmployeeLabor row
+  // this entry produced, and whether it's been billed/invoiced. Refetches
+  // when status flips so a fresh submit picks up the new lineage row.
+  const { data: lineageRes } = useQuery<{ data: TimeEntryBilledLineageRow[]; count: number }>({
+    queryKey: ["time-entry-lineage", publicId, entry?.current_status],
+    queryFn: () => getList<TimeEntryBilledLineageRow>(`/api/v1/time-entries/${publicId}/billed-lineage`),
+    enabled: !!publicId && !!entry,
+  });
+  const lineage = lineageRes?.data ?? [];
 
   const users = useEntityList<User>("/api/v1/get/users").items;
   const userMap = useMemo(() => {
@@ -828,6 +839,67 @@ export default function TimeEntryView() {
           </table>
         )}
       </div>
+
+      {/* === Billed Lineage (Phase 7c) === */}
+      {lineage.length > 0 && (
+        <div className="detail-section" style={{ marginTop: 16 }}>
+          <h2>Billed Lineage</h2>
+          <p className="text-muted" style={{ marginTop: -4, marginBottom: 12 }}>
+            What this time entry was aggregated into for billing. Vendor labor
+            flows to a Bill; employee labor flows directly to an Invoice.
+          </p>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Work Date</th>
+                <th>Worker</th>
+                <th style={{ textAlign: "right" }}>Amount</th>
+                <th>Status</th>
+                <th>Linked To</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lineage.map((row) => {
+                const laborHref =
+                  row.target_table === "ContractLabor"
+                    ? `/contract-labor/${row.target_public_id}`
+                    : `/employee-labor/${row.target_public_id}`;
+                const linkedHref =
+                  row.linked_target_table === "Bill"
+                    ? `/bill/${row.linked_target_public_id}`
+                    : row.linked_target_table === "Invoice"
+                      ? `/invoice/${row.linked_target_public_id}`
+                      : null;
+                return (
+                  <tr key={`${row.target_table}-${row.target_id}`}>
+                    <td>
+                      <Link to={laborHref}>
+                        {row.target_table === "ContractLabor" ? "Contract Labor" : "Employee Labor"}
+                      </Link>
+                    </td>
+                    <td>{row.work_date}</td>
+                    <td>{row.worker_name ?? `#${row.worker_id}`}</td>
+                    <td style={{ textAlign: "right" }}>
+                      {row.total_amount ? `$${Number(row.total_amount).toFixed(2)}` : "—"}
+                    </td>
+                    <td>{row.labor_status}</td>
+                    <td>
+                      {linkedHref ? (
+                        <Link to={linkedHref}>
+                          {row.linked_target_table} #{row.linked_target_number ?? row.linked_target_id}
+                        </Link>
+                      ) : (
+                        <span className="text-muted">not yet {row.target_table === "ContractLabor" ? "billed" : "invoiced"}</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* === Status History === */}
       <div className="detail-section" style={{ marginTop: 16 }}>
