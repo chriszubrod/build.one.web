@@ -9,7 +9,6 @@ import type {
   ContractLaborLineItem,
   Project,
   SubCostCode,
-  TimeEntry,
   Vendor,
 } from "../../types/api";
 
@@ -58,13 +57,6 @@ function fmtBool(v: boolean | null | undefined): string {
   return v ? "Yes" : "No";
 }
 
-function fmtClockTime(v: string | null | undefined): string {
-  if (!v) return "—";
-  const d = new Date(v.includes("T") ? v : v.replace(" ", "T"));
-  if (isNaN(d.getTime())) return v;
-  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-}
-
 export default function ContractLaborView() {
   const { id: publicId } = useParams<{ id: string }>();
 
@@ -96,13 +88,9 @@ export default function ContractLaborView() {
 
   const entry = entryQuery.data;
   const sourceTimeEntryPublicId = entry?.source_time_entry_public_id ?? null;
-  const sourceTimeEntryQuery = useQuery<TimeEntry>({
-    queryKey: ["cl-source-time-entry", sourceTimeEntryPublicId],
-    queryFn: () => getOne<TimeEntry>(`/api/v1/time-entries/${sourceTimeEntryPublicId}`),
-    enabled: Boolean(sourceTimeEntryPublicId),
-  });
 
-  // Lookups for ID → name resolution
+  // Lookups for ID → name resolution (vendors → bill vendor name;
+  // projects + sub_cost_codes → line-item labels)
   const { items: vendors } = useEntityList<Vendor>("/api/v1/get/vendors");
   const { items: projects } = useEntityList<Project>("/api/v1/get/projects");
   const { items: subCostCodes } = useEntityList<SubCostCode>("/api/v1/get/sub-cost-codes");
@@ -153,9 +141,6 @@ export default function ContractLaborView() {
 
   const allocatedOther = dailySummaryQuery.data?.allocated_other_entries ?? 0;
   const remaining8h = MAX_DAILY_HOURS - allocatedOther - allocatedThisEntry;
-  const vendor = entry.vendor_id ? vendorById.get(entry.vendor_id) : undefined;
-  const project = entry.project_id ? projectById.get(entry.project_id) : undefined;
-  const subCostCode = entry.sub_cost_code_id ? subCostCodeById.get(entry.sub_cost_code_id) : undefined;
   const billVendor = entry.bill_vendor_id ? vendorById.get(entry.bill_vendor_id) : undefined;
   const hasBillInfo = Boolean(
     entry.bill_vendor_id || entry.bill_date || entry.due_date || entry.bill_number || entry.bill_line_item_id,
@@ -215,12 +200,6 @@ export default function ContractLaborView() {
         <div className="cl-readonly-grid">
           <ReadOnlyItem label="Work Date" value={entry.work_date || "—"} />
           <ReadOnlyItem label="Worker Name" value={entry.employee_name || "—"} />
-          <ReadOnlyItem label="Job" value={entry.job_name || "—"} />
-          <ReadOnlyItem label="Time In" value={entry.time_in || "—"} />
-          <ReadOnlyItem label="Time Out" value={entry.time_out || "—"} />
-          <ReadOnlyItem label="Break" value={entry.break_time || "—"} />
-          <ReadOnlyItem label="Regular Hours" value={fmtNum(entry.regular_hours)} />
-          <ReadOnlyItem label="Overtime Hours" value={fmtNum(entry.overtime_hours)} />
           <ReadOnlyItem
             label="Total Hours"
             value={`${fmtNum(entry.total_hours)} (${fmtHHMM(entry.total_hours)})`}
@@ -233,99 +212,6 @@ export default function ContractLaborView() {
             <p>{entry.description}</p>
           </div>
         )}
-      </section>
-
-      {/* Time Log Details (only when sourced from TimeEntry) */}
-      {sourceTimeEntryPublicId && (
-        <section className="cl-edit-section">
-          <h3>
-            Time Log Details <span className="cl-section-badge">From TimeTracking</span>
-          </h3>
-          {sourceTimeEntryQuery.isLoading && <p className="cl-empty">Loading time logs...</p>}
-          {sourceTimeEntryQuery.error && (
-            <p className="cl-empty">
-              Could not load source TimeEntry: {(sourceTimeEntryQuery.error as Error).message}
-            </p>
-          )}
-          {sourceTimeEntryQuery.data && (
-            <>
-              {sourceTimeEntryQuery.data.note && (
-                <div className="cl-readonly-notes" style={{ marginTop: 0, paddingTop: 0, borderTop: "none" }}>
-                  <label>TimeEntry Note</label>
-                  <p>{sourceTimeEntryQuery.data.note}</p>
-                </div>
-              )}
-              {sourceTimeEntryQuery.data.time_logs && sourceTimeEntryQuery.data.time_logs.length > 0 ? (
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Type</th>
-                      <th>Clock In</th>
-                      <th>Clock Out</th>
-                      <th style={{ textAlign: "right" }}>Duration (h)</th>
-                      <th>Note</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sourceTimeEntryQuery.data.time_logs.map((log, i) => (
-                      <tr key={log.public_id ?? i}>
-                        <td>{i + 1}</td>
-                        <td>{log.log_type || "—"}</td>
-                        <td>{fmtClockTime(log.clock_in)}</td>
-                        <td>{fmtClockTime(log.clock_out)}</td>
-                        <td style={{ textAlign: "right" }}>{fmtNum(log.duration)}</td>
-                        <td>{log.note || "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <p className="cl-empty">No time logs on the source TimeEntry.</p>
-              )}
-              <p className="cl-hint" style={{ marginTop: 8 }}>
-                Source TimeEntry public_id: <code>{sourceTimeEntryPublicId}</code>
-              </p>
-            </>
-          )}
-        </section>
-      )}
-
-      {/* Categorization */}
-      <section className="cl-edit-section">
-        <h3>Categorization</h3>
-        <div className="cl-readonly-grid">
-          <ReadOnlyItem
-            label="Vendor"
-            value={vendor ? vendor.name : entry.vendor_id ? `#${entry.vendor_id}` : "—"}
-          />
-          <ReadOnlyItem
-            label="Project"
-            value={
-              project
-                ? project.abbreviation
-                  ? `${project.abbreviation} — ${project.name}`
-                  : project.name
-                : entry.project_id
-                  ? `#${entry.project_id}`
-                  : "—"
-            }
-          />
-          <ReadOnlyItem
-            label="SubCostCode"
-            value={
-              subCostCode
-                ? `${subCostCode.number} — ${subCostCode.description || subCostCode.name}`
-                : entry.sub_cost_code_id
-                  ? `#${entry.sub_cost_code_id}`
-                  : "—"
-            }
-          />
-          <ReadOnlyItem label="Hourly Rate (default)" value={fmtMoney(entry.hourly_rate)} />
-          <ReadOnlyItem label="Markup (default)" value={fmtPercent(entry.markup)} />
-          <ReadOnlyItem label="Total Amount (default)" value={fmtMoney(entry.total_amount)} />
-          <ReadOnlyItem label="Billing Period Start" value={entry.billing_period_start || "—"} />
-        </div>
       </section>
 
       {/* Daily Hours Summary */}
@@ -392,8 +278,8 @@ export default function ContractLaborView() {
                         {row.is_overhead
                           ? <em>(Overhead)</em>
                           : proj
-                            ? proj.abbreviation
-                              ? `${proj.abbreviation} — ${proj.name}`
+                            ? proj.abbreviation && !proj.name.startsWith(proj.abbreviation)
+                              ? `${proj.abbreviation} - ${proj.name}`
                               : proj.name
                             : row.project_id
                               ? `#${row.project_id}`
@@ -454,24 +340,6 @@ export default function ContractLaborView() {
         </section>
       )}
 
-      {/* Source tracking */}
-      <section className="cl-edit-section">
-        <h3>Source Tracking</h3>
-        <div className="cl-readonly-grid">
-          <ReadOnlyItem label="Import Batch ID" value={entry.import_batch_id || "—"} />
-          <ReadOnlyItem label="Source File" value={entry.source_file || "—"} />
-          <ReadOnlyItem
-            label="Source Row"
-            value={entry.source_row != null ? String(entry.source_row) : "—"}
-          />
-          <ReadOnlyItem
-            label="Source TimeEntry"
-            value={sourceTimeEntryPublicId ?? "—"}
-          />
-          <ReadOnlyItem label="Created" value={entry.created_datetime || "—"} />
-          <ReadOnlyItem label="Modified" value={entry.modified_datetime || "—"} />
-        </div>
-      </section>
     </div>
   );
 }
