@@ -921,6 +921,10 @@ export interface TimeEntry {
   note: string | null;
   // Injected by the API on list + detail responses
   current_status?: TimeEntryStatusValue | null;
+  // Distinct non-NULL ProjectIds across this entry's TimeLogs — populated
+  // on the LIST response only (powers the React list-page Project column).
+  // Empty list when all logs are break-type or unassigned.
+  distinct_project_ids?: number[];
   // Present on detail response only
   time_logs?: TimeLog[];
   status_history?: TimeEntryStatus[];

@@ -191,6 +191,17 @@ export default function TimeEntryList() {
     () => [...projects].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
     [projects],
   );
+  // id → display label for the list-page Project column. Prefer
+  // abbreviation when set; else fall back to Project.Name (which
+  // typically embeds the abbreviation already, so no duplicate-prefix
+  // dance needed at the list-page summary level).
+  const projectLabelMap = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const p of projects) {
+      m.set(p.id, (p.abbreviation && p.abbreviation.trim()) || p.name);
+    }
+    return m;
+  }, [projects]);
 
   const entries = listQuery.data?.data ?? [];
   const totalCount = countQuery.data ?? 0;
@@ -364,7 +375,7 @@ export default function TimeEntryList() {
               <tr>
                 <th>Work Date</th>
                 <th>Worker</th>
-                <th>Note</th>
+                <th>Project</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -382,8 +393,10 @@ export default function TimeEntryList() {
                   >
                     <td>{fmtDate(entry.work_date)}</td>
                     <td>{workerName}</td>
-                    <td className="text-muted" style={{ maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {entry.note ?? ""}
+                    <td style={{ maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {(entry.distinct_project_ids ?? [])
+                        .map((pid) => projectLabelMap.get(pid) ?? `#${pid}`)
+                        .join(", ") || <span className="text-muted">—</span>}
                     </td>
                     <td>
                       <span className={`status-badge ${STATUS_CLASSES[current] ?? ""}`}>
