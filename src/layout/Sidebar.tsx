@@ -1,36 +1,32 @@
 import { NavLink } from "react-router-dom";
+import { useCurrentUser } from "../hooks/useCurrentUser";
 
-interface SidebarModule {
-  public_id: string;
-  name: string;
-  route: string | null;
-}
+export default function Sidebar() {
+  const { data: me } = useCurrentUser();
 
-interface SidebarProps {
-  modules: SidebarModule[];
-}
+  const profileTo = me?.user?.public_id ? `/user/${me.user.public_id}` : "/";
 
-export default function Sidebar({ modules }: SidebarProps) {
   return (
     <nav className="sidebar">
       <div className="sidebar-brand">Build One</div>
 
       <ul className="sidebar-nav">
         <li>
-          <NavLink to="/" end className={({ isActive }) => isActive ? "active" : ""}>
-            Dashboard
+          <NavLink
+            to="/time-entry/list"
+            className={({ isActive }) => (isActive ? "active" : "")}
+          >
+            Time
           </NavLink>
         </li>
-        {modules.map((mod) => (
-          <li key={mod.public_id}>
-            <NavLink
-              to={mod.route ?? `/${mod.name.toLowerCase()}`}
-              className={({ isActive }) => isActive ? "active" : ""}
-            >
-              {mod.name}
-            </NavLink>
-          </li>
-        ))}
+        <li>
+          <NavLink
+            to={profileTo}
+            className={({ isActive }) => (isActive ? "active" : "")}
+          >
+            Profile
+          </NavLink>
+        </li>
       </ul>
     </nav>
   );
