@@ -3684,6 +3684,24 @@ a.scout-record-header-link:hover .scout-record-name {
 .status-pill-rejected { background: var(--color-danger-bg); color: var(--color-danger-fg); }
 .status-pill-billed { background: var(--color-success-bg); color: var(--color-success-fg); }
 
+/* Worker section — wraps one TimeEntry's logs + submit in team mode */
+.worker-section {
+  margin-bottom: var(--space-xl);
+}
+
+.worker-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0 var(--space-xs) var(--space-sm);
+}
+
+.worker-section-name {
+  font-size: var(--font-size-callout);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
 /* Submit button — outlined pill, secondary prominence (sits below Day total) */
 .submit-button {
   display: flex;

@@ -139,54 +139,70 @@ export default function PastDayScreen() {
     })),
   });
 
-  const allLogs: { entryId: string; userId: number | null; log: TimeLog }[] = useMemo(() => {
-    const out: { entryId: string; userId: number | null; log: TimeLog }[] = [];
+  interface EntryGroup {
+    entry: TimeEntry;
+    workerName?: string;
+    logs: TimeLog[];
+  }
+
+  const entryGroups: EntryGroup[] = useMemo(() => {
+    const groups: EntryGroup[] = [];
     detailQueries.forEach((q) => {
       const entry = q.data;
-      if (!entry?.time_logs) return;
-      entry.time_logs.forEach((log) => {
-        out.push({ entryId: entry.public_id, userId: entry.user_id, log });
-      });
+      if (!entry) return;
+      const sortedLogs = (entry.time_logs ?? []).slice().sort((a, b) =>
+        (a.clock_in ?? "").localeCompare(b.clock_in ?? ""),
+      );
+      const workerName =
+        effectiveScope === "team" && entry.user_id !== null
+          ? userMap.get(entry.user_id)
+          : undefined;
+      groups.push({ entry, workerName, logs: sortedLogs });
     });
-    out.sort((a, b) => (a.log.clock_in ?? "").localeCompare(b.log.clock_in ?? ""));
-    return out;
-  }, [detailQueries]);
+    if (effectiveScope === "team") {
+      groups.sort((a, b) => (a.workerName ?? "").localeCompare(b.workerName ?? ""));
+    }
+    return groups;
+  }, [detailQueries, effectiveScope, userMap]);
 
   const totalHours = useMemo(() => {
-    return allLogs.reduce((sum, { log }) => {
-      if (log.log_type !== "work") return sum;
-      return sum + Number(log.duration ?? 0);
-    }, 0);
-  }, [allLogs]);
+    let sum = 0;
+    entryGroups.forEach(({ logs }) => {
+      logs.forEach((log) => {
+        if (log.log_type === "work") sum += Number(log.duration ?? 0);
+      });
+    });
+    return sum;
+  }, [entryGroups]);
+
+  const totalLogCount = useMemo(
+    () => entryGroups.reduce((n, g) => n + g.logs.length, 0),
+    [entryGroups],
+  );
 
   const totalLabel = fmtDuration(totalHours);
   const dateLabel = fmtLongDate(targetDate);
 
-  const soloEntry = effectiveScope === "me" ? (entriesQuery.data ?? [])[0] : undefined;
-  const currentStatus = soloEntry?.current_status ?? null;
-  const canSubmit =
-    effectiveScope === "me" &&
-    !!soloEntry &&
-    (currentStatus === "draft" || currentStatus === null) &&
-    allLogs.length > 0;
-  const [submitting, setSubmitting] = useState(false);
+  const soloStatus =
+    effectiveScope === "me" ? entryGroups[0]?.entry.current_status ?? null : null;
 
-  const handleSubmit = async () => {
-    if (!soloEntry || submitting) return;
-    if (!confirm(`Submit ${allLogs.length} log${allLogs.length === 1 ? "" : "s"} for ${dateLabel}? Once submitted, edits go through the back-office review.`)) {
-      return;
-    }
-    setSubmitting(true);
+  const [submittingEntryId, setSubmittingEntryId] = useState<string | null>(null);
+
+  const handleSubmit = async (entry: TimeEntry, logCount: number, workerLabel: string) => {
+    if (submittingEntryId) return;
+    const message = `Submit ${logCount} log${logCount === 1 ? "" : "s"} for ${workerLabel} on ${dateLabel}? Once submitted, edits go through the back-office review.`;
+    if (!confirm(message)) return;
+    setSubmittingEntryId(entry.public_id);
     try {
-      await post(`/api/v1/time-entries/${soloEntry.public_id}/submit`, {});
+      await post(`/api/v1/time-entries/${entry.public_id}/submit`, {});
       toast("Submitted for review", "success");
       queryClient.invalidateQueries({ queryKey: ["time-entries-day"] });
-      queryClient.invalidateQueries({ queryKey: ["time-entry", soloEntry.public_id] });
+      queryClient.invalidateQueries({ queryKey: ["time-entry", entry.public_id] });
     } catch (err) {
       console.error("Submit failed", err);
       toast(err instanceof Error ? err.message : "Submit failed", "error");
     } finally {
-      setSubmitting(false);
+      setSubmittingEntryId(null);
     }
   };
 
@@ -196,9 +212,9 @@ export default function PastDayScreen() {
         title={
           <>
             {dateLabel}
-            {currentStatus && currentStatus !== "draft" && (
-              <span className={`status-pill status-pill-${currentStatus}`}>
-                {STATUS_LABELS[currentStatus] ?? currentStatus}
+            {soloStatus && soloStatus !== "draft" && (
+              <span className={`status-pill status-pill-${soloStatus}`}>
+                {STATUS_LABELS[soloStatus] ?? soloStatus}
               </span>
             )}
           </>
@@ -233,7 +249,7 @@ export default function PastDayScreen() {
         {effectiveScope === "team" ? "Entries · Team" : "Entries"}
       </div>
 
-      {allLogs.length === 0 && (
+      {totalLogCount === 0 && (
         <div className="page-loading" style={{ padding: "var(--space-xl) 0" }}>
           {entriesQuery.isLoading || detailQueries.some((q) => q.isLoading)
             ? "Loading…"
@@ -241,51 +257,65 @@ export default function PastDayScreen() {
         </div>
       )}
 
-      {allLogs.map(({ entryId, userId: entryUserId, log }) => {
-        const projectName = log.project_id
-          ? projectMap.get(log.project_id) ?? "Unknown project"
-          : log.log_type === "break"
-          ? "Break"
-          : "No project";
-        const range = log.clock_out
-          ? `${fmtTimeOfDay(log.clock_in)} — ${fmtTimeOfDay(log.clock_out)}`
-          : `${fmtTimeOfDay(log.clock_in)} — ongoing`;
-        const dur = fmtDuration(Number(log.duration ?? 0));
-        const workerName =
-          effectiveScope === "team" && entryUserId !== null
-            ? userMap.get(entryUserId)
-            : undefined;
+      {entryGroups.map(({ entry, workerName, logs }) => {
+        const status = entry.current_status ?? "draft";
+        const canSubmit = (status === "draft" || status === null) && logs.length > 0;
+        const submitting = submittingEntryId === entry.public_id;
+        const workerLabel = workerName ?? "you";
         return (
-          <EntryCard
-            key={log.public_id}
-            projectAbbrev={projectAbbrev(projectName)}
-            projectName={projectName}
-            meta={range}
-            duration={dur}
-            active={false}
-            workerName={workerName}
-            onClick={() => navigate(`/time-entry/${entryId}/log/${log.public_id}`)}
-          />
+          <div key={entry.public_id} className="worker-section">
+            {effectiveScope === "team" && (
+              <div className="worker-section-header">
+                <span className="worker-section-name">{workerName ?? "Unknown worker"}</span>
+                {status !== "draft" && (
+                  <span className={`status-pill status-pill-${status}`}>
+                    {STATUS_LABELS[status] ?? status}
+                  </span>
+                )}
+              </div>
+            )}
+            {logs.map((log) => {
+              const projectName = log.project_id
+                ? projectMap.get(log.project_id) ?? "Unknown project"
+                : log.log_type === "break"
+                ? "Break"
+                : "No project";
+              const range = log.clock_out
+                ? `${fmtTimeOfDay(log.clock_in)} — ${fmtTimeOfDay(log.clock_out)}`
+                : `${fmtTimeOfDay(log.clock_in)} — ongoing`;
+              const dur = fmtDuration(Number(log.duration ?? 0));
+              return (
+                <EntryCard
+                  key={log.public_id}
+                  projectAbbrev={projectAbbrev(projectName)}
+                  projectName={projectName}
+                  meta={range}
+                  duration={dur}
+                  active={false}
+                  onClick={() => navigate(`/time-entry/${entry.public_id}/log/${log.public_id}`)}
+                />
+              );
+            })}
+            {canSubmit && (
+              <button
+                type="button"
+                className="submit-button"
+                onClick={() => handleSubmit(entry, logs.length, workerLabel)}
+                disabled={!!submittingEntryId}
+              >
+                <Send size={16} strokeWidth={2} />
+                <span>{submitting ? "Submitting…" : effectiveScope === "team" ? `Submit ${workerLabel}'s day` : "Submit day"}</span>
+              </button>
+            )}
+          </div>
         );
       })}
 
-      {allLogs.length > 0 && (
+      {totalLogCount > 0 && (
         <div className="day-total">
           <span className="day-total-label">Day total</span>
           <span className="day-total-value">{totalLabel}</span>
         </div>
-      )}
-
-      {canSubmit && (
-        <button
-          type="button"
-          className="submit-button"
-          onClick={handleSubmit}
-          disabled={submitting}
-        >
-          <Send size={16} strokeWidth={2} />
-          <span>{submitting ? "Submitting…" : "Submit day"}</span>
-        </button>
       )}
     </div>
   );
