@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQuery, useQueries } from "@tanstack/react-query";
-import { getList, getOne } from "../../api/client";
+import { useQuery, useQueries, useQueryClient } from "@tanstack/react-query";
+import { Plus, Send } from "lucide-react";
+import { getList, getOne, post } from "../../api/client";
+import { useToast } from "../../components/Toast";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useLookups } from "../../hooks/useLookups";
-import { Plus } from "lucide-react";
 import NavHeader from "../../components/ui/NavHeader";
 import DayStrip from "../../components/ui/DayStrip";
 import EntryCard from "../../components/ui/EntryCard";
@@ -61,9 +62,19 @@ function projectAbbrev(name: string): string {
   return name.replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase() || "—";
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  draft: "Draft",
+  submitted: "Submitted",
+  approved: "Approved",
+  rejected: "Rejected",
+  billed: "Billed",
+};
+
 export default function PastDayScreen() {
   const { date: dateParam } = useParams<{ date: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
   const { data: me } = useCurrentUser();
   const { data: lookups } = useLookups("projects");
 
@@ -149,11 +160,49 @@ export default function PastDayScreen() {
   }, [allLogs]);
 
   const totalLabel = fmtDuration(totalHours);
+  const dateLabel = fmtLongDate(targetDate);
+
+  const soloEntry = effectiveScope === "me" ? (entriesQuery.data ?? [])[0] : undefined;
+  const currentStatus = soloEntry?.current_status ?? null;
+  const canSubmit =
+    effectiveScope === "me" &&
+    !!soloEntry &&
+    (currentStatus === "draft" || currentStatus === null) &&
+    allLogs.length > 0;
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!soloEntry || submitting) return;
+    if (!confirm(`Submit ${allLogs.length} log${allLogs.length === 1 ? "" : "s"} for ${dateLabel}? Once submitted, edits go through the back-office review.`)) {
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await post(`/api/v1/time-entries/${soloEntry.public_id}/submit`, {});
+      toast("Submitted for review", "success");
+      queryClient.invalidateQueries({ queryKey: ["time-entries-day"] });
+      queryClient.invalidateQueries({ queryKey: ["time-entry", soloEntry.public_id] });
+    } catch (err) {
+      console.error("Submit failed", err);
+      toast(err instanceof Error ? err.message : "Submit failed", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="ios-page">
       <NavHeader
-        title={fmtLongDate(targetDate)}
+        title={
+          <>
+            {dateLabel}
+            {currentStatus && currentStatus !== "draft" && (
+              <span className={`status-pill status-pill-${currentStatus}`}>
+                {STATUS_LABELS[currentStatus] ?? currentStatus}
+              </span>
+            )}
+          </>
+        }
         onBack={() => navigate("/time-entry/list")}
         rightAction={
           <button
@@ -225,6 +274,18 @@ export default function PastDayScreen() {
           <span className="day-total-label">Day total</span>
           <span className="day-total-value">{totalLabel}</span>
         </div>
+      )}
+
+      {canSubmit && (
+        <button
+          type="button"
+          className="submit-button"
+          onClick={handleSubmit}
+          disabled={submitting}
+        >
+          <Send size={16} strokeWidth={2} />
+          <span>{submitting ? "Submitting…" : "Submit day"}</span>
+        </button>
       )}
     </div>
   );

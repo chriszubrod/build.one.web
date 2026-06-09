@@ -3664,3 +3664,51 @@ a.scout-record-header-link:hover .scout-record-name {
   color: var(--color-text-muted);
   font-size: var(--font-size-footnote);
 }
+
+/* TimeEntry status pill (next to date / hero) */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-left: var(--space-sm);
+  vertical-align: middle;
+}
+
+.status-pill-submitted { background: var(--color-info-bg); color: var(--color-info-fg); }
+.status-pill-approved { background: var(--color-success-bg); color: var(--color-success-fg); }
+.status-pill-rejected { background: var(--color-danger-bg); color: var(--color-danger-fg); }
+.status-pill-billed { background: var(--color-success-bg); color: var(--color-success-fg); }
+
+/* Submit button — outlined pill, secondary prominence (sits below Day total) */
+.submit-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  width: 100%;
+  max-width: 320px;
+  margin: var(--space-lg) auto 0;
+  min-height: 44px;
+  background: transparent;
+  color: var(--color-primary);
+  border: 1.5px solid var(--color-primary);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-callout);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.submit-button:hover:not(:disabled) {
+  background: var(--color-primary-tint);
+}
+
+.submit-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

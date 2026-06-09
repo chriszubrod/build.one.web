@@ -2,7 +2,7 @@ import { ChevronLeft } from "lucide-react";
 import type { ReactNode } from "react";
 
 interface NavHeaderProps {
-  title: string;
+  title: ReactNode;
   onBack?: () => void;
   rightAction?: ReactNode;
 }
