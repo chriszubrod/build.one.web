@@ -3277,6 +3277,39 @@ a.scout-record-header-link:hover .scout-record-name {
   color: var(--color-text-muted);
 }
 
+/* ScopeToggle — iOS-style segmented control (Me / Team) */
+.scope-toggle {
+  display: inline-flex;
+  background: var(--color-surface-2);
+  border-radius: var(--radius-pill);
+  padding: 4px;
+  gap: 4px;
+  margin-bottom: var(--space-lg);
+}
+
+.scope-toggle-btn {
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 6px 16px;
+  font: inherit;
+  font-size: var(--font-size-footnote);
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  min-width: 64px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.scope-toggle-btn:hover:not(.scope-toggle-btn-selected) {
+  color: var(--color-text);
+}
+
+.scope-toggle-btn-selected {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
 /* Sheet — modal wrapper (backdrop + centered card with sheet-like feel) */
 .sheet-backdrop {
   position: fixed;

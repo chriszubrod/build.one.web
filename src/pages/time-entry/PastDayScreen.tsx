@@ -7,7 +7,19 @@ import { useLookups } from "../../hooks/useLookups";
 import NavHeader from "../../components/ui/NavHeader";
 import DayStrip from "../../components/ui/DayStrip";
 import EntryCard from "../../components/ui/EntryCard";
-import type { TimeEntry, TimeLog, LookupProject } from "../../types/api";
+import ScopeToggle, { type Scope } from "../../components/ui/ScopeToggle";
+import type { TimeEntry, TimeLog, LookupProject, User } from "../../types/api";
+
+const TIME_TRACKING_MODULE = "Time Tracking";
+
+function compactName(firstname?: string | null, lastname?: string | null): string {
+  const f = (firstname ?? "").trim();
+  const l = (lastname ?? "").trim();
+  if (f && l) return `${f} ${l[0]}.`;
+  if (f) return f;
+  if (l) return l;
+  return "Unknown";
+}
 
 function parseIsoDate(iso: string): Date {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
@@ -65,6 +77,23 @@ export default function PastDayScreen() {
   const [selectedDate, setSelectedDate] = useState<Date>(initialDate);
   const targetDate = selectedDate;
   const iso = fmtIsoDate(targetDate);
+  const [scope, setScope] = useState<Scope>("me");
+
+  const canViewTeam =
+    me?.modules?.find((m) => m.name === TIME_TRACKING_MODULE)?.can_view_team ?? false;
+  const effectiveScope: Scope = canViewTeam ? scope : "me";
+
+  const usersQuery = useQuery<User[]>({
+    queryKey: ["users-roster"],
+    queryFn: async () => (await getList<User>(`/api/v1/get/users?page_size=500`)).data,
+    enabled: effectiveScope === "team",
+    staleTime: 10 * 60 * 1000,
+  });
+  const userMap = useMemo(() => {
+    const m = new Map<number, string>();
+    (usersQuery.data ?? []).forEach((u) => m.set(u.id, compactName(u.firstname, u.lastname)));
+    return m;
+  }, [usersQuery.data]);
 
   const handleDateChange = (d: Date) => {
     const target = startOfLocalDay(d);
@@ -78,13 +107,15 @@ export default function PastDayScreen() {
 
   const userId = me?.user?.id;
   const entriesQuery = useQuery<TimeEntry[]>({
-    queryKey: ["time-entries-day", userId, iso],
-    queryFn: async () =>
-      (
+    queryKey: ["time-entries-day", effectiveScope, userId, iso],
+    queryFn: async () => {
+      const userParam = effectiveScope === "team" ? "" : `user_id=${userId}&`;
+      return (
         await getList<TimeEntry>(
-          `/api/v1/time-entries?user_id=${userId}&start_date=${iso}&end_date=${iso}&page_size=100`,
+          `/api/v1/time-entries?${userParam}start_date=${iso}&end_date=${iso}&page_size=100`,
         )
-      ).data,
+      ).data;
+    },
     enabled: !!userId,
   });
 
@@ -96,13 +127,13 @@ export default function PastDayScreen() {
     })),
   });
 
-  const allLogs: { entryId: string; log: TimeLog }[] = useMemo(() => {
-    const out: { entryId: string; log: TimeLog }[] = [];
+  const allLogs: { entryId: string; userId: number | null; log: TimeLog }[] = useMemo(() => {
+    const out: { entryId: string; userId: number | null; log: TimeLog }[] = [];
     detailQueries.forEach((q) => {
       const entry = q.data;
       if (!entry?.time_logs) return;
       entry.time_logs.forEach((log) => {
-        out.push({ entryId: entry.public_id, log });
+        out.push({ entryId: entry.public_id, userId: entry.user_id, log });
       });
     });
     out.sort((a, b) => (a.log.clock_in ?? "").localeCompare(b.log.clock_in ?? ""));
@@ -133,7 +164,11 @@ export default function PastDayScreen() {
         todayDate={today}
       />
 
-      <div className="section-label-prose">Entries</div>
+      {canViewTeam && <ScopeToggle value={scope} onChange={setScope} />}
+
+      <div className="section-label-prose">
+        {effectiveScope === "team" ? "Entries · Team" : "Entries"}
+      </div>
 
       {allLogs.length === 0 && (
         <div className="page-loading" style={{ padding: "var(--space-xl) 0" }}>
@@ -143,7 +178,7 @@ export default function PastDayScreen() {
         </div>
       )}
 
-      {allLogs.map(({ entryId, log }) => {
+      {allLogs.map(({ entryId, userId: entryUserId, log }) => {
         const projectName = log.project_id
           ? projectMap.get(log.project_id) ?? "Unknown project"
           : log.log_type === "break"
@@ -153,6 +188,10 @@ export default function PastDayScreen() {
           ? `${fmtTimeOfDay(log.clock_in)} — ${fmtTimeOfDay(log.clock_out)}`
           : `${fmtTimeOfDay(log.clock_in)} — ongoing`;
         const dur = fmtDuration(Number(log.duration ?? 0));
+        const workerName =
+          effectiveScope === "team" && entryUserId !== null
+            ? userMap.get(entryUserId)
+            : undefined;
         return (
           <EntryCard
             key={log.public_id}
@@ -161,6 +200,7 @@ export default function PastDayScreen() {
             meta={range}
             duration={dur}
             active={false}
+            workerName={workerName}
             onClick={() => navigate(`/time-entry/${entryId}`)}
           />
         );

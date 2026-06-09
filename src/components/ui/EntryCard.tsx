@@ -4,6 +4,7 @@ interface EntryCardProps {
   meta: string;
   duration: string;
   active?: boolean;
+  workerName?: string;
   onClick?: () => void;
 }
 
@@ -13,8 +14,10 @@ export default function EntryCard({
   meta,
   duration,
   active,
+  workerName,
   onClick,
 }: EntryCardProps) {
+  const metaLine = workerName ? `${workerName} · ${meta}` : meta;
   const inner = (
     <>
       <div className="entry-card-tile">{projectAbbrev}</div>
@@ -23,7 +26,7 @@ export default function EntryCard({
           {active && <span className="entry-card-active-dot" />}
           {projectName}
         </div>
-        <div className="entry-card-meta">{meta}</div>
+        <div className="entry-card-meta">{metaLine}</div>
       </div>
       <div className="entry-card-duration">{duration}</div>
     </>

@@ -107,6 +107,7 @@ export interface CurrentUserModule {
   can_submit: boolean;
   can_approve: boolean;
   can_complete: boolean;
+  can_view_team: boolean;
 }
 
 export interface CurrentUser {
