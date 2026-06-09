@@ -112,7 +112,7 @@ export default function EditEntryScreen() {
 
   const handleCancel = () => {
     if (hasUnsavedChanges && !confirm("Discard changes?")) return;
-    navigate("/time-entry/list");
+    navigate(-1);
   };
 
   const handleSave = async () => {
@@ -130,7 +130,7 @@ export default function EditEntryScreen() {
       toast("Entry saved", "success");
       queryClient.invalidateQueries({ queryKey: ["time-entry", entryPublicId] });
       queryClient.invalidateQueries({ queryKey: ["time-entries-day"] });
-      navigate("/time-entry/list");
+      navigate(-1);
     } catch (err) {
       console.error("Save failed", err);
       toast(err instanceof Error ? err.message : "Save failed", "error");
@@ -150,7 +150,7 @@ export default function EditEntryScreen() {
       toast("Entry deleted", "success");
       queryClient.invalidateQueries({ queryKey: ["time-entry", entryPublicId] });
       queryClient.invalidateQueries({ queryKey: ["time-entries-day"] });
-      navigate("/time-entry/list");
+      navigate(-1);
     } catch (err) {
       console.error("Delete failed", err);
       toast(err instanceof Error ? err.message : "Delete failed", "error");
@@ -161,7 +161,7 @@ export default function EditEntryScreen() {
   if (entryQuery.isLoading || !entryQuery.data) {
     return (
       <div className="ios-page">
-        <SheetHeader title="Edit entry" onCancel={() => navigate("/time-entry/list")} />
+        <SheetHeader title="Edit entry" onCancel={() => navigate(-1)} />
         <div className="page-loading">Loading…</div>
       </div>
     );
@@ -170,7 +170,7 @@ export default function EditEntryScreen() {
   if (!log) {
     return (
       <div className="ios-page">
-        <SheetHeader title="Edit entry" onCancel={() => navigate("/time-entry/list")} />
+        <SheetHeader title="Edit entry" onCancel={() => navigate(-1)} />
         <div className="page-error">Log not found.</div>
       </div>
     );
