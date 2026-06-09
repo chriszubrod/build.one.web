@@ -11,7 +11,8 @@ import TextFieldEditScreen from "./pages/profile/TextFieldEditScreen";
 import SecurityScreen from "./pages/profile/SecurityScreen";
 import AppearanceScreen from "./pages/profile/AppearanceScreen";
 
-import TimeEntryList from "./pages/time-entry/TimeEntryList";
+import TodayScreen from "./pages/time-entry/TodayScreen";
+import PastDayScreen from "./pages/time-entry/PastDayScreen";
 import TimeEntryView from "./pages/time-entry/TimeEntryView";
 import TimeEntryCreate from "./pages/time-entry/TimeEntryCreate";
 
@@ -31,7 +32,8 @@ export default function App() {
               <Route element={<AppLayout />}>
                 <Route path="/" element={<Navigate to="/time-entry/list" replace />} />
 
-                <Route path="/time-entry/list" element={<TimeEntryList />} />
+                <Route path="/time-entry/list" element={<TodayScreen />} />
+                <Route path="/time-entry/past/:date" element={<PastDayScreen />} />
                 <Route path="/time-entry/create" element={<TimeEntryCreate />} />
                 <Route path="/time-entry/:id" element={<TimeEntryView />} />
 
