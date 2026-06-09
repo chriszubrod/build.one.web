@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueries } from "@tanstack/react-query";
-import { Play } from "lucide-react";
+import { Plus } from "lucide-react";
 import { getList, getOne } from "../../api/client";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useLookups } from "../../hooks/useLookups";
@@ -150,9 +150,9 @@ export default function TodayScreen() {
       </div>
 
       <HeroButton
-        label="Clock in"
-        icon={<Play size={18} fill="currentColor" />}
-        onClick={() => navigate("/time-entry/create")}
+        label="+ Add entry"
+        icon={<Plus size={18} strokeWidth={2.5} />}
+        onClick={() => navigate(`/time-entry/log/new?date=${todayIso}`)}
       />
 
       <DayStrip

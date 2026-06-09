@@ -4,7 +4,9 @@ import { useQuery, useQueries } from "@tanstack/react-query";
 import { getList, getOne } from "../../api/client";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useLookups } from "../../hooks/useLookups";
+import { Plus } from "lucide-react";
 import NavHeader from "../../components/ui/NavHeader";
+import HeroButton from "../../components/ui/HeroButton";
 import DayStrip from "../../components/ui/DayStrip";
 import EntryCard from "../../components/ui/EntryCard";
 import ScopeToggle, { type Scope } from "../../components/ui/ScopeToggle";
@@ -157,6 +159,12 @@ export default function PastDayScreen() {
         <span className="hero-stat-value">{totalLabel.replace(/h\s.*$/, "")}</span>
         <span className="hero-stat-unit">hours</span>
       </div>
+
+      <HeroButton
+        label="+ Add entry"
+        icon={<Plus size={18} strokeWidth={2.5} />}
+        onClick={() => navigate(`/time-entry/log/new?date=${iso}`)}
+      />
 
       <DayStrip
         selectedDate={selectedDate}

@@ -14,6 +14,7 @@ import AppearanceScreen from "./pages/profile/AppearanceScreen";
 import TodayScreen from "./pages/time-entry/TodayScreen";
 import PastDayScreen from "./pages/time-entry/PastDayScreen";
 import EditEntryScreen from "./pages/time-entry/EditEntryScreen";
+import CreateLogScreen from "./pages/time-entry/CreateLogScreen";
 import TimeEntryView from "./pages/time-entry/TimeEntryView";
 import TimeEntryCreate from "./pages/time-entry/TimeEntryCreate";
 
@@ -36,6 +37,7 @@ export default function App() {
                 <Route path="/time-entry/list" element={<TodayScreen />} />
                 <Route path="/time-entry/past/:date" element={<PastDayScreen />} />
                 <Route path="/time-entry/create" element={<TimeEntryCreate />} />
+                <Route path="/time-entry/log/new" element={<CreateLogScreen />} />
                 <Route path="/time-entry/:entryPublicId/log/:logPublicId" element={<EditEntryScreen />} />
                 <Route path="/time-entry/:id" element={<TimeEntryView />} />
 
