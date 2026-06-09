@@ -11,36 +11,36 @@
   --sidebar-width: 220px;
   --header-height: 48px;
 
-  /* Color */
-  --color-bg: #f2f2f7;
+  /* Color — warm-neutral palette mirrors BuildOne iOS TimeTrackingTokens, applied globally */
+  --color-bg: #f4f2ee;
   --color-surface: #ffffff;
-  --color-surface-2: #f2f2f7;
-  --color-surface-3: #e5e5ea;
-  --color-surface-tint: #f8fafc;
-  --color-sidebar: #1e293b;
-  --color-sidebar-text: #cbd5e1;
+  --color-surface-2: #edeae3;
+  --color-surface-3: #e3dfd6;
+  --color-surface-tint: #efece6;
+  --color-sidebar: #1a1816;
+  --color-sidebar-text: #cbc6bd;
   --color-sidebar-active: #ffffff;
-  --color-primary: #1e293b;
-  --color-primary-hover: #0f172a;
-  --color-primary-tint: rgba(30, 41, 59, 0.04);
+  --color-primary: #1a1816;
+  --color-primary-hover: #0f0e0c;
+  --color-primary-tint: rgba(26, 24, 22, 0.04);
   --color-accent: #2563eb;
   --color-on-primary: #ffffff;
-  --color-text: #1e293b;
-  --color-text-muted: #64748b;
-  --color-text-subtle: #8e8e93;
-  --color-border: #e5e5ea;
-  --color-success: #34c759;
-  --color-warning: #ff9500;
-  --color-error: #ff3b30;
-  --color-focus-ring: rgba(30, 41, 59, 0.12);
-  --color-success-bg: #dcfce7;
-  --color-success-fg: #166534;
-  --color-warning-bg: #fef3c7;
-  --color-warning-fg: #92400e;
+  --color-text: #1a1816;
+  --color-text-muted: #6b6660;
+  --color-text-subtle: #95918a;
+  --color-border: #e8e4dd;
+  --color-success: #2e6b3f;
+  --color-warning: #a85f1a;
+  --color-error: #9a2d2d;
+  --color-focus-ring: rgba(26, 24, 22, 0.12);
+  --color-success-bg: #e1ecdf;
+  --color-success-fg: #1f4d2d;
+  --color-warning-bg: #f4e7d6;
+  --color-warning-fg: #7a4413;
   --color-info-bg: #dbeafe;
   --color-info-fg: #1e40af;
-  --color-danger-bg: #fef2f2;
-  --color-danger-fg: #991b1b;
+  --color-danger-bg: #f4dede;
+  --color-danger-fg: #6e2020;
 
   /* Spacing */
   --space-xs: 4px;
@@ -69,6 +69,7 @@
   --font-size-title-3: 20px;
   --font-size-title-2: 22px;
   --font-size-title-1: 28px;
+  --font-size-display: 64px;
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
@@ -80,6 +81,8 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 6px 16px rgba(15, 23, 42, 0.12);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.04);
+  --shadow-fab: 0 1.5px 4px rgba(0, 0, 0, 0.12), 0 12px 24px rgba(0, 0, 0, 0.16);
 }
 
 body {
@@ -2621,4 +2624,655 @@ a.scout-record-header-link:hover .scout-record-name {
 .cl-save-status-error {
   background: rgba(220, 38, 38, 0.1);
   color: var(--color-danger, #dc2626);
+}
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/* iOS-mirror primitives (Phase 6a)                                         */
+/* Shared components used by Profile + TimeEntry rewrites in 6b / 6c.       */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+/* Page shell — content-padded column matching iOS screen edges */
+.ios-page {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 0 var(--space-lg) var(--space-2xl);
+}
+
+/* NavHeader — push-screen header with back button + centered title */
+.nav-header {
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  align-items: center;
+  padding: var(--space-sm) 0 var(--space-lg);
+}
+
+.nav-header-back {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
+}
+
+.nav-header-back:hover {
+  background: var(--color-surface-2);
+}
+
+.nav-header-title {
+  text-align: center;
+  font-size: var(--font-size-headline);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.nav-header-action {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* SheetHeader — modal sheet header with cancel + title + save pills */
+.sheet-header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+}
+
+.sheet-header-btn {
+  background: var(--color-surface);
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: var(--space-xs) var(--space-md);
+  font-size: var(--font-size-body);
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--color-text);
+  min-height: 36px;
+}
+
+.sheet-header-btn:hover:not(:disabled) {
+  background: var(--color-surface-3);
+}
+
+.sheet-header-btn-save {
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.sheet-header-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.sheet-header-title {
+  text-align: center;
+  font-size: var(--font-size-headline);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+/* SectionCard — rounded white card with optional uppercase header + footer */
+.section-card-wrap {
+  margin-bottom: var(--space-xl);
+}
+
+.section-card-header {
+  font-size: var(--font-size-caption);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  padding: 0 var(--space-sm) var(--space-sm);
+}
+
+.section-card {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.section-card-footer {
+  font-size: var(--font-size-footnote);
+  color: var(--color-text-muted);
+  padding: var(--space-sm) var(--space-sm) 0;
+  line-height: var(--line-height-normal);
+}
+
+/* ListRow — primary row primitive (icon + title + value + trailing) */
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  cursor: default;
+  color: var(--color-text);
+  font: inherit;
+  min-height: 52px;
+}
+
+.list-row + .list-row {
+  border-top: 0.5px solid var(--color-border);
+}
+
+.list-row-link {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.list-row-link:hover {
+  background: var(--color-surface-tint);
+}
+
+.list-row-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.list-row-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.list-row-title {
+  font-size: var(--font-size-callout);
+  font-weight: 400;
+  color: var(--color-text);
+  line-height: var(--line-height-tight);
+}
+
+.list-row-subtitle {
+  font-size: var(--font-size-footnote);
+  color: var(--color-text-muted);
+  line-height: var(--line-height-tight);
+}
+
+.list-row-trailing {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-callout);
+  flex-shrink: 0;
+}
+
+.list-row-value {
+  color: var(--color-text-muted);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list-row-chevron {
+  color: var(--color-text-subtle);
+}
+
+.list-row-destructive .list-row-title,
+.list-row-destructive .list-row-icon {
+  color: var(--color-error);
+}
+
+/* Toggle — iOS-style switch */
+.ios-toggle {
+  position: relative;
+  display: inline-block;
+  width: 52px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.ios-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.ios-toggle-track {
+  position: absolute;
+  inset: 0;
+  background: var(--color-surface-3);
+  border-radius: var(--radius-pill);
+  transition: background 0.2s;
+  cursor: pointer;
+}
+
+.ios-toggle-track::before {
+  content: "";
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  left: 2px;
+  top: 2px;
+  background: var(--color-surface);
+  border-radius: 50%;
+  transition: transform 0.2s;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.ios-toggle input:checked + .ios-toggle-track {
+  background: var(--color-success);
+}
+
+.ios-toggle input:checked + .ios-toggle-track::before {
+  transform: translateX(20px);
+}
+
+/* AvatarPhoto — initials in filled circle */
+.avatar-photo {
+  position: relative;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.avatar-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-photo-status {
+  position: absolute;
+  right: 6%;
+  bottom: 6%;
+  width: 18%;
+  height: 18%;
+  border-radius: 50%;
+  background: var(--color-success);
+  border: 2px solid var(--color-surface);
+}
+
+/* HeaderRich — Profile root hero block */
+.header-rich {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-md) 0 var(--space-2xl);
+}
+
+.header-rich-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.header-rich-name {
+  font-size: var(--font-size-title-2);
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: var(--line-height-tight);
+}
+
+.header-rich-role {
+  font-size: var(--font-size-callout);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.header-rich-company {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-callout);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.header-rich-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  background: var(--color-success-bg);
+  color: var(--color-success-fg);
+  border-radius: var(--radius-pill);
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--font-size-caption);
+  font-weight: 500;
+  margin-top: var(--space-sm);
+}
+
+.header-rich-pill-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-success);
+}
+
+/* Hero (centered avatar only) — used on UserDetail and other detail screens */
+.hero-avatar {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-md) 0 var(--space-2xl);
+}
+
+/* Field — uppercase label + input inside a SectionCard */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-md) var(--space-lg);
+}
+
+.field + .field {
+  border-top: 0.5px solid var(--color-border);
+}
+
+.field-label {
+  font-size: var(--font-size-caption);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.field-input {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: var(--font-size-callout);
+  color: var(--color-text);
+  padding: 0;
+  font-family: inherit;
+}
+
+.field-input::placeholder {
+  color: var(--color-text-subtle);
+}
+
+/* HeroButton — large pill, full-width primary action */
+.hero-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  width: 100%;
+  min-height: 56px;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-headline);
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-fab);
+  transition: opacity 0.15s;
+}
+
+.hero-button:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+.hero-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hero-button-destructive {
+  background: var(--color-error);
+}
+
+/* Hero stat — massive 0:00 display + muted unit */
+.hero-stat {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+  padding: var(--space-sm) 0 var(--space-xl);
+}
+
+.hero-stat-value {
+  font-size: var(--font-size-display);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.hero-stat-unit {
+  font-size: var(--font-size-callout);
+  color: var(--color-text-muted);
+}
+
+.hero-date {
+  font-size: var(--font-size-callout);
+  color: var(--color-text-muted);
+  padding-top: var(--space-md);
+}
+
+/* DayStrip — 7-day selector with prev/next chevrons */
+.day-strip {
+  margin: var(--space-lg) 0;
+}
+
+.day-strip-header {
+  display: grid;
+  grid-template-columns: 40px 1fr 40px;
+  align-items: center;
+  margin-bottom: var(--space-sm);
+}
+
+.day-strip-nav {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.day-strip-nav:hover {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+.day-strip-range {
+  text-align: center;
+  font-size: var(--font-size-footnote);
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.day-strip-week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: var(--space-xs);
+}
+
+.day-strip-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-sm) var(--space-xs);
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text);
+  min-height: 64px;
+  transition: background 0.15s;
+}
+
+.day-strip-day:hover:not(:disabled) {
+  background: var(--color-surface-2);
+}
+
+.day-strip-day-letter {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.day-strip-day-num {
+  font-size: var(--font-size-headline);
+  font-weight: 600;
+  margin-top: var(--space-xs);
+}
+
+.day-strip-day-selected {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.day-strip-day-selected .day-strip-day-letter,
+.day-strip-day-selected .day-strip-day-num {
+  color: var(--color-on-primary);
+}
+
+.day-strip-day-future {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.day-strip-day-today-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-top: 4px;
+}
+
+/* EntryCard — time entry card with project tile + meta + duration */
+.entry-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md) var(--space-lg);
+  box-shadow: var(--shadow-card);
+  border: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  margin-bottom: var(--space-sm);
+  min-height: 64px;
+}
+
+.entry-card:hover {
+  background: var(--color-surface-tint);
+}
+
+.entry-card-tile {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+
+.entry-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.entry-card-title {
+  font-size: var(--font-size-callout);
+  font-weight: 500;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry-card-meta {
+  font-size: var(--font-size-footnote);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.entry-card-duration {
+  font-size: var(--font-size-callout);
+  font-weight: 600;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.entry-card-active-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-success);
+  margin-right: var(--space-xs);
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* Day total — summary row outside any card */
+.day-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: var(--space-lg) var(--space-sm) 0;
+}
+
+.day-total-label {
+  font-size: var(--font-size-callout);
+  color: var(--color-text);
+}
+
+.day-total-value {
+  font-size: var(--font-size-headline);
+  font-weight: 600;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Section label (Today's entries style — title case, not uppercase) */
+.section-label-prose {
+  font-size: var(--font-size-footnote);
+  color: var(--color-text-muted);
+  padding: 0 var(--space-sm) var(--space-sm);
+}
+
+/* Validation / helper text under sheet inputs */
+.sheet-hint {
+  padding: var(--space-md) var(--space-lg);
+  font-size: var(--font-size-footnote);
+  color: var(--color-text-muted);
 }
