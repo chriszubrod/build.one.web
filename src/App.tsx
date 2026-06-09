@@ -11,6 +11,8 @@ import TextFieldEditScreen from "./pages/profile/TextFieldEditScreen";
 import SecurityScreen from "./pages/profile/SecurityScreen";
 import AppearanceScreen from "./pages/profile/AppearanceScreen";
 
+import LaborList from "./pages/labor/LaborList";
+import LaborReviewScreen from "./pages/labor/LaborReviewScreen";
 import TodayScreen from "./pages/time-entry/TodayScreen";
 import PastDayScreen from "./pages/time-entry/PastDayScreen";
 import EditEntryScreen from "./pages/time-entry/EditEntryScreen";
@@ -40,6 +42,9 @@ export default function App() {
                 <Route path="/time-entry/log/new" element={<CreateLogScreen />} />
                 <Route path="/time-entry/:entryPublicId/log/:logPublicId" element={<EditEntryScreen />} />
                 <Route path="/time-entry/:id" element={<TimeEntryView />} />
+
+                <Route path="/labor/list" element={<LaborList />} />
+                <Route path="/labor/:public_id" element={<LaborReviewScreen />} />
 
                 <Route path="/profile" element={<ProfileView />} />
                 <Route path="/profile/details" element={<UserDetailScreen />} />
