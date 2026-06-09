@@ -92,7 +92,7 @@ body {
   background: var(--color-bg);
 }
 
-/* App Layout */
+/* App Layout — legacy sidebar+header shell (kept for /login + parked admin pages) */
 .app-layout {
   display: flex;
   height: 100vh;
@@ -109,6 +109,71 @@ body {
   flex: 1;
   overflow-y: auto;
   padding: var(--space-xl);
+}
+
+/* iOS-mirror mobile shell — phone-shaped column centered on the viewport,
+   bottom TabBar floats over it. Used by AppLayout for protected routes. */
+.app-shell {
+  max-width: 430px;
+  min-height: 100vh;
+  margin: 0 auto;
+  background: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.app-shell-content {
+  flex: 1;
+  overflow-y: auto;
+  padding-top: var(--space-md);
+  padding-bottom: 112px;
+}
+
+/* Bottom TabBar — floating pill capsule, fixed at viewport bottom */
+.app-tabbar {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-surface);
+  border-radius: var(--radius-pill);
+  padding: 6px;
+  display: flex;
+  gap: 4px;
+  box-shadow: var(--shadow-fab);
+  z-index: 100;
+}
+
+.app-tabbar-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 24px;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  text-decoration: none;
+  min-width: 80px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.app-tabbar-tab:hover:not(.app-tabbar-tab-active) {
+  color: var(--color-text);
+}
+
+.app-tabbar-tab-active {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.app-tabbar-tab-label {
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 /* Sidebar */
@@ -2631,10 +2696,8 @@ a.scout-record-header-link:hover .scout-record-name {
 /* Shared components used by Profile + TimeEntry rewrites in 6b / 6c.       */
 /* ─────────────────────────────────────────────────────────────────────── */
 
-/* Page shell — mirrors iPhone Pro Max width so the layout reads as an iOS column */
+/* Page shell — inside the mobile shell so width is already capped; padding only */
 .ios-page {
-  max-width: 430px;
-  margin: 0 auto;
   padding: 0 var(--space-lg) var(--space-2xl);
 }
 
@@ -3280,9 +3343,10 @@ a.scout-record-header-link:hover .scout-record-name {
   color: var(--color-text-muted);
 }
 
-/* ScopeToggle — iOS-style segmented control (Me / Team) */
+/* ScopeToggle — iOS-style segmented control (Me / Team), full column width */
 .scope-toggle {
-  display: inline-flex;
+  display: flex;
+  width: 100%;
   background: var(--color-surface-2);
   border-radius: var(--radius-pill);
   padding: 4px;
@@ -3291,6 +3355,7 @@ a.scout-record-header-link:hover .scout-record-name {
 }
 
 .scope-toggle-btn {
+  flex: 1;
   background: transparent;
   border: none;
   border-radius: var(--radius-pill);
@@ -3300,7 +3365,6 @@ a.scout-record-header-link:hover .scout-record-name {
   font-weight: 500;
   cursor: pointer;
   color: var(--color-text-muted);
-  min-width: 64px;
   transition: background 0.15s, color 0.15s;
 }
 
