@@ -199,7 +199,7 @@ export default function TodayScreen() {
             duration={dur}
             active={isActive}
             workerName={workerName}
-            onClick={() => navigate(`/time-entry/${entryId}`)}
+            onClick={() => navigate(`/time-entry/${entryId}/log/${log.public_id}`)}
           />
         );
       })}

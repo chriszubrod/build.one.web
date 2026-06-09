@@ -709,7 +709,7 @@ export default function TimeEntryView() {
                 <th>Clock Out</th>
                 <th style={{ width: 80 }}>Duration</th>
                 <th>Project</th>
-                <th>Note</th>
+                <th style={{ minWidth: 320 }}>Note</th>
                 <th style={{ width: 60 }}>GPS</th>
                 {isDraft && <th style={{ width: 180 }}>Actions</th>}
               </tr>
@@ -720,7 +720,7 @@ export default function TimeEntryView() {
                 const projectName =
                   row.project_id !== "" ? projectMap.get(Number(row.project_id)) ?? "—" : "—";
                 return (
-                  <tr key={row.public_id ?? `new-${index}`}>
+                  <tr key={row.public_id ?? `new-${index}`} style={{ verticalAlign: "top" }}>
                     <td>
                       {isDraft ? (
                         <select
@@ -785,15 +785,25 @@ export default function TimeEntryView() {
                     </td>
                     <td>
                       {isDraft ? (
-                        <input
-                          type="text"
+                        <textarea
                           value={row.note}
                           onChange={(e) => setLog(index, { note: e.target.value })}
                           disabled={row.saving}
                           placeholder="Optional"
+                          rows={3}
+                          style={{
+                            width: "100%",
+                            minHeight: "4.5em",
+                            resize: "vertical",
+                            fontFamily: "inherit",
+                          }}
                         />
+                      ) : row.note ? (
+                        <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                          {row.note}
+                        </div>
                       ) : (
-                        row.note || <span className="text-muted">—</span>
+                        <span className="text-muted">—</span>
                       )}
                     </td>
                     <td>

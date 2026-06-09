@@ -201,7 +201,7 @@ export default function PastDayScreen() {
             duration={dur}
             active={false}
             workerName={workerName}
-            onClick={() => navigate(`/time-entry/${entryId}`)}
+            onClick={() => navigate(`/time-entry/${entryId}/log/${log.public_id}`)}
           />
         );
       })}
