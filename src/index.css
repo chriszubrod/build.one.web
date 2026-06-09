@@ -2740,6 +2740,24 @@ a.scout-record-header-link:hover .scout-record-name {
   justify-content: flex-end;
 }
 
+.nav-header-action-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
+}
+
+.nav-header-action-btn:hover {
+  background: var(--color-surface-2);
+}
+
 /* SheetHeader — modal sheet header with cancel + title + save pills */
 .sheet-header {
   display: grid;

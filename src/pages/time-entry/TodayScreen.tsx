@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueries } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { Play, Plus } from "lucide-react";
 import { getList, getOne } from "../../api/client";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useLookups } from "../../hooks/useLookups";
+import NavHeader from "../../components/ui/NavHeader";
 import HeroButton from "../../components/ui/HeroButton";
 import DayStrip from "../../components/ui/DayStrip";
 import EntryCard from "../../components/ui/EntryCard";
@@ -143,6 +144,19 @@ export default function TodayScreen() {
 
   return (
     <div className="ios-page">
+      <NavHeader
+        title="Today"
+        rightAction={
+          <button
+            type="button"
+            className="nav-header-action-btn"
+            onClick={() => navigate(`/time-entry/log/new?date=${todayIso}`)}
+            aria-label="Add entry"
+          >
+            <Plus size={20} strokeWidth={2.5} />
+          </button>
+        }
+      />
       <div className="hero-date">{dateLabel}</div>
       <div className="hero-stat">
         <span className="hero-stat-value">{totalLabel.replace(/h\s.*$/, "")}</span>
@@ -150,9 +164,9 @@ export default function TodayScreen() {
       </div>
 
       <HeroButton
-        label="+ Add entry"
-        icon={<Plus size={18} strokeWidth={2.5} />}
-        onClick={() => navigate(`/time-entry/log/new?date=${todayIso}`)}
+        label="Clock in"
+        icon={<Play size={18} fill="currentColor" />}
+        onClick={() => navigate("/time-entry/create")}
       />
 
       <DayStrip

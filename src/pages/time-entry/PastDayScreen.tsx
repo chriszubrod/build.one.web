@@ -6,7 +6,6 @@ import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useLookups } from "../../hooks/useLookups";
 import { Plus } from "lucide-react";
 import NavHeader from "../../components/ui/NavHeader";
-import HeroButton from "../../components/ui/HeroButton";
 import DayStrip from "../../components/ui/DayStrip";
 import EntryCard from "../../components/ui/EntryCard";
 import ScopeToggle, { type Scope } from "../../components/ui/ScopeToggle";
@@ -153,18 +152,25 @@ export default function PastDayScreen() {
 
   return (
     <div className="ios-page">
-      <NavHeader title={fmtLongDate(targetDate)} onBack={() => navigate("/time-entry/list")} />
+      <NavHeader
+        title={fmtLongDate(targetDate)}
+        onBack={() => navigate("/time-entry/list")}
+        rightAction={
+          <button
+            type="button"
+            className="nav-header-action-btn"
+            onClick={() => navigate(`/time-entry/log/new?date=${iso}`)}
+            aria-label="Add entry"
+          >
+            <Plus size={20} strokeWidth={2.5} />
+          </button>
+        }
+      />
 
       <div className="hero-stat">
         <span className="hero-stat-value">{totalLabel.replace(/h\s.*$/, "")}</span>
         <span className="hero-stat-unit">hours</span>
       </div>
-
-      <HeroButton
-        label="+ Add entry"
-        icon={<Plus size={18} strokeWidth={2.5} />}
-        onClick={() => navigate(`/time-entry/log/new?date=${iso}`)}
-      />
 
       <DayStrip
         selectedDate={selectedDate}
