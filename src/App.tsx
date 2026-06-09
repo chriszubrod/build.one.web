@@ -5,7 +5,11 @@ import ProtectedRoute from "./auth/ProtectedRoute";
 import LoginPage from "./auth/LoginPage";
 import AppLayout from "./layout/AppLayout";
 
-import UserProfile from "./pages/users/UserProfile";
+import ProfileView from "./pages/profile/ProfileView";
+import UserDetailScreen from "./pages/profile/UserDetailScreen";
+import TextFieldEditScreen from "./pages/profile/TextFieldEditScreen";
+import SecurityScreen from "./pages/profile/SecurityScreen";
+import AppearanceScreen from "./pages/profile/AppearanceScreen";
 
 import TimeEntryList from "./pages/time-entry/TimeEntryList";
 import TimeEntryView from "./pages/time-entry/TimeEntryView";
@@ -31,8 +35,14 @@ export default function App() {
                 <Route path="/time-entry/create" element={<TimeEntryCreate />} />
                 <Route path="/time-entry/:id" element={<TimeEntryView />} />
 
-                <Route path="/user/:id" element={<UserProfile />} />
-                <Route path="/user/:id/edit" element={<UserProfile />} />
+                <Route path="/profile" element={<ProfileView />} />
+                <Route path="/profile/details" element={<UserDetailScreen />} />
+                <Route path="/profile/details/:fieldKey" element={<TextFieldEditScreen />} />
+                <Route path="/profile/security" element={<SecurityScreen />} />
+                <Route path="/profile/appearance" element={<AppearanceScreen />} />
+
+                <Route path="/user/:id" element={<Navigate to="/profile" replace />} />
+                <Route path="/user/:id/edit" element={<Navigate to="/profile" replace />} />
 
                 <Route path="*" element={<Navigate to="/time-entry/list" replace />} />
               </Route>
