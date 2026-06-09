@@ -35,10 +35,16 @@ export default function UserPickerSheet({ open, onDismiss, onSelect }: UserPicke
   });
 
   const filtered = useMemo<User[]>(() => {
-    const all = usersQuery.data ?? [];
+    // Server default already hides agents (?include_agents=false). Apply a
+    // client-side worker filter on top: only users linked to an Employee
+    // or contract-labor Vendor row are surfaceable. This drops admin-only
+    // accounts, personas, and any other non-worker Users from the picker.
+    const workers = (usersQuery.data ?? []).filter(
+      (u) => u.employee_id !== null || u.vendor_id !== null,
+    );
     const q = search.trim().toLowerCase();
-    if (!q) return all;
-    return all.filter((u) => fullName(u).toLowerCase().includes(q));
+    if (!q) return workers;
+    return workers.filter((u) => fullName(u).toLowerCase().includes(q));
   }, [usersQuery.data, search]);
 
   return (
