@@ -3684,6 +3684,41 @@ a.scout-record-header-link:hover .scout-record-name {
 .status-pill-rejected { background: var(--color-danger-bg); color: var(--color-danger-fg); }
 .status-pill-billed { background: var(--color-success-bg); color: var(--color-success-fg); }
 
+/* Description / multi-line textarea row inside a SectionCard */
+.description-area {
+  padding: var(--space-md) var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.description-area-label {
+  font-size: var(--font-size-caption);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.description-area textarea {
+  width: 100%;
+  min-height: 56px;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-callout);
+  color: var(--color-text);
+  resize: vertical;
+  font-family: inherit;
+  line-height: var(--line-height-normal);
+  padding: 0;
+}
+
+.description-area textarea::placeholder {
+  color: var(--color-text-subtle);
+}
+
 /* Worker section — wraps one TimeEntry's logs + submit in team mode */
 .worker-section {
   margin-bottom: var(--space-xl);

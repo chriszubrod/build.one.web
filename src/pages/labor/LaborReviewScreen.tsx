@@ -53,6 +53,32 @@ function abbrev(name: string): string {
 interface LineEdit {
   sub_cost_code_id: number | null;
   is_billable: boolean;
+  is_overhead: boolean;
+  description: string;
+  /** dollars, as typed (string keeps the input controllable) */
+  rate: string;
+  /** percentage as typed (e.g. "50" for 0.50); converted on save */
+  markup_pct: string;
+}
+
+function rateToString(rate: string | null): string {
+  if (rate === null || rate === "") return "";
+  const n = Number(rate);
+  if (isNaN(n)) return "";
+  return n.toFixed(2);
+}
+
+function markupToPctString(markup: string | null): string {
+  if (markup === null || markup === "") return "";
+  const n = Number(markup);
+  if (isNaN(n)) return "";
+  return String(Math.round(n * 10000) / 100);
+}
+
+function computePrice(hours: number, rate: number, markupFraction: number): number {
+  if (isNaN(hours) || isNaN(rate)) return 0;
+  const m = isNaN(markupFraction) ? 0 : markupFraction;
+  return hours * rate * (1 + m);
 }
 
 export default function LaborReviewScreen() {
@@ -104,6 +130,10 @@ export default function LaborReviewScreen() {
       next.set(li.public_id, {
         sub_cost_code_id: li.sub_cost_code_id,
         is_billable: li.is_billable,
+        is_overhead: li.is_overhead,
+        description: li.description ?? "",
+        rate: rateToString(li.rate),
+        markup_pct: markupToPctString(li.markup),
       });
     });
     setEdits(next);
@@ -113,10 +143,21 @@ export default function LaborReviewScreen() {
     () =>
       (linesQuery.data ?? []).map((li) => {
         const e = edits.get(li.public_id);
+        const rateNum = e ? Number(e.rate) : Number(li.rate);
+        const markupFraction = e
+          ? (e.markup_pct === "" ? 0 : Number(e.markup_pct) / 100)
+          : Number(li.markup ?? 0);
+        const hoursNum = Number(li.hours ?? 0);
+        const computedPrice = computePrice(hoursNum, rateNum, markupFraction);
         return {
           ...li,
           sub_cost_code_id: e?.sub_cost_code_id ?? li.sub_cost_code_id,
           is_billable: e?.is_billable ?? li.is_billable,
+          is_overhead: e?.is_overhead ?? li.is_overhead,
+          description: e?.description ?? li.description ?? "",
+          rate_str: e?.rate ?? rateToString(li.rate),
+          markup_pct_str: e?.markup_pct ?? markupToPctString(li.markup),
+          computed_price: computedPrice,
         };
       }),
     [linesQuery.data, edits],
@@ -129,7 +170,7 @@ export default function LaborReviewScreen() {
     () =>
       effectiveLines.reduce((sum, li) => {
         if (!li.is_billable) return sum;
-        return sum + Number(li.price ?? 0);
+        return sum + li.computed_price;
       }, 0),
     [effectiveLines],
   );
@@ -137,7 +178,14 @@ export default function LaborReviewScreen() {
   const updateLine = (lineId: string, patch: Partial<LineEdit>) => {
     setEdits((prev) => {
       const next = new Map(prev);
-      const current = next.get(lineId) ?? { sub_cost_code_id: null, is_billable: true };
+      const current = next.get(lineId) ?? {
+        sub_cost_code_id: null,
+        is_billable: true,
+        is_overhead: false,
+        description: "",
+        rate: "",
+        markup_pct: "",
+      };
       next.set(lineId, { ...current, ...patch });
       return next;
     });
@@ -157,21 +205,26 @@ export default function LaborReviewScreen() {
         due_date: null,
         bill_number: null,
         status: "ready",
-        line_items: effectiveLines.map((li) => ({
-          id: li.id,
-          public_id: li.public_id,
-          row_version: li.row_version,
-          line_date: li.line_date,
-          project_id: li.project_id,
-          sub_cost_code_id: li.sub_cost_code_id,
-          description: li.description,
-          hours: li.hours !== null ? Number(li.hours) : null,
-          rate: li.rate !== null ? Number(li.rate) : null,
-          markup: li.markup !== null ? Number(li.markup) : null,
-          price: li.price !== null ? Number(li.price) : null,
-          is_billable: li.is_billable,
-          is_overhead: li.is_overhead,
-        })),
+        line_items: effectiveLines.map((li) => {
+          const rateNum = li.rate_str === "" ? null : Number(li.rate_str);
+          const markupFraction =
+            li.markup_pct_str === "" ? null : Number(li.markup_pct_str) / 100;
+          return {
+            id: li.id,
+            public_id: li.public_id,
+            row_version: li.row_version,
+            line_date: li.line_date,
+            project_id: li.is_overhead ? null : li.project_id,
+            sub_cost_code_id: li.sub_cost_code_id,
+            description: li.description.trim() || null,
+            hours: li.hours !== null ? Number(li.hours) : null,
+            rate: rateNum,
+            markup: markupFraction,
+            price: Number(li.computed_price.toFixed(2)),
+            is_billable: li.is_billable,
+            is_overhead: li.is_overhead,
+          };
+        }),
       });
       toast("Marked ready for billing", "success");
       queryClient.invalidateQueries({ queryKey: ["contract-labor"] });
@@ -238,54 +291,108 @@ export default function LaborReviewScreen() {
           </SectionCard>
         )}
 
-        <SectionCard header="Line items">
-          {effectiveLines.length === 0 && (
+        <div className="section-card-header">Line items</div>
+        {effectiveLines.length === 0 && (
+          <SectionCard>
             <div className="time-row">
               <span className="time-row-label">No line items.</span>
             </div>
-          )}
-          {effectiveLines.map((li) => {
-            const projectName = li.project_id
-              ? projectMap.get(li.project_id) ?? "Unknown project"
-              : "Overhead";
-            const sccLabel =
-              li.sub_cost_code_id !== null
-                ? (() => {
-                    const scc = sccMap.get(li.sub_cost_code_id);
-                    return scc ? `${scc.number} · ${scc.name}` : `#${li.sub_cost_code_id}`;
-                  })()
-                : "Pick sub cost code";
-            return (
-              <div key={li.public_id}>
-                <div className="time-row">
-                  <span className="time-row-label">{projectName}</span>
-                  <span className="time-row-label" style={{ color: "var(--color-text-muted)" }}>
-                    {fmtHours(li.hours)} · {fmtMoney(li.price)}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className="list-row list-row-link"
-                  onClick={() => setPickingForLineId(li.public_id)}
-                  disabled={!li.is_billable}
-                >
-                  <div className="list-row-content">
-                    <div className="list-row-title">Sub cost code</div>
-                  </div>
-                  <div className="list-row-trailing">
-                    <span className="list-row-value">{sccLabel}</span>
-                    <ChevronRight size={18} strokeWidth={2} className="list-row-chevron" />
-                  </div>
-                </button>
-                <ListRow
-                  title="Billable"
-                  toggleValue={li.is_billable}
-                  onToggleChange={(v) => updateLine(li.public_id, { is_billable: v })}
+          </SectionCard>
+        )}
+        {effectiveLines.map((li, idx) => {
+          const projectName = li.is_overhead
+            ? "Overhead"
+            : li.project_id
+            ? projectMap.get(li.project_id) ?? "Unknown project"
+            : "No project";
+          const sccLabel =
+            li.sub_cost_code_id !== null
+              ? (() => {
+                  const scc = sccMap.get(li.sub_cost_code_id);
+                  return scc ? `${scc.number} · ${scc.name}` : `#${li.sub_cost_code_id}`;
+                })()
+              : "Pick sub cost code";
+          return (
+            <SectionCard
+              key={li.public_id}
+              header={`Line ${idx + 1} · ${projectName}`}
+            >
+              <div className="time-row">
+                <span className="time-row-label">Hours</span>
+                <span className="time-row-label" style={{ color: "var(--color-text-muted)" }}>
+                  {fmtHours(li.hours)}
+                </span>
+              </div>
+              <div className="time-row">
+                <label className="time-row-label" htmlFor={`rate-${li.public_id}`}>Rate ($/hr)</label>
+                <input
+                  id={`rate-${li.public_id}`}
+                  className="time-row-input"
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  value={li.rate_str}
+                  onChange={(e) => updateLine(li.public_id, { rate: e.target.value })}
                 />
               </div>
-            );
-          })}
-        </SectionCard>
+              <div className="time-row">
+                <label className="time-row-label" htmlFor={`markup-${li.public_id}`}>Markup (%)</label>
+                <input
+                  id={`markup-${li.public_id}`}
+                  className="time-row-input"
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  value={li.markup_pct_str}
+                  onChange={(e) => updateLine(li.public_id, { markup_pct: e.target.value })}
+                />
+              </div>
+              <div className="time-row">
+                <span className="time-row-label">Price</span>
+                <span className="time-row-label" style={{ color: "var(--color-text)" }}>
+                  {fmtMoney(li.computed_price)}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="list-row list-row-link"
+                onClick={() => setPickingForLineId(li.public_id)}
+                disabled={!li.is_billable}
+              >
+                <div className="list-row-content">
+                  <div className="list-row-title">Sub cost code</div>
+                </div>
+                <div className="list-row-trailing">
+                  <span className="list-row-value">{sccLabel}</span>
+                  <ChevronRight size={18} strokeWidth={2} className="list-row-chevron" />
+                </div>
+              </button>
+              <div className="description-area">
+                <label className="description-area-label" htmlFor={`desc-${li.public_id}`}>
+                  Description
+                </label>
+                <textarea
+                  id={`desc-${li.public_id}`}
+                  value={li.description}
+                  onChange={(e) => updateLine(li.public_id, { description: e.target.value })}
+                  placeholder="What was done?"
+                />
+              </div>
+              <ListRow
+                title="Billable"
+                toggleValue={li.is_billable}
+                onToggleChange={(v) => updateLine(li.public_id, { is_billable: v })}
+              />
+              <ListRow
+                title="Overhead"
+                toggleValue={li.is_overhead}
+                onToggleChange={(v) => updateLine(li.public_id, { is_overhead: v })}
+              />
+            </SectionCard>
+          );
+        })}
 
         {missingSCC && (
           <div className="validation-banner">
