@@ -2631,9 +2631,9 @@ a.scout-record-header-link:hover .scout-record-name {
 /* Shared components used by Profile + TimeEntry rewrites in 6b / 6c.       */
 /* ─────────────────────────────────────────────────────────────────────── */
 
-/* Page shell — matches the rest of the app's content width (1200px) */
+/* Page shell — mirrors iPhone Pro Max width so the layout reads as an iOS column */
 .ios-page {
-  max-width: 1200px;
+  max-width: 430px;
   margin: 0 auto;
   padding: 0 var(--space-lg) var(--space-2xl);
 }
