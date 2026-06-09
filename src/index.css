@@ -2631,9 +2631,9 @@ a.scout-record-header-link:hover .scout-record-name {
 /* Shared components used by Profile + TimeEntry rewrites in 6b / 6c.       */
 /* ─────────────────────────────────────────────────────────────────────── */
 
-/* Page shell — content-padded column matching iOS screen edges */
+/* Page shell — matches the rest of the app's content width (1200px) */
 .ios-page {
-  max-width: 680px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 0 var(--space-lg) var(--space-2xl);
 }
@@ -3010,13 +3010,15 @@ a.scout-record-header-link:hover .scout-record-name {
   color: var(--color-text-subtle);
 }
 
-/* HeroButton — large pill, full-width primary action */
+/* HeroButton — large pill, capped so it doesn't stretch on desktop */
 .hero-button {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-sm);
   width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
   min-height: 56px;
   background: var(--color-primary);
   color: var(--color-on-primary);
@@ -3070,9 +3072,10 @@ a.scout-record-header-link:hover .scout-record-name {
   padding-top: var(--space-md);
 }
 
-/* DayStrip — 7-day selector with prev/next chevrons */
+/* DayStrip — 7-day selector with prev/next chevrons; capped so day cells stay reasonable on desktop */
 .day-strip {
-  margin: var(--space-lg) 0;
+  max-width: 720px;
+  margin: var(--space-lg) auto;
 }
 
 .day-strip-header {
