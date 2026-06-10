@@ -97,16 +97,24 @@ export default function LaborList() {
         </div>
       )}
 
-      {sorted.map((cl) => (
-        <EntryCard
-          key={cl.public_id}
-          projectAbbrev={abbrev(cl.employee_name ?? "—")}
-          projectName={cl.employee_name ?? "Unknown worker"}
-          meta={`${fmtIsoDate(cl.work_date)} · ${fmtHours(cl.total_hours)}`}
-          duration={fmtMoney(cl.total_amount)}
-          onClick={() => navigate(`/labor/${cl.public_id}`)}
-        />
-      ))}
+      {sorted.map((cl) => {
+        const hoursNum = Number(cl.total_hours ?? 0);
+        const rateNum = Number(cl.hourly_rate ?? 0);
+        const amount =
+          isNaN(hoursNum) || isNaN(rateNum) ? 0 : hoursNum * rateNum;
+        const meta = `${fmtIsoDate(cl.work_date)} · ${fmtHours(cl.total_hours)} · Amount ${fmtMoney(String(amount))}`;
+        const duration = `Price ${fmtMoney(cl.total_amount)}`;
+        return (
+          <EntryCard
+            key={cl.public_id}
+            projectAbbrev={abbrev(cl.employee_name ?? "—")}
+            projectName={cl.employee_name ?? "Unknown worker"}
+            meta={meta}
+            duration={duration}
+            onClick={() => navigate(`/labor/${cl.public_id}`)}
+          />
+        );
+      })}
     </div>
   );
 }
