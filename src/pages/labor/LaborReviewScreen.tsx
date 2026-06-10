@@ -97,13 +97,25 @@ function parseOrZero(s: string): number {
   return Math.max(0, n);
 }
 
-/** Reject negative or non-finite input at the field level — keeps any
- *  pasted-garbage / scientific-notation overflow / typed-minus from
+/** Reject negative, non-finite, or -0 input at the field level — keeps
+ *  pasted-garbage / scientific-notation overflow / typed-minus / -0 from
  *  reaching state or the save payload. */
 function inputRejectsNegative(v: string): boolean {
   if (v === "") return false;
   const n = Number(v);
-  return !Number.isFinite(n) || n < 0;
+  if (!Number.isFinite(n)) return true;
+  if (Object.is(n, -0)) return true;
+  return n < 0;
+}
+
+/** Reject typed/pasted values above a maximum at the field level. Used
+ *  for the Hours input to enforce the 24h soft limit symmetrically with
+ *  the negative reject. */
+function inputRejectsAboveMax(v: string, max: number): boolean {
+  if (v === "") return false;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return true;
+  return n > max;
 }
 
 function computeAmount(hours: number, rate: number): number {
@@ -195,8 +207,12 @@ export default function LaborReviewScreen() {
   );
 
   const missingSCC = effectiveLines.some((li) => li.is_billable && li.sub_cost_code_id === null);
+  // Block both empty AND zero values — a billable line with hours="0" or
+  // rate="0" would ship a $0 line to billing just like an empty one.
   const missingHoursOrRate = effectiveLines.some(
-    (li) => li.is_billable && (li.hours_str === "" || li.rate_str === ""),
+    (li) =>
+      li.is_billable &&
+      (parseOrZero(li.hours_str) <= 0 || parseOrZero(li.rate_str) <= 0),
   );
   const isReady = !missingSCC && !missingHoursOrRate && effectiveLines.length > 0;
 
@@ -233,10 +249,13 @@ export default function LaborReviewScreen() {
 
   /** Build the line-items payload. For decimal fields (hours/rate/markup),
    *  prefer the RAW server value when the user didn't edit that field —
-   *  this preserves arbitrary decimal precision instead of round-tripping
-   *  through toFixed(2) display rounding (review-workflow findings #1/#2/#9).
-   *  Negative values are clamped to 0 as a defense-in-depth measure
-   *  alongside the input-level rejection (finding #8). */
+   *  preserves decimal precision instead of round-tripping through the
+   *  display's toFixed(2) (review-workflow findings #1/#2/#9). Price is
+   *  recomputed from the same precise hours/rate/markup that we send,
+   *  so it stays consistent with them (covers the followup precision
+   *  residual where computed_price was derived from display strings).
+   *  Negatives clamp to 0 as defense-in-depth alongside the input-level
+   *  reject (finding #8). */
   const buildLineItemsPayload = () =>
     effectiveLines.map((li) => {
       const hoursForSave = li.dirty_hours
@@ -260,6 +279,13 @@ export default function LaborReviewScreen() {
         : li.markup === null || li.markup === ""
         ? null
         : Math.max(0, Number(li.markup));
+      // Recompute price from the SAME values we're persisting so the
+      // server-stored row is internally consistent. Nulls treated as 0
+      // for the multiplication; result clamped non-negative.
+      const h = hoursForSave ?? 0;
+      const r = rateForSave ?? 0;
+      const mf = markupForSave ?? 0;
+      const priceForSave = Math.max(0, h * r * (1 + mf));
       return {
         id: li.id,
         public_id: li.public_id,
@@ -271,7 +297,7 @@ export default function LaborReviewScreen() {
         hours: hoursForSave,
         rate: rateForSave,
         markup: markupForSave,
-        price: Number(li.computed_price.toFixed(2)),
+        price: Number(priceForSave.toFixed(2)),
         is_billable: li.is_billable,
         is_overhead: li.is_overhead,
       };
@@ -324,10 +350,11 @@ export default function LaborReviewScreen() {
       queryClient.invalidateQueries({ queryKey: ["contract-labor"] });
       navigate(-1);
     } catch (err) {
-      console.error("Submit for review failed", err);
+      // Tag the log with which phase failed for prod-side diagnosis.
+      console.error("Submit for review failed", { putSucceeded, err });
       // If the PUT succeeded but the POST failed, the edits are persisted
       // but the review request didn't start. Refresh state so a retry
-      // uses fresh row_versions, and surface a more specific message.
+      // uses fresh row_versions, and surface a phase-specific message.
       if (putSucceeded) {
         await refreshFromServer().catch(() => undefined);
         toast(
@@ -335,6 +362,9 @@ export default function LaborReviewScreen() {
           "error",
         );
       } else {
+        // PUT failed — server row_version unchanged, but refresh anyway
+        // in case the failure was concurrent-edit (409) caused by
+        // another user updating the row.
         await refreshFromServer().catch(() => undefined);
         toast(err instanceof Error ? err.message : "Submit for review failed", "error");
       }
@@ -351,7 +381,8 @@ export default function LaborReviewScreen() {
     setSaving(true);
     try {
       // bill_vendor_id / bill_date / due_date / bill_number are deliberately
-      // null'd — derived downstream by Generate Bills (legacy parity).
+      // null'd — derived downstream by Generate Bills, never set here.
+      // Mirrors legacy ContractLaborEdit:339-345 intent.
       await put(`/api/v1/contract-labor/${public_id}/bill`, {
         row_version: clQuery.data.row_version,
         bill_vendor_id: null,
@@ -468,6 +499,7 @@ export default function LaborReviewScreen() {
                   value={li.hours_str}
                   onChange={(e) => {
                     if (inputRejectsNegative(e.target.value)) return;
+                    if (inputRejectsAboveMax(e.target.value, 24)) return;
                     updateLine(li.public_id, { hours: e.target.value });
                   }}
                 />
@@ -559,8 +591,10 @@ export default function LaborReviewScreen() {
           <div className="validation-banner">
             <AlertTriangle size={16} strokeWidth={2} />
             <span>
-              {missingHoursOrRate
-                ? "Every billable line item needs both Hours and Rate before this can be marked ready."
+              {missingSCC && missingHoursOrRate
+                ? "Every billable line item needs Hours, Rate (both > 0), and a sub cost code before this can be marked ready."
+                : missingHoursOrRate
+                ? "Every billable line item needs Hours and Rate greater than zero before this can be marked ready."
                 : "Every billable line item needs a sub cost code before this can be marked ready."}
             </span>
           </div>
