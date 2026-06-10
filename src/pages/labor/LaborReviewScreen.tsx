@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ChevronRight, Send } from "lucide-react";
-import { getList, getOne, put } from "../../api/client";
+import { getList, getOne, post, put } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
 import { useToast } from "../../components/Toast";
 import NavHeader from "../../components/ui/NavHeader";
@@ -123,6 +123,7 @@ export default function LaborReviewScreen() {
   const [edits, setEdits] = useState<Map<string, LineEdit>>(new Map());
   const [pickingForLineId, setPickingForLineId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [submittingReview, setSubmittingReview] = useState(false);
 
   useEffect(() => {
     const next = new Map<string, LineEdit>();
@@ -191,6 +192,59 @@ export default function LaborReviewScreen() {
     });
   };
 
+  const buildLineItemsPayload = () =>
+    effectiveLines.map((li) => {
+      const rateNum = li.rate_str === "" ? null : Number(li.rate_str);
+      const markupFraction =
+        li.markup_pct_str === "" ? null : Number(li.markup_pct_str) / 100;
+      return {
+        id: li.id,
+        public_id: li.public_id,
+        row_version: li.row_version,
+        line_date: li.line_date,
+        project_id: li.is_overhead ? null : li.project_id,
+        sub_cost_code_id: li.sub_cost_code_id,
+        description: li.description.trim() || null,
+        hours: li.hours !== null ? Number(li.hours) : null,
+        rate: rateNum,
+        markup: markupFraction,
+        price: Number(li.computed_price.toFixed(2)),
+        is_billable: li.is_billable,
+        is_overhead: li.is_overhead,
+      };
+    });
+
+  const handleSubmitForReview = async () => {
+    if (!clQuery.data || submittingReview || saving) return;
+    const msg =
+      `Submit ${clQuery.data.employee_name}'s line items for review? Reviewers will be notified.`;
+    if (!confirm(msg)) return;
+    setSubmittingReview(true);
+    try {
+      // Persist current edits so reviewers see the latest values.
+      await put(`/api/v1/contract-labor/${public_id}/bill`, {
+        row_version: clQuery.data.row_version,
+        bill_vendor_id: null,
+        bill_date: null,
+        due_date: null,
+        bill_number: null,
+        status: undefined,
+        line_items: buildLineItemsPayload(),
+      });
+      await post(`/api/v1/submit/review/contract-labor/${public_id}`, {
+        comments: null,
+      });
+      toast("Submitted for review", "success");
+      queryClient.invalidateQueries({ queryKey: ["contract-labor"] });
+      navigate(-1);
+    } catch (err) {
+      console.error("Submit for review failed", err);
+      toast(err instanceof Error ? err.message : "Submit for review failed", "error");
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
+
   const handleMarkReady = async () => {
     if (!isReady || !clQuery.data || saving) return;
     const msg =
@@ -205,26 +259,7 @@ export default function LaborReviewScreen() {
         due_date: null,
         bill_number: null,
         status: "ready",
-        line_items: effectiveLines.map((li) => {
-          const rateNum = li.rate_str === "" ? null : Number(li.rate_str);
-          const markupFraction =
-            li.markup_pct_str === "" ? null : Number(li.markup_pct_str) / 100;
-          return {
-            id: li.id,
-            public_id: li.public_id,
-            row_version: li.row_version,
-            line_date: li.line_date,
-            project_id: li.is_overhead ? null : li.project_id,
-            sub_cost_code_id: li.sub_cost_code_id,
-            description: li.description.trim() || null,
-            hours: li.hours !== null ? Number(li.hours) : null,
-            rate: rateNum,
-            markup: markupFraction,
-            price: Number(li.computed_price.toFixed(2)),
-            is_billable: li.is_billable,
-            is_overhead: li.is_overhead,
-          };
-        }),
+        line_items: buildLineItemsPayload(),
       });
       toast("Marked ready for billing", "success");
       queryClient.invalidateQueries({ queryKey: ["contract-labor"] });
@@ -402,15 +437,26 @@ export default function LaborReviewScreen() {
         )}
 
         {cl.status === "pending_review" && (
-          <button
-            type="button"
-            className="submit-button"
-            onClick={handleMarkReady}
-            disabled={!isReady || saving}
-          >
-            <Send size={16} strokeWidth={2} />
-            <span>{saving ? "Saving…" : "Mark ready for billing"}</span>
-          </button>
+          <>
+            <button
+              type="button"
+              className="submit-button"
+              onClick={handleSubmitForReview}
+              disabled={submittingReview || saving}
+            >
+              <Send size={16} strokeWidth={2} />
+              <span>{submittingReview ? "Submitting…" : "Submit for review"}</span>
+            </button>
+            <button
+              type="button"
+              className="submit-button"
+              onClick={handleMarkReady}
+              disabled={!isReady || saving || submittingReview}
+            >
+              <Send size={16} strokeWidth={2} />
+              <span>{saving ? "Saving…" : "Mark ready for billing"}</span>
+            </button>
+          </>
         )}
       </div>
 
