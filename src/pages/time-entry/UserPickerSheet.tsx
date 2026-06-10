@@ -28,20 +28,17 @@ function fullName(u: User): string {
 export default function UserPickerSheet({ open, onDismiss, onSelect }: UserPickerSheetProps) {
   const [search, setSearch] = useState("");
   const usersQuery = useQuery<User[]>({
-    queryKey: ["users-roster"],
-    queryFn: async () => (await getList<User>(`/api/v1/get/users?page_size=500`)).data,
+    queryKey: ["workers-roster"],
+    queryFn: async () => (await getList<User>(`/api/v1/get/workers`)).data,
     enabled: open,
     staleTime: 10 * 60 * 1000,
   });
 
   const filtered = useMemo<User[]>(() => {
-    // Server default already hides agents (?include_agents=false). Apply a
-    // client-side worker filter on top: only users linked to an Employee
-    // or contract-labor Vendor row are surfaceable. This drops admin-only
-    // accounts, personas, and any other non-worker Users from the picker.
-    const workers = (usersQuery.data ?? []).filter(
-      (u) => u.employee_id !== null || u.vendor_id !== null,
-    );
+    // Server curates the list (excludes agents + personas; includes
+    // employees, contractors, Field Crew, and Interns). No additional
+    // client-side filter beyond the search box.
+    const workers = usersQuery.data ?? [];
     const q = search.trim().toLowerCase();
     if (!q) return workers;
     return workers.filter((u) => fullName(u).toLowerCase().includes(q));
