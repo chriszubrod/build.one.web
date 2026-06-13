@@ -1,14 +1,19 @@
 import { NavLink } from "react-router-dom";
-import { Clock, HardHat, User } from "lucide-react";
+import { Clock, HardHat, User, Wallet } from "lucide-react";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 
 const CONTRACT_LABOR_MODULE = "Contract Labor";
+const BUDGETS_MODULE = "Budgets";
 
 export default function BottomTabBar() {
   const { data: me } = useCurrentUser();
   const showLabor = !!(
     me?.is_admin ||
     me?.modules?.find((m) => m.name === CONTRACT_LABOR_MODULE)?.can_read
+  );
+  const showBudgets = !!(
+    me?.is_admin ||
+    me?.modules?.find((m) => m.name === BUDGETS_MODULE)?.can_read
   );
 
   return (
@@ -31,6 +36,17 @@ export default function BottomTabBar() {
         >
           <HardHat size={20} strokeWidth={2} />
           <span className="app-tabbar-tab-label">Labor</span>
+        </NavLink>
+      )}
+      {showBudgets && (
+        <NavLink
+          to="/budget/list"
+          className={({ isActive }) =>
+            `app-tabbar-tab${isActive ? " app-tabbar-tab-active" : ""}`
+          }
+        >
+          <Wallet size={20} strokeWidth={2} />
+          <span className="app-tabbar-tab-label">Budgets</span>
         </NavLink>
       )}
       <NavLink

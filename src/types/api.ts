@@ -949,3 +949,128 @@ export interface AuthResponse {
     expires_in: number;
   };
 }
+
+/* ============================================================
+ * Budget entity (Phase 3) — customer-facing contract value per
+ * project, original schedule of values + change-order deltas, with a
+ * variance engine (budget vs actual cost vs drawn). All DECIMAL fields
+ * are transported as strings; the server computes every money figure
+ * (the client never does currency arithmetic for stored values).
+ * ============================================================ */
+
+/** A row from GET /api/v1/get/budgets — Budget header + server rollups. */
+export interface BudgetListRow {
+  id?: number;
+  public_id: string;
+  row_version: string;
+  created_datetime?: string;
+  modified_datetime?: string | null;
+  project_id: number | null;
+  status: string; // draft | active | archived
+  notes: string | null;
+  project_name: string | null;
+  project_public_id: string | null;
+  // Rollups (server-computed, DECIMAL as string).
+  contract_value: string;
+  drawn_price: string;
+  remaining_to_draw: string;
+}
+
+export interface Budget {
+  id?: number;
+  public_id: string;
+  row_version: string;
+  created_datetime?: string;
+  modified_datetime?: string | null;
+  project_id: number | null;
+  status: string; // draft | active | archived
+  notes: string | null;
+  project_name: string | null;
+  project_public_id: string | null;
+}
+
+/** Create response also carries the auto-created Rev 0. */
+export interface BudgetCreateResult extends Budget {
+  original_revision: BudgetRevision;
+}
+
+export interface BudgetRevision {
+  id?: number;
+  public_id: string;
+  row_version: string;
+  created_datetime?: string;
+  modified_datetime?: string | null;
+  budget_id: number;
+  revision_number: number;
+  type: string; // original | change_order
+  status: string; // draft | approved
+  title: string | null;
+  description: string | null;
+  approved_by_user_id: number | null;
+  approved_datetime: string | null;
+  effective_date: string | null;
+  // Join-enriched (read sprocs).
+  budget_public_id?: string;
+  project_id?: number;
+  budget_status?: string;
+}
+
+export interface BudgetLineItem {
+  id?: number;
+  public_id: string;
+  row_version: string;
+  created_datetime?: string;
+  modified_datetime?: string | null;
+  budget_revision_id: number;
+  sub_cost_code_id: number | null;
+  description: string | null;
+  quantity: string | null;
+  rate: string | null;
+  amount: string | null;
+  markup: string | null;
+  price: string | null;
+  // Join-enriched (read sprocs only).
+  revision_status?: string;
+  revision_type?: string;
+  budget_id?: number;
+  project_id?: number;
+}
+
+/** The money legs shared by variance rows, cost-code subtotals, and totals. */
+export interface BudgetVarianceMoney {
+  budget_amount: string;
+  budget_price: string;
+  bill_cost: string;
+  expense_cost: string;
+  bill_credit_cost: string;
+  contract_labor_cost: string;
+  employee_labor_cost: string;
+  actual_cost: string;
+  drawn_price: string;
+  remaining_to_draw: string;
+  cost_variance: string;
+  unpriced_labor_hours: string;
+}
+
+export interface BudgetVarianceRow extends BudgetVarianceMoney {
+  sub_cost_code_id: number | null;
+  sub_cost_code_number: string | null;
+  sub_cost_code_name: string | null;
+  cost_code_id: number | null;
+  cost_code_number: string | null;
+  cost_code_name: string | null;
+}
+
+export interface BudgetVarianceCostCode extends BudgetVarianceMoney {
+  cost_code_id: number | null;
+  cost_code_number: string | null;
+  cost_code_name: string | null;
+  uncategorized: boolean;
+}
+
+export interface BudgetVariancePayload {
+  budget: Budget;
+  rows: BudgetVarianceRow[];
+  cost_codes: BudgetVarianceCostCode[];
+  totals: BudgetVarianceMoney;
+}

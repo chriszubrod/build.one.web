@@ -1,0 +1,123 @@
+/* Budget UI (Phase 3) — scoped styles, imported by BudgetLayout so they only
+ * load on the /budget/* desktop surface. Builds on the global tokens + table
+ * classes from index.css; only adds what the variance consolidation table and
+ * budget pages need beyond the shared primitives. */
+
+/* Wider content surface for the consolidation table (overrides .page's 1200). */
+.budget-page {
+  max-width: 1400px;
+}
+
+/* Numeric columns right-aligned, tabular figures — applies to every table
+ * on the budget surface (the list rollups and the variance consolidation). */
+.budget-page td.num,
+.budget-page th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Cost-code group header row. */
+.variance-table tr.cc-group td {
+  background: var(--color-bg);
+  font-weight: 600;
+  border-top: 2px solid var(--color-border);
+}
+
+/* SubCostCode detail rows sit slightly indented under their group. */
+.variance-table tr.scc-row td.label {
+  padding-left: var(--space-2xl);
+  color: var(--color-text);
+}
+
+.variance-table tr.scc-row td.label .scc-num {
+  color: var(--color-text-muted);
+  margin-right: var(--space-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Grand totals row. */
+.variance-table tr.totals-row td {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-weight: 700;
+  border-top: 2px solid var(--color-primary);
+}
+
+.variance-table tr.totals-row td .variance-pos,
+.variance-table tr.totals-row td .variance-neg {
+  color: var(--color-on-primary);
+}
+
+/* Uncategorized group/rows — muted, signals "needs a cost code". */
+.variance-table tr.uncategorized td.label {
+  color: var(--color-warning);
+  font-style: italic;
+}
+
+/* Variance / remaining sign coloring. */
+.variance-pos {
+  color: var(--color-success);
+}
+
+.variance-neg {
+  color: var(--color-error);
+}
+
+/* The "most drawn value is uncategorized today" advisory banner. */
+.budget-note {
+  background: var(--color-warning-bg, #f4e7d6);
+  color: var(--color-warning, #a85f1a);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: var(--font-size-footnote);
+  margin-bottom: var(--space-lg);
+}
+
+/* Unpriced-labor indicator chip in a variance cell. */
+.unpriced-chip {
+  display: inline-block;
+  margin-left: var(--space-xs);
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--color-warning-bg, #f4e7d6);
+  color: var(--color-warning, #a85f1a);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+}
+
+/* Revisions panel on the budget view. */
+.revisions-panel {
+  margin-top: var(--space-2xl);
+}
+
+.revisions-panel .inline-li-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-md);
+}
+
+/* Read-only/locked banner on the edit page for approved revisions. */
+.locked-banner {
+  background: var(--color-info-bg, #e6eef5);
+  color: var(--color-text);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: var(--font-size-footnote);
+  margin-bottom: var(--space-lg);
+}
+
+/* Budget detail header: project + status badge inline. */
+.budget-detail-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-xs);
+}
+
+.budget-detail-sub {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-footnote);
+  margin-bottom: var(--space-xl);
+}

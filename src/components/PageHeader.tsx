@@ -25,6 +25,7 @@ export default function PageHeader({
       {children}
       {createPath && (
         <button
+          type="button"
           className="btn btn-primary"
           onClick={() => navigate(createPath)}
         >

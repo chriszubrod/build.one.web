@@ -20,6 +20,14 @@ import CreateLogScreen from "./pages/time-entry/CreateLogScreen";
 import TimeEntryView from "./pages/time-entry/TimeEntryView";
 import TimeEntryCreate from "./pages/time-entry/TimeEntryCreate";
 
+// Budget surface (Phase 3) — desktop layout, office/PM audience (gated on
+// the Budgets module). Sibling to the phone AppLayout under ProtectedRoute.
+import BudgetLayout from "./layout/BudgetLayout";
+import BudgetList from "./pages/budgets/BudgetList";
+import BudgetCreate from "./pages/budgets/BudgetCreate";
+import BudgetView from "./pages/budgets/BudgetView";
+import BudgetEdit from "./pages/budgets/BudgetEdit";
+
 // Parked for v0.1.0 — Option B trim (excluded via tsconfig.app.json,
 // not bundled by Vite since unreachable from this route tree). Restore
 // pages by re-adding their imports + routes here when ready.
@@ -56,6 +64,16 @@ export default function App() {
                 <Route path="/user/:id/edit" element={<Navigate to="/profile" replace />} />
 
                 <Route path="*" element={<Navigate to="/time-entry/list" replace />} />
+              </Route>
+
+              {/* Budget surface — desktop chrome, separate from the phone shell.
+                  Static /budget/* paths outrank AppLayout's "*" splat. */}
+              <Route element={<BudgetLayout />}>
+                <Route path="/budget/list" element={<BudgetList />} />
+                <Route path="/budget/create" element={<BudgetCreate />} />
+                <Route path="/budget/:publicId" element={<BudgetView />} />
+                <Route path="/budget/:publicId/edit" element={<BudgetEdit />} />
+                <Route path="/budget/*" element={<Navigate to="/budget/list" replace />} />
               </Route>
             </Route>
           </Routes>
