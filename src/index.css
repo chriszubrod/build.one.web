@@ -116,10 +116,10 @@ body {
    -------------------------------------------------------------------------
    Breakpoint tiers (kept in one place so everything else can refer back):
 
-     Mobile portrait     : default (≤ 480w)              shell max 430px
+     Mobile portrait     : default                       shell max 430px
      Mobile landscape    : (landscape AND ≤ 500h)        rotate overlay
-     Tablet portrait     : (≥ 481w AND portrait)         shell max 760px
-     Tablet landscape    : (≥ 768w AND landscape AND > 500h)   shell max 1024px
+     Tablet (any orient) : touch device, > 430w viewport shell max 430px,
+                                                         centered with margin
      Desktop             : (≥ 1024w AND hover:hover AND pointer:fine)
                                                          sidebar + full width
 
@@ -127,6 +127,11 @@ body {
    distinguish laptops from tablets at the same width — an iPad in landscape
    (1024×768, touch) stays in tablet mode; a 1024px-wide laptop window
    (mouse, hover-capable) gets the sidebar.
+
+   Tablet renders identically to mobile portrait — a 430px phone-shaped
+   column centered in the viewport, with empty side margins. Matches the
+   production iOS feel. To widen tablet content later, override .app-shell
+   max-width via a tablet-tier @media + revisit table / filter rules.
    ========================================================================= */
 
 /* Mobile portrait (default) — phone-shaped column centered on viewport,
@@ -151,17 +156,11 @@ body {
   padding: var(--space-md) var(--space-lg) 112px;
 }
 
-/* Tablet portrait — widen the column. Single-column layout, still uses
-   BottomTabBar. */
-@media (min-width: 481px) and (orientation: portrait) {
-  .app-shell { max-width: 760px; }
-}
-
-/* Tablet landscape — widen further. Excludes phones in landscape via the
-   min-height guard. */
-@media (min-width: 768px) and (orientation: landscape) and (min-height: 501px) {
-  .app-shell { max-width: 1024px; }
-}
+/* Tablet portrait + landscape — keep the 430px phone column centered with
+   empty side margins. This matches the production iOS feel: tablet renders
+   the same as mobile, just with more viewport space framing the content.
+   If a wider tablet layout is wanted later, raise this max-width per
+   orientation and revisit the .cl-filters / .data-table responsive rules. */
 
 /* Desktop — sidebar + main row, full viewport width, BottomTabBar hidden. */
 @media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
@@ -2502,18 +2501,10 @@ a.scout-record-header-link:hover .scout-record-name {
   margin-bottom: var(--space-md);
 }
 
-@media (min-width: 481px) and (orientation: portrait) {
-  .cl-filters {
-    grid-template-columns: 1fr 1fr;
-  }
-  .cl-filters .cl-filter-actions {
-    grid-column: 1 / -1;
-    justify-self: end;
-  }
-}
-
-@media (min-width: 768px) and (orientation: landscape),
-       (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+/* Tablet still renders the phone-width column (430px shell), so filters
+   stay stacked. Switch to the flex/wrap layout only at desktop where the
+   sidebar layout gives the content area more horizontal room. */
+@media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
   .cl-filters {
     display: flex;
     flex-wrap: wrap;
