@@ -393,7 +393,7 @@ export default function TimeEntryList() {
                   >
                     <td>{fmtDate(entry.work_date)}</td>
                     <td>{workerName}</td>
-                    <td style={{ maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <td className="cell-multi-truncate">
                       {(entry.distinct_project_ids ?? [])
                         .map((pid) => projectLabelMap.get(pid) ?? `#${pid}`)
                         .join(", ") || <span className="text-muted">—</span>}

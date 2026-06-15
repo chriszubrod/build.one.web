@@ -744,15 +744,33 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
-/* Below tablet landscape, wide tables don't collapse cleanly. Let them
-   scroll horizontally inside their cell rather than breaking the layout.
-   This is the floor — per-table card-mode is a Phase 2 refinement. */
-@media (max-width: 1024px) {
+/* On mobile portrait only, wide tables don't fit the 430px shell. Let them
+   scroll horizontally rather than break the layout. Tablets (≥ 481w) have
+   room — tables that genuinely overflow at tablet should be addressed
+   per-page (column hiding, card-mode, etc.) rather than blanket scrolled. */
+@media (max-width: 480px) {
   .data-table {
     display: block;
     overflow-x: auto;
     white-space: nowrap;
     -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Project / multi-value cell truncation — applied per-cell, not globally.
+   Truncates with ellipsis at mobile, wraps to multiple lines at tablet+. */
+.cell-multi-truncate {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (min-width: 481px) {
+  .cell-multi-truncate {
+    max-width: none;
+    overflow: visible;
+    white-space: normal;
+    word-break: break-word;
   }
 }
 
@@ -2463,16 +2481,43 @@ a.scout-record-header-link:hover .scout-record-name {
 }
 
 /* Contract Labor list page */
+/* Filter row — responsive layout.
+   - Mobile portrait (default): single-column stack so 7 inputs don't sprawl.
+   - Tablet portrait: 2-column grid; Clear button spans the full last row.
+   - Tablet landscape + desktop: single-row flex (auto-wraps if too narrow),
+     Clear button pushed to the end.
+*/
 .cl-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-md);
-  align-items: flex-end;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-sm) var(--space-md);
+  align-items: end;
   padding: var(--space-md);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   margin-bottom: var(--space-md);
+}
+
+@media (min-width: 481px) and (orientation: portrait) {
+  .cl-filters {
+    grid-template-columns: 1fr 1fr;
+  }
+  .cl-filters .cl-filter-actions {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+}
+
+@media (min-width: 768px) and (orientation: landscape),
+       (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+  .cl-filters {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .cl-filters .cl-filter-actions {
+    margin-left: auto;
+  }
 }
 
 .cl-filter-group {
