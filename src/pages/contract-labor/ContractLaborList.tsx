@@ -161,7 +161,31 @@ export default function ContractLaborList() {
     [vendors],
   );
 
-  const entries = listQuery.data?.data ?? [];
+  // Helper to pick the user-facing worker name for an entry. employee_name
+  // is what the worker is actually called (matches User.firstname +
+  // User.lastname); Vendor.name may be the more formal legal name (e.g.,
+  // "Ricardo Moreno" when the worker goes by "Ricky"). Prefer employee_name;
+  // fall back to vendor.name; fall back to "Unknown" so sort stays stable.
+  function workerLabelFor(entry: ContractLabor): string {
+    if (entry.employee_name && entry.employee_name.trim()) return entry.employee_name;
+    if (entry.vendor_id) {
+      const v = vendorMap.get(entry.vendor_id);
+      if (v) return v;
+    }
+    return "Unknown";
+  }
+
+  // Sort client-side by worker first name ASC. employee_name is rendered
+  // "Firstname Lastname …", so a plain string sort yields first-name order.
+  // For typical billing-period filtered views (~10-25 entries), this fits
+  // on one page; pagination won't fragment the alphabetical order in practice.
+  const entries = useMemo(() => {
+    const rows = listQuery.data?.data ?? [];
+    return [...rows].sort((a, b) =>
+      workerLabelFor(a).localeCompare(workerLabelFor(b), undefined, { sensitivity: "base" })
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listQuery.data, vendorMap]);
   const totalCount = countQuery.data ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const hasFilters = Boolean(search || status || vendorId || billingPeriod);
@@ -442,7 +466,7 @@ export default function ContractLaborList() {
             </thead>
             <tbody>
               {entries.map((entry) => {
-                const vendorName = entry.vendor_id ? vendorMap.get(entry.vendor_id) ?? entry.employee_name ?? "Unknown" : entry.employee_name ?? "Unknown";
+                const vendorName = workerLabelFor(entry);
                 const editPath = `/contract-labor/${entry.public_id}/edit`;
                 return (
                   <tr
