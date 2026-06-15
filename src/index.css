@@ -144,8 +144,11 @@ body {
 .app-shell-content {
   flex: 1;
   overflow-y: auto;
-  padding-top: var(--space-md);
-  padding-bottom: 112px;
+  /* Side padding matches the iOS-page pattern (--space-lg = 16px) so every
+     page gets the same edge breathing room. Pages that previously baked the
+     horizontal padding into .ios-page now rely on this; .ios-page keeps the
+     bottom padding only to avoid double-padding. */
+  padding: var(--space-md) var(--space-lg) 112px;
 }
 
 /* Tablet portrait — widen the column. Single-column layout, still uses
@@ -2934,9 +2937,11 @@ a.scout-record-header-link:hover .scout-record-name {
 /* Shared components used by Profile + TimeEntry rewrites in 6b / 6c.       */
 /* ─────────────────────────────────────────────────────────────────────── */
 
-/* Page shell — inside the mobile shell so width is already capped; padding only */
+/* Page shell — horizontal padding now lives on .app-shell-content so every
+   page (.ios-page + .page-using pages) shares the same edge spacing.
+   .ios-page keeps the bottom padding only. */
 .ios-page {
-  padding: 0 var(--space-lg) var(--space-2xl);
+  padding: 0 0 var(--space-2xl);
 }
 
 /* NavHeader — push-screen header with back button + centered title */
