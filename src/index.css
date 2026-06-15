@@ -120,7 +120,13 @@ body {
      Mobile landscape    : (landscape AND ≤ 500h)        rotate overlay
      Tablet portrait     : (≥ 481w AND portrait)         shell max 760px
      Tablet landscape    : (≥ 768w AND landscape AND > 500h)   shell max 1024px
-     Desktop             : (≥ 1281w)                     sidebar + full width
+     Desktop             : (≥ 1024w AND hover:hover AND pointer:fine)
+                                                         sidebar + full width
+
+   The desktop trigger combines width with hover/pointer media queries to
+   distinguish laptops from tablets at the same width — an iPad in landscape
+   (1024×768, touch) stays in tablet mode; a 1024px-wide laptop window
+   (mouse, hover-capable) gets the sidebar.
    ========================================================================= */
 
 /* Mobile portrait (default) — phone-shaped column centered on viewport,
@@ -155,7 +161,7 @@ body {
 }
 
 /* Desktop — sidebar + main row, full viewport width, BottomTabBar hidden. */
-@media (min-width: 1281px) {
+@media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
   .app-shell {
     max-width: 100%;
     flex-direction: row;
@@ -224,7 +230,7 @@ body {
   display: none;
 }
 
-@media (min-width: 1281px) {
+@media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
   .app-sidebar {
     display: flex;
     flex-direction: column;
@@ -290,7 +296,7 @@ body {
   z-index: 100;
 }
 
-@media (min-width: 1281px) {
+@media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
   .app-tabbar { display: none; }
 }
 
