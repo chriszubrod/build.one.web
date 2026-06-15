@@ -111,8 +111,20 @@ body {
   padding: var(--space-xl);
 }
 
-/* iOS-mirror mobile shell — phone-shaped column centered on the viewport,
-   bottom TabBar floats over it. Used by AppLayout for protected routes. */
+/* =========================================================================
+   App shell — adaptive across breakpoints
+   -------------------------------------------------------------------------
+   Breakpoint tiers (kept in one place so everything else can refer back):
+
+     Mobile portrait     : default (≤ 480w)              shell max 430px
+     Mobile landscape    : (landscape AND ≤ 500h)        rotate overlay
+     Tablet portrait     : (≥ 481w AND portrait)         shell max 760px
+     Tablet landscape    : (≥ 768w AND landscape AND > 500h)   shell max 1024px
+     Desktop             : (≥ 1281w)                     sidebar + full width
+   ========================================================================= */
+
+/* Mobile portrait (default) — phone-shaped column centered on viewport,
+   BottomTabBar floats at the bottom, AppSidebar hidden. */
 .app-shell {
   max-width: 430px;
   min-height: 100vh;
@@ -130,7 +142,140 @@ body {
   padding-bottom: 112px;
 }
 
-/* Bottom TabBar — floating pill capsule, fixed at viewport bottom */
+/* Tablet portrait — widen the column. Single-column layout, still uses
+   BottomTabBar. */
+@media (min-width: 481px) and (orientation: portrait) {
+  .app-shell { max-width: 760px; }
+}
+
+/* Tablet landscape — widen further. Excludes phones in landscape via the
+   min-height guard. */
+@media (min-width: 768px) and (orientation: landscape) and (min-height: 501px) {
+  .app-shell { max-width: 1024px; }
+}
+
+/* Desktop — sidebar + main row, full viewport width, BottomTabBar hidden. */
+@media (min-width: 1281px) {
+  .app-shell {
+    max-width: 100%;
+    flex-direction: row;
+    min-height: 100vh;
+  }
+  .app-shell-content {
+    padding-top: var(--space-xl);
+    padding-bottom: var(--space-xl);
+    padding-left: var(--space-xl);
+    padding-right: var(--space-xl);
+  }
+}
+
+/* =========================================================================
+   Rotate-to-portrait overlay — only fires for phones in landscape.
+   max-height: 500px catches phones (short side ≤ ~430px) but not tablets
+   (iPad in landscape is 768px tall).
+   ========================================================================= */
+.rotate-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: var(--color-bg);
+  z-index: 9999;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  padding: var(--space-2xl);
+  text-align: center;
+}
+
+.rotate-overlay-icon {
+  color: var(--color-primary);
+  /* gentle wobble suggesting rotation */
+  animation: rotate-overlay-wobble 2.4s ease-in-out infinite;
+}
+
+@keyframes rotate-overlay-wobble {
+  0%, 100% { transform: rotate(-90deg); }
+  50%      { transform: rotate(0deg); }
+}
+
+.rotate-overlay-title {
+  margin: 0;
+  font-size: var(--font-size-large);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.rotate-overlay-body {
+  margin: 0;
+  max-width: 320px;
+  color: var(--color-text-muted);
+  line-height: var(--line-height-relaxed);
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .rotate-overlay { display: flex; }
+}
+
+/* =========================================================================
+   App sidebar (desktop only)
+   ========================================================================= */
+.app-sidebar {
+  display: none;
+}
+
+@media (min-width: 1281px) {
+  .app-sidebar {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 var(--sidebar-width);
+    background: var(--color-sidebar);
+    color: var(--color-sidebar-text);
+    padding: var(--space-lg) var(--space-md);
+    gap: var(--space-lg);
+    border-right: 1px solid var(--color-border);
+    min-height: 100vh;
+    position: sticky;
+    top: 0;
+  }
+
+  .app-sidebar-brand {
+    font-size: var(--font-size-large);
+    font-weight: var(--font-weight-bold);
+    padding: 0 var(--space-sm);
+    margin-bottom: var(--space-sm);
+  }
+
+  .app-sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+  }
+
+  .app-sidebar-link {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--radius-md);
+    color: var(--color-sidebar-text);
+    text-decoration: none;
+    font-size: var(--font-size-body);
+    transition: background 0.12s ease;
+  }
+
+  .app-sidebar-link:hover {
+    background: var(--color-sidebar-active);
+  }
+
+  .app-sidebar-link-active {
+    background: var(--color-sidebar-active);
+    font-weight: var(--font-weight-semibold);
+  }
+}
+
+/* Bottom TabBar — floating pill capsule, fixed at viewport bottom.
+   Hidden at desktop (AppSidebar takes over). */
 .app-tabbar {
   position: fixed;
   bottom: 16px;
@@ -143,6 +288,10 @@ body {
   gap: 4px;
   box-shadow: var(--shadow-fab);
   z-index: 100;
+}
+
+@media (min-width: 1281px) {
+  .app-tabbar { display: none; }
 }
 
 .app-tabbar-tab {
@@ -587,6 +736,18 @@ body {
   border-radius: var(--radius);
   overflow: hidden;
   box-shadow: var(--shadow-sm);
+}
+
+/* Below tablet landscape, wide tables don't collapse cleanly. Let them
+   scroll horizontally inside their cell rather than breaking the layout.
+   This is the floor — per-table card-mode is a Phase 2 refinement. */
+@media (max-width: 1024px) {
+  .data-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 .data-table th {
@@ -1155,6 +1316,32 @@ button[type="submit"]:disabled {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0 var(--space-xl);
+}
+
+/* Stack the two-column form header on mobile portrait so inputs don't
+   shrink awkwardly inside narrow cells. */
+@media (max-width: 480px) {
+  .form-header-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ContractLabor line-item row is the worst offender — 6+ fields share
+   one .cl-form-row. Below tablet landscape, stack the fields vertically
+   instead of letting them shrink past usability. */
+@media (max-width: 1024px) {
+  .cl-form-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .cl-field,
+  .cl-field-sm,
+  .cl-field-xs,
+  .cl-field-full {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+  }
 }
 
 .form-header-grid .form-group {
