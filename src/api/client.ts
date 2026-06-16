@@ -1,4 +1,5 @@
 import { emitToast } from "./toastBridge";
+import { clearAllUserScopedStorage } from "../auth/cacheCleanup";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -96,8 +97,30 @@ export async function refreshAccessToken(): Promise<string | null> {
   return refreshInFlight;
 }
 
-/** Redirect to /login, wiping local auth state. The one place this happens. */
-function redirectToLogin(): never {
+/**
+ * Redirect to /login, wiping every per-user storage surface first.
+ *
+ * Server-driven session expiries (refresh-token revoked elsewhere, idle
+ * iOS Safari localStorage eviction, server returning 401) flow through
+ * here. Without the awaited cleanup, the IndexedDB-persisted React Query
+ * cache + the SW NetworkFirst `bo-api-reads-v1` cache would survive into
+ * the next sign-in on the same device, reproducing the iOS v0.1.0-class
+ * multi-user state-bleed bug via the involuntary-logout path.
+ *
+ * Awaits `clearAllUserScopedStorage()` so the persister key + SW cache
+ * are gone BEFORE the redirect. Best-effort — individual delete failures
+ * are logged inside the helper, not thrown. Caller must `await` this.
+ *
+ * Throws ApiError(401) so the originating request's await chain unwinds
+ * cleanly.
+ */
+async function redirectToLogin(): Promise<never> {
+  try {
+    await clearAllUserScopedStorage();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[redirectToLogin] cleanup failed (continuing anyway):", err);
+  }
   localStorage.removeItem("access_token");
   localStorage.removeItem("username");
   window.location.href = "/login";
@@ -182,7 +205,7 @@ async function request<T>(
 
   const res = await fetchWithRefresh(`${API_BASE}${path}`, buildInit);
 
-  if (res.status === 401) redirectToLogin();
+  if (res.status === 401) await redirectToLogin();
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
@@ -265,7 +288,7 @@ export async function uploadFile<T>(
 
   const res = await fetchWithRefresh(`${API_BASE}${path}`, buildInit);
 
-  if (res.status === 401) redirectToLogin();
+  if (res.status === 401) await redirectToLogin();
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
@@ -297,7 +320,7 @@ export async function fetchViewAttachmentBlob(publicId: string): Promise<Blob> {
     buildInit,
   );
 
-  if (res.status === 401) redirectToLogin();
+  if (res.status === 401) await redirectToLogin();
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));

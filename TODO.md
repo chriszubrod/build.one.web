@@ -13,6 +13,42 @@ Pending work, deferred decisions, known issues. Check off as done; prune anythin
 
 ---
 
+## Auth / authz hardening — API repo follow-ups (from 2026-06-16 evaluation)
+
+The full auth+authz evaluation lives in the workflow transcript at
+`/private/tmp/claude-501/-Users-chris-Applications-build-one/7b4ffd2a-28ac-4754-9941-d5889b92a8cd/tasks/wuqbrmpaw.output`
+(audit + risk pass across web/api/ios). Web-side Phase 0 (redirectToLogin
+cleanup, Sign out of all devices, agent transcript scoping) shipped this
+session. The items below are API-repo work, in priority order per the
+user's answers to the open questions.
+
+### Phase 1 — Active Sessions surface + agent audit-trail (yes/strong appetite)
+
+- [ ] **Active Sessions API endpoints.** Build out:
+  - `GET /api/v1/mobile/auth/sessions` — list active `AuthRefreshToken` rows for the caller. Fields: `(jti, issued_datetime, last_used_datetime, user_agent, ip, is_current)`. The "current" flag marks the row whose hash matches the caller's refresh-cookie.
+  - `DELETE /api/v1/mobile/auth/sessions/{jti}` — revoke a specific session (reuses `revoke_by_jti`).
+  - Capture `User-Agent` + remote IP at refresh-token-mint time and persist on the row (column add to `dbo.AuthRefreshToken`, sproc update, service threading from the request via FastAPI `Request` object).
+  - Effort: ~3 days. Web-side `Profile → Active sessions` screen + per-row revoke is then a ~2-day follow-up.
+- [ ] **Agent audit-trail separation — shape A (`acting_on_behalf_of_user_id` column).** Decision locked 2026-06-16: column shape, NOT JWT actor claim, NOT header pattern. Rationale: smallest schema delta, captures the audit need without touching the JWT/RBAC layer; if RBAC-level on-behalf-of becomes needed later, shape C can be layered on top without rework. Work:
+  - Add nullable FK `ActingOnBehalfOfUserId BIGINT NULL FK User.Id` to: `Workflow`, `AgentSession`, optionally `Bill` / `Expense` / `Invoice` create rows.
+  - New ContextVar `current_acting_on_behalf_of_user_id` populated when an orchestrator's delegation tool fires. ToolContext threads it through every sub-agent call.
+  - Service-layer writes to `Workflow.ActingOnBehalfOfUserId` when the ContextVar is set.
+  - Surface in an admin audit view (separate web task once data flows).
+  - Effort: ~1 week. Server-only; no web-side dependency.
+
+### Phase 2 — Server-side hardening (1-2 weeks, defer 4-6 weeks)
+
+- [ ] **Cross-worker RBAC cache invalidation.** `shared/rbac.py` keys cache per (user_sub, company_id) with 5-min TTL. `invalidate_all_caches()` only clears the dict in the worker that handled the mutation — other gunicorn workers serve stale grants for up to 5 min. Implement via a small Redis pubsub (preferred — App Service can add Azure Cache for Redis Basic at ~$15/mo) OR a polling watermark in `dbo.RbacInvalidation` table that each worker checks every 30s. Manifests today as "I changed your role and you still see the old menu." Effort: ~3 days for the Redis path, ~5 days for the DB-polling path.
+- [ ] **401 vs 403 discrimination.** Web's `redirectToLogin` fires on every 401 — including 401s emitted by a backend bug, misconfigured `require_module_api`, or 502→401 proxy translation. Server should return 403 for permission denials, reserve 401 for "authentication invalid" (missing/expired/forged token). Web client checks the body for `error="invalid_token"` per RFC 6750 §3.1. Trivial server change (FastAPI dependencies + custom 401 exception handler); ~1 day web change to discriminate. Effort: ~2 days total.
+- [ ] **JWT `kid` claim + JWKS endpoint.** Manual secret rotation today means a rotation-day code redeploy. Adding `kid` to the JWT header + serving a JWKS endpoint (`GET /.well-known/jwks.json`) lets the secret rotate independently of code deploys. Can stay on HS256 (uglier but lower-risk) or switch to RS256 simultaneously. Defer until next rotation actually happens. Effort: ~3 days HS256+kid, ~5 days for RS256 migration.
+
+### Phase 3 — DEFERRED, conditional
+
+- [ ] **React Query persister cid-keying.** Today the persister key is `bo.rq.v1.<uid>` — switching Companies (cid changes) keeps the same key, leaking Company A's cached entity data into Company B context. Latent today (single Company in prod); user confirmed Phase 5b multi-Company is >6 months out. Add `// FIXME(Phase-5b)` comment in `src/main.tsx` so it's visible when the time comes. Effort: ~2 hours.
+- [ ] **httpOnly cookie for access token.** Defeats XSS exfiltration of the JWT. Big project — CORS rework, CSRF rework, potentially breaks the agent-as-user pattern. Standalone effort. Trigger: real XSS incident, security audit, or regulatory ask. Effort: ~6-8 weeks if greenlit.
+
+---
+
 ## Profile — Self-read carve-out on Contacts endpoint (API change)
 
 - [ ] **`GET /api/v1/get/contacts/user/{user_id}` is gated on `Modules.VENDORS`.** Surfaced 2026-06-15 while wiring the Profile Contact rows. The endpoint reads ANY user's contacts as long as the caller holds the Vendors module (legacy "manage a vendor's contact list" use case). Side effect: a non-admin user who lacks Vendors read can't see their OWN Contact data on `/profile` or `/profile/details` — the row falls to "—". Christopher (system admin) sees it fine because IsSystemAdmin bypasses module gating; field users with role e.g. Field Crew / Intern would not. **Fix lives in `build.one.api`**, two options:

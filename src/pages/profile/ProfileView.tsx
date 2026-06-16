@@ -19,7 +19,7 @@ function initialsFromName(first?: string | null, last?: string | null): string {
 
 export default function ProfileView() {
   const { data: me, isLoading } = useCurrentUser();
-  const { logout } = useAuth();
+  const { logout, signOutAllDevices } = useAuth();
   // The contacts endpoint expects an integer User.Id, not the public_id
   // UUID. The /auth/me payload exposes both — use the int here.
   const userId = me?.user?.id;
@@ -62,9 +62,16 @@ export default function ProfileView() {
   };
 
   const handleSignOutAll = () => {
-    if (confirm("Sign out of all devices? This will end every active session.")) {
-      // TODO: wire to API endpoint once confirmed (was Phase 5 follow-up)
-      logout();
+    if (
+      confirm(
+        "Sign out of all devices? This will end every active session, including this one.",
+      )
+    ) {
+      // Fire-and-await — the API call revokes every active refresh-token
+      // row for this user, then signOutAllDevices runs the local logout
+      // (cleanup + redirect). Best-effort on the server call; local
+      // logout proceeds even on network failure.
+      void signOutAllDevices();
     }
   };
 

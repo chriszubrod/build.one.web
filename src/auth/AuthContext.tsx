@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { rawRequest } from "../api/client";
+import { rawRequest, post } from "../api/client";
 import { subscribeToProfileEvents } from "./profileEventsClient";
 import { clearAllUserScopedStorage } from "./cacheCleanup";
 import type { AuthResponse } from "../types/api";
@@ -17,6 +17,14 @@ interface AuthState {
   ) => Promise<void>;
   /** Awaited so callers can ensure cache cleanup before redirect. */
   logout: () => Promise<void>;
+  /**
+   * Sign out of ALL active sessions for this user across every device.
+   * Calls the server-side revoke-all-refresh-tokens endpoint, then runs
+   * the local logout cleanup. Best-effort on the server call — local
+   * logout proceeds even if the server is unreachable so the user isn't
+   * stranded on a "wanted to sign out" intent.
+   */
+  signOutAllDevices: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -112,6 +120,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.href = "/login";
   }, [queryClient]);
 
+  /**
+   * Sign out across every device for this user. Calls the API to
+   * revoke every active refresh-token row for the current Auth record,
+   * then runs the standard local logout (cleanup + redirect to /login).
+   *
+   * The server call is best-effort — a network failure or 5xx still
+   * proceeds with local logout so the user isn't trapped. Other devices
+   * will fail closed on their next refresh attempt (their refresh token
+   * row is gone) and bounce to /login.
+   */
+  const signOutAllDevices = useCallback(async () => {
+    try {
+      await post(`/api/v1/mobile/auth/logout-all-devices`, {});
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        "[signOutAllDevices] server-side revocation failed (still doing local logout):",
+        err,
+      );
+    }
+    await logout();
+  }, [logout]);
+
   // Subscribe to profile-change events while authenticated. The server emits
   // `profile_changed` when an admin mutates the caller's UserRole or the
   // RoleModules under their role. We respond by invalidating ['me'] so the
@@ -129,7 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [isAuthenticated, queryClient]);
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, username, login, signup, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, username, login, signup, logout, signOutAllDevices }}>
       {children}
     </AuthContext.Provider>
   );

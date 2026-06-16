@@ -13,6 +13,18 @@ const SW_CACHE_NAMES = [
 const PERSISTER_KEY_PREFIX = "bo.rq.v1."; // must match src/main.tsx
 
 /**
+ * localStorage key prefixes that hold per-user data and must be wiped on
+ * logout. Currently covers agent conversation transcripts (Scout chat
+ * history etc., see src/agents/useAgentRun.ts). Any future module that
+ * stashes per-user content under a stable key prefix should be added
+ * here so the multi-user state-bleed contract stays whole.
+ */
+const USER_SCOPED_LOCALSTORAGE_PREFIXES = [
+  "intelligence.conversation.",  // current / in-progress agent transcripts
+  "intelligence.conversations.", // archived agent transcripts list
+];
+
+/**
  * Clears every per-user storage surface — the IndexedDB-backed React
  * Query persister, the SW runtime caches, and (transitively, via the
  * caller) the in-memory React Query cache.
@@ -52,5 +64,30 @@ export async function clearAllUserScopedStorage(): Promise<void> {
         }),
       ),
     );
+  }
+
+  // 3. localStorage entries holding per-user content (agent transcripts,
+  //    etc.). Walk the store, collect matches, then remove — safer than
+  //    removing inside the iteration since localStorage's length shifts.
+  if (typeof localStorage !== "undefined") {
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (USER_SCOPED_LOCALSTORAGE_PREFIXES.some((p) => key.startsWith(p))) {
+        toRemove.push(key);
+      }
+    }
+    for (const key of toRemove) {
+      try {
+        localStorage.removeItem(key);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[cacheCleanup] failed to remove localStorage key ${key}:`,
+          err,
+        );
+      }
+    }
   }
 }
