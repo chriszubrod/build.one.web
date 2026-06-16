@@ -39,7 +39,12 @@ export default function ProfileView() {
   const lastname = me.user?.lastname ?? "";
   const fullName = [firstname, lastname].filter(Boolean).join(" ") || me.auth.username;
   const initials = initialsFromName(firstname, lastname);
-  const roleName = me.role?.name ?? null;
+  // System admins (User.IsSystemAdmin=1) bypass role-based RBAC, so the
+  // server intentionally returns role: null on /auth/me. Surface a
+  // meaningful "System Admin" label here so the row isn't empty.
+  const roleName = me.is_admin
+    ? "System Admin"
+    : me.role?.name ?? null;
   const companyName = me.active_company?.name ?? null;
   const primaryContact = contactsQuery.data?.[0];
   const contactValue =
