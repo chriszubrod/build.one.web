@@ -4,6 +4,7 @@ import { ToastProvider } from "./components/Toast";
 import ToastBridge from "./components/ToastBridge";
 import PWAUpdatePrompt from "./components/PWAUpdatePrompt";
 import OfflineBanner from "./components/OfflineBanner";
+import InvalidateOnReconnect from "./components/InvalidateOnReconnect";
 import ProtectedRoute from "./auth/ProtectedRoute";
 import LoginPage from "./auth/LoginPage";
 import AppLayout from "./layout/AppLayout";
@@ -43,6 +44,7 @@ export default function App() {
           <ToastBridge />
           <PWAUpdatePrompt />
           <OfflineBanner />
+          <InvalidateOnReconnect />
           <Routes>
             <Route path="/login" element={<LoginPage />} />
 

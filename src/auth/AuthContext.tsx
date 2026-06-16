@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback, type React
 import { useQueryClient } from "@tanstack/react-query";
 import { rawRequest } from "../api/client";
 import { subscribeToProfileEvents } from "./profileEventsClient";
+import { clearAllUserScopedStorage } from "./cacheCleanup";
 import type { AuthResponse } from "../types/api";
 
 interface AuthState {
@@ -14,7 +15,8 @@ interface AuthState {
     confirmPassword: string,
     registrationCode: string,
   ) => Promise<void>;
-  logout: () => void;
+  /** Awaited so callers can ensure cache cleanup before redirect. */
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -28,6 +30,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isAuthenticated = !!localStorage.getItem("access_token");
 
   const login = useCallback(async (user: string, password: string) => {
+    // Clear any prior user's persisted cache BEFORE writing the new token,
+    // so the next-boot persister key resolution doesn't briefly see the
+    // outgoing identity. (Belt-and-suspenders alongside the boot-time
+    // user-scoped keying in main.tsx.)
+    await clearAllUserScopedStorage();
+    queryClient.clear();
+
     const res = await rawRequest<{ data: AuthResponse }>("/api/v1/auth/login", {
       method: "POST",
       body: JSON.stringify({ username: user, password }),
@@ -37,7 +46,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("access_token", token.access_token);
     localStorage.setItem("username", auth.username);
     setUsername(auth.username);
-  }, []);
+
+    // Hard reload so the boot-time persister keying picks up the new
+    // user's public_id. Without this, queries persist under the boot's
+    // "guest" key and any subsequent login-as-other on the same tab
+    // would reuse that key.
+    window.location.href = "/";
+  }, [queryClient]);
 
   const signup = useCallback(
     async (
@@ -62,15 +77,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.setItem("access_token", token.access_token);
       localStorage.setItem("username", auth.username);
       setUsername(auth.username);
+
+      // Hard reload so the boot-time persister keying picks up the new
+      // user's public_id (mirror of login()).
+      window.location.href = "/";
     },
     [],
   );
 
-  const logout = useCallback(() => {
+  /**
+   * Logout — clears EVERY per-user storage surface before navigating to
+   * /login. Awaiting the cleanup is the contract that prevents the iOS
+   * v0.1.0-class multi-user state-bleed bug from shipping to web. Order:
+   *   1. clear IndexedDB persister keys (current user + guest)
+   *   2. clear SW runtime caches (NetworkFirst API reads)
+   *   3. clear React Query in-memory
+   *   4. clear localStorage auth identifiers
+   *   5. hard reload to /login
+   *
+   * Returns a Promise that resolves when the redirect has been issued so
+   * any caller (logout button, session-expiry handler) can `await` it.
+   */
+  const logout = useCallback(async () => {
+    try {
+      await clearAllUserScopedStorage();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("[logout] cleanup failed (continuing anyway):", err);
+    }
+    queryClient.clear();
     localStorage.removeItem("access_token");
     localStorage.removeItem("username");
     setUsername(null);
-    queryClient.clear();
     window.location.href = "/login";
   }, [queryClient]);
 

@@ -10,10 +10,14 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      // PWA Tier 1 — shell-only. SW caches the precached app shell + static
-      // assets; /api/v1/* is NOT intercepted (Tier 2 territory). Update flow
-      // is user-prompted (not auto) so a borked SW can be caught in staging
-      // before all installed users get it silently.
+      // PWA Tier 2 — switched to injectManifest so src/sw.ts owns the
+      // routing/caching logic. Tier 1 used generateSW for the shell-only
+      // case; Tier 2 needs per-pattern strategies (NetworkFirst for
+      // read endpoints, NetworkOnly for mutations / auth / attachments)
+      // that the declarative generateSW config can't express precisely.
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
       registerType: "prompt",
       injectRegister: false,
       // Don't auto-include the source SVG under /icons/source/.
@@ -51,10 +55,9 @@ export default defineConfig({
           },
         ],
       },
-      workbox: {
-        // SPA fallback to /index.html, but NEVER intercept the API.
-        navigateFallback: "/index.html",
-        navigateFallbackDenylist: [/^\/api\//, /^\/\.auth\//, /^\/sw-kill\.html$/],
+      injectManifest: {
+        // What gets precached (the shell — Workbox injects the list into
+        // self.__WB_MANIFEST inside src/sw.ts at build time).
         globPatterns: [
           "**/*.{js,css,html,svg,png,ico,webmanifest,woff2}",
         ],
