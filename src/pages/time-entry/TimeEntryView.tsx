@@ -389,6 +389,26 @@ export default function TimeEntryView() {
       );
       return;
     }
+    // Guard: the log's Clock In date must match this entry's Work Date.
+    // Without this, manual edits can produce e.g. a TimeEntry with
+    // WorkDate=2026-06-16 holding TimeLogs that clock in on 2026-04-25.
+    // Clock Out is allowed to fall on the next day (overnight shifts) —
+    // only Clock In anchors the workday.
+    const workDate = form?.work_date ?? "";
+    const clockInDate = clockInApi.slice(0, 10);
+    if (workDate && clockInDate !== workDate) {
+      setLogs((prev) =>
+        prev.map((r, i) =>
+          i === index
+            ? {
+                ...r,
+                error: `Clock In date (${clockInDate}) doesn't match this entry's Work Date (${workDate}). Update the Work Date above or the Clock In time so they match.`,
+              }
+            : r,
+        ),
+      );
+      return;
+    }
     const payload = {
       clock_in: clockInApi,
       clock_out: clockOutApi,
