@@ -22,6 +22,18 @@ cleanup, Sign out of all devices, agent transcript scoping) shipped this
 session. The items below are API-repo work, in priority order per the
 user's answers to the open questions.
 
+### Phase 0.5 — URGENT user-facing: refresh cookie never reaches the API (SameSite=Lax + cross-site)
+
+- [ ] **Fix the refresh-cookie cross-site drop.** Surfaced 2026-06-16. User reports being forced to log in roughly every hour. Root cause confirmed by reading `entities/auth/api/router.py:95-120` + `.env:18`: the three auth cookies (`access_token`, `refresh_token`, `token.csrf`) are all set with `samesite="lax"`. The web is hosted at `app.bld-one.com`; the API is at `buildone-esgaducjg4d3eucf.eastus-01.azurewebsites.net`. These are different sites (different eTLD+1). `SameSite=Lax` allows cookies on top-level navigation but **NOT on `fetch()` cross-site requests**. So every time the access token expires (60 min per `access_token_expire_seconds=3600`), the web POSTs to `/api/v1/auth/refresh` → browser refuses to send the refresh cookie → server returns 401 → user bounces to /login. The 30-day refresh token TTL is irrelevant because the cookie never reaches the server.
+
+  **Two paths:**
+  - **Path A — change SameSite to None (immediate).** Edit `entities/auth/api/router.py:95-120` to `samesite="none"` (keep `secure=True` — required when SameSite=None). Verify the CORS config has `allow_credentials=True` AND `allow_origins=["https://app.bld-one.com"]` (or a list including it — wildcard `*` is incompatible with credentials). Test: log in, wait 60+ min or manually expire the access token, confirm a background API call refreshes instead of bouncing to /login. ~1 hour incl. verification.
+  - **Path B — Custom API domain (proper long-term fix).** Move the API to `api.bld-one.com`. Then both surfaces share eTLD+1 = `bld-one.com` → same-site → `SameSite=Lax` works as-is. Already on this TODO as the deferred "Custom API domain (api.bld-one.com)" item. Resolves this issue as a side effect AND avoids the wider `SameSite=None` cookie surface.
+
+  **Recommendation**: Path A now for immediate relief, then Path B when the custom-domain work happens (which moots Path A's wider cookie permission).
+
+  **Verification once Path A lands**: open DevTools → Application → Cookies on `buildone-…azurewebsites.net` after a fresh login. The three auth cookies should show `SameSite=None`. Then on the Network tab, trigger a 401 + refresh; the refresh request's Cookie header should include the refresh cookie. Today that header is empty.
+
 ### Phase 1 — Active Sessions surface + agent audit-trail (yes/strong appetite)
 
 - [ ] **Active Sessions API endpoints.** Build out:
