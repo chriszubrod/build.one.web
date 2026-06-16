@@ -67,14 +67,50 @@ const queryClient = new QueryClient({
 // deserialization of an older cached payload.
 const PERSISTER_BUSTER = "bo-rq-v1";
 
+/**
+ * Per-query maxAge policies. React Query persist-client exposes a
+ * single global maxAge on the dehydrated state; per-query expiration
+ * is implemented via `shouldDehydrateQuery` which filters which queries
+ * survive into the saved snapshot.
+ *
+ * Buckets:
+ *   - 24h:  identity (['me']) + lookups (['lookups', ...]). RBAC and
+ *           dropdown data can change underneath us; we want stale data
+ *           rejected aggressively.
+ *   - 7d:   everything else. Entity lists and detail reads. Long enough
+ *           that a field user logging in after a weekend still sees
+ *           something; short enough that the on-disk cache doesn't grow
+ *           indefinitely.
+ */
+const ONE_HOUR_MS = 60 * 60 * 1000;
+const ONE_DAY_MS = 24 * ONE_HOUR_MS;
+
+function maxAgeForQuery(queryKey: readonly unknown[]): number {
+  const head = queryKey[0];
+  if (head === "me") return ONE_DAY_MS;
+  if (head === "lookups") return ONE_DAY_MS;
+  return 7 * ONE_DAY_MS;
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <PersistQueryClientProvider
       client={queryClient}
       persistOptions={{
         persister,
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        // Global upper bound — the per-query filter below is the
+        // actual policy; this is just a hard ceiling.
+        maxAge: 7 * ONE_DAY_MS,
         buster: PERSISTER_BUSTER,
+        dehydrateOptions: {
+          shouldDehydrateQuery: (query) => {
+            // Don't persist queries that errored or have no data.
+            if (query.state.status !== "success") return false;
+            if (!query.state.dataUpdatedAt) return false;
+            const age = Date.now() - query.state.dataUpdatedAt;
+            return age < maxAgeForQuery(query.queryKey);
+          },
+        },
       }}
     >
       <App />
