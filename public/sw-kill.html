@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Build One — Reset</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+      background: #f4f2ee;
+      color: #1a1816;
+      padding: 32px;
+      max-width: 480px;
+      margin: 0 auto;
+      line-height: 1.5;
+    }
+    h1 { font-size: 20px; margin: 0 0 16px; font-weight: 600; }
+    p { margin: 0 0 16px; }
+    .status { font-weight: 600; }
+    pre {
+      background: white;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      overflow-x: auto;
+      color: #6b6663;
+      margin: 16px 0 0;
+      white-space: pre-wrap;
+    }
+    .ok { color: #1a8754; }
+    .err { color: #c5413c; }
+  </style>
+</head>
+<body>
+  <h1>Build One — Reset</h1>
+  <p>Clearing the cached app version and reloading. You should land back on the sign-in screen in a few seconds.</p>
+  <p class="status" id="status">Working…</p>
+  <pre id="log"></pre>
+
+  <script>
+    (async function () {
+      var statusEl = document.getElementById("status");
+      var logEl = document.getElementById("log");
+      function append(line) {
+        logEl.textContent += line + "\n";
+      }
+      try {
+        if (navigator.serviceWorker) {
+          var regs = await navigator.serviceWorker.getRegistrations();
+          append("Found " + regs.length + " service worker(s).");
+          await Promise.all(regs.map(function (r) { return r.unregister(); }));
+          append("Unregistered " + regs.length + " service worker(s).");
+        } else {
+          append("Service workers not supported in this browser.");
+        }
+        if (window.caches) {
+          var keys = await caches.keys();
+          append("Found " + keys.length + " cache(s).");
+          await Promise.all(keys.map(function (k) { return caches.delete(k); }));
+          append("Cleared " + keys.length + " cache(s).");
+        }
+        statusEl.textContent = "Done — redirecting…";
+        statusEl.className = "status ok";
+        setTimeout(function () { window.location.replace("/"); }, 1800);
+      } catch (err) {
+        statusEl.textContent = "Error: " + (err && err.message ? err.message : String(err));
+        statusEl.className = "status err";
+        append(String(err && err.stack ? err.stack : err));
+      }
+    })();
+  </script>
+</body>
+</html>

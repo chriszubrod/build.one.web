@@ -1,7 +1,7 @@
 {
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/assets/*", "/*.{svg,png,ico,json,webmanifest,txt}"]
+    "exclude": ["/assets/*", "/icons/*", "/sw-kill.html", "/*.{svg,png,ico,json,webmanifest,txt,js}"]
   },
   "globalHeaders": {
     "X-Content-Type-Options": "nosniff",
@@ -13,6 +13,31 @@
       "route": "/assets/*",
       "headers": {
         "Cache-Control": "public, max-age=31536000, immutable"
+      }
+    },
+    {
+      "route": "/icons/*",
+      "headers": {
+        "Cache-Control": "public, max-age=2592000"
+      }
+    },
+    {
+      "route": "/sw.js",
+      "headers": {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Service-Worker-Allowed": "/"
+      }
+    },
+    {
+      "route": "/sw-kill.html",
+      "headers": {
+        "Cache-Control": "no-cache, no-store, must-revalidate"
+      }
+    },
+    {
+      "route": "/workbox-*.js",
+      "headers": {
+        "Cache-Control": "no-cache, no-store, must-revalidate"
       }
     }
   ],
