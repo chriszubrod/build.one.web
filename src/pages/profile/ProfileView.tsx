@@ -20,15 +20,17 @@ function initialsFromName(first?: string | null, last?: string | null): string {
 export default function ProfileView() {
   const { data: me, isLoading } = useCurrentUser();
   const { logout } = useAuth();
-  const userPublicId = me?.user?.public_id;
+  // The contacts endpoint expects an integer User.Id, not the public_id
+  // UUID. The /auth/me payload exposes both — use the int here.
+  const userId = me?.user?.id;
 
   // Pull contacts for the Contact summary row. Tier 2's NetworkFirst
   // caches the response, so subsequent visits paint instantly from disk.
   const contactsQuery = useQuery<Contact[]>({
-    queryKey: ["user-contacts", userPublicId],
+    queryKey: ["user-contacts", userId],
     queryFn: async () =>
-      (await getList<Contact>(`/api/v1/get/contacts/user/${userPublicId}`)).data,
-    enabled: !!userPublicId,
+      (await getList<Contact>(`/api/v1/get/contacts/user/${userId}`)).data,
+    enabled: !!userId,
   });
 
   if (isLoading || !me) {

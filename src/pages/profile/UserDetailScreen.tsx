@@ -21,6 +21,8 @@ export default function UserDetailScreen() {
   const navigate = useNavigate();
   const { data: me } = useCurrentUser();
   const userPublicId = me?.user?.public_id;
+  // Contacts endpoint expects an integer User.Id, not the public_id UUID.
+  const userId = me?.user?.id;
 
   const userQuery = useQuery<User>({
     queryKey: ["user", userPublicId],
@@ -29,10 +31,10 @@ export default function UserDetailScreen() {
   });
 
   const contactsQuery = useQuery<Contact[]>({
-    queryKey: ["user-contacts", userPublicId],
+    queryKey: ["user-contacts", userId],
     queryFn: async () =>
-      (await getList<Contact>(`/api/v1/get/contacts/user/${userPublicId}`)).data,
-    enabled: !!userPublicId,
+      (await getList<Contact>(`/api/v1/get/contacts/user/${userId}`)).data,
+    enabled: !!userId,
   });
 
   if (!me || !userQuery.data) {
