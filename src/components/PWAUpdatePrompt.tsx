@@ -1,29 +1,32 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { registerSW } from "virtual:pwa-register";
+import { useToast } from "./Toast";
 
 /**
  * Registers the production service worker and surfaces its lifecycle to
- * the user. Phase 1.4 — wiring only; the visible toast lands in Phase 1.5.
+ * the user.
  *
- * registerType is 'prompt' (vite.config.ts) so a new SW activates only when
- * the user clicks Reload — never silently. This protects installed clients
- * from a borked deploy. `/sw-kill.html` is the manual recovery path.
+ * - onNeedRefresh — new SW is waiting. We show a persistent bottom banner
+ *   with a "Reload" button. registerType is 'prompt' (vite.config.ts) so
+ *   the user explicitly opts into the update; nothing happens silently.
+ * - onOfflineReady — SW finished precaching the shell. We surface a brief
+ *   toast so the user knows the install completed.
+ *
+ * The escape hatch for a borked SW is /sw-kill.html — see docs/pwa-tier1.md.
  */
 export default function PWAUpdatePrompt() {
-  const [, setNeedRefresh] = useState(false);
-  const [, setOfflineReady] = useState(false);
-  const [, setUpdateSW] = useState<((reload?: boolean) => Promise<void>) | null>(null);
+  const { toast } = useToast();
+  const [needRefresh, setNeedRefresh] = useState(false);
+  // useRef so the updater can be called without re-rendering when it lands.
+  const updateSWRef = useRef<((reloadPage?: boolean) => Promise<void>) | null>(null);
 
   useEffect(() => {
-    // registerSW returns an updater fn we can call with (true) to apply a
-    // queued update. We stash it in state so the toast UI in Phase 1.5 can
-    // invoke it from the Reload button.
     const updater = registerSW({
       onNeedRefresh() {
         setNeedRefresh(true);
       },
       onOfflineReady() {
-        setOfflineReady(true);
+        toast("Ready to work offline.", "success");
       },
       onRegistered(registration) {
         if (import.meta.env.DEV) {
@@ -36,10 +39,38 @@ export default function PWAUpdatePrompt() {
         console.error("[PWA] Service worker registration failed.", error);
       },
     });
-    setUpdateSW(() => updater);
-  }, []);
+    updateSWRef.current = updater;
+    // No cleanup — registration is process-lifetime.
+  }, [toast]);
 
-  // Phase 1.4 renders nothing. The toast UI lands in Phase 1.5; this stub
-  // exists so the SW is registered as soon as the React tree mounts.
-  return null;
+  if (!needRefresh) return null;
+
+  const onReload = () => {
+    void updateSWRef.current?.(true);
+  };
+
+  const onDismiss = () => {
+    setNeedRefresh(false);
+  };
+
+  return (
+    <div className="pwa-update-banner" role="status" aria-live="polite">
+      <span className="pwa-update-banner-text">A new version is available.</span>
+      <button
+        type="button"
+        className="pwa-update-banner-reload"
+        onClick={onReload}
+      >
+        Reload
+      </button>
+      <button
+        type="button"
+        className="pwa-update-banner-dismiss"
+        onClick={onDismiss}
+        aria-label="Dismiss update prompt"
+      >
+        ×
+      </button>
+    </div>
+  );
 }

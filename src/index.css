@@ -1450,6 +1450,115 @@ button[type="submit"]:disabled {
   color: var(--color-text-muted);
 }
 
+/* Offline banner — hover overlay at the top, does NOT push content down.
+   Slides in from the top when navigator.onLine flips false. */
+.offline-banner {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + var(--space-sm));
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-text);
+  color: var(--color-surface);
+  padding: 6px var(--space-md);
+  border-radius: var(--radius-pill);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-footnote);
+  font-weight: 500;
+  box-shadow: var(--shadow-md);
+  z-index: 250;
+  max-width: calc(100vw - 24px);
+  animation: offline-banner-in 0.2s ease-out;
+}
+
+@keyframes offline-banner-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -12px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* PWA update prompt — bottom-center banner that hovers above the tab bar.
+   Visible only when a new SW is waiting (registerType: 'prompt'). User
+   explicitly opts into the reload, never silent. */
+.pwa-update-banner {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  font-size: var(--font-size-footnote);
+  z-index: 200;
+  max-width: calc(100vw - 32px);
+  animation: pwa-update-in 0.25s ease-out;
+}
+
+@keyframes pwa-update-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+  /* On desktop the tab bar is hidden — anchor lower to the viewport edge. */
+  .pwa-update-banner {
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+.pwa-update-banner-text {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.pwa-update-banner-reload {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  padding: 6px var(--space-md);
+  border-radius: 8px;
+  border: none;
+  font-weight: 600;
+  font-size: var(--font-size-footnote);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.pwa-update-banner-reload:hover {
+  filter: brightness(1.1);
+}
+
+.pwa-update-banner-dismiss {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 18px;
+  line-height: 1;
+  font-family: inherit;
+}
+
+.pwa-update-banner-dismiss:hover {
+  color: var(--color-text);
+}
+
 /* Toast notifications */
 .toast-container {
   position: fixed;
