@@ -13,6 +13,15 @@ Pending work, deferred decisions, known issues. Check off as done; prune anythin
 
 ---
 
+## Profile — Self-read carve-out on Contacts endpoint (API change)
+
+- [ ] **`GET /api/v1/get/contacts/user/{user_id}` is gated on `Modules.VENDORS`.** Surfaced 2026-06-15 while wiring the Profile Contact rows. The endpoint reads ANY user's contacts as long as the caller holds the Vendors module (legacy "manage a vendor's contact list" use case). Side effect: a non-admin user who lacks Vendors read can't see their OWN Contact data on `/profile` or `/profile/details` — the row falls to "—". Christopher (system admin) sees it fine because IsSystemAdmin bypasses module gating; field users with role e.g. Field Crew / Intern would not. **Fix lives in `build.one.api`**, two options:
+  1. **New endpoint `GET /api/v1/get/contacts/user/me`** — auth-only (no module gate), reads `current_user_id` from the ContextVar, returns just the caller's contacts. Same shape as `read_by_user_id`. Web's ProfileView + UserDetailScreen switch to this endpoint when reading the caller's own contacts (no behavior change for admin Vendors-side use of the existing endpoint).
+  2. **Self-read carve-out on the existing endpoint** — at the top of `get_contacts_by_user_id_router`, if `user_id == current_user_id.get()`, skip the Vendors check; otherwise require it. Minimal surface change but couples auth-vs-RBAC in a way that's easy to miss when someone adds a new gate.
+  Recommend option 1 — single-purpose endpoint, single-purpose docstring, easier to RBAC-audit. Web change is a one-line URL swap. Defer until a non-admin user actually hits this on prod (Christopher is the only active human signing into web today; field users land on iOS).
+
+---
+
 ## Budget UI — future work
 
 - [ ] **Change-order timeline on the budget view (future version).** Requested 2026-06-15. Render the revision history as a visible amendment ledger/timeline on `BudgetView`, not just the flat revisions table that ships today. Each entry = a revision in order (Original, then each Change Order) showing: title, status badge, effective date, **net dollar impact** (sum of that revision's line `price` deltas — contract value; optionally `amount` for cost), approver + approved date, and a **running contract total after each approved revision**. Expandable to that revision's delta line items. **No backend work needed** — the data already exists: `GET /api/v1/get/budget-revisions/by-budget/{budget_public_id}` (carries `approved_by_user_id`/`approved_datetime`/`effective_date`/`type`/`status`/`revision_number`) + `GET /api/v1/get/budget-line-items/by-revision/{revision_public_id}` for each revision's delta lines. Pure frontend addition to `src/pages/budgets/BudgetView.tsx` (+ `budget.css`). Only approved revisions count toward the running total; draft COs shown as pending. Context: umbrella memory `project_budget_entity.md`.
