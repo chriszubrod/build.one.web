@@ -98,3 +98,42 @@ environment-isolation note.
 paths would hit `localhost:3000/api/...` with no proxy — 502. If an
 endpoint doesn't fit the envelope pattern (`{data: ...}`), use
 `rawRequest` directly; the other helpers unwrap automatically.
+
+## PWA / Service Worker
+
+Build One is an installable PWA. Tier 1 (shell-only) shipped 2026-06-15:
+home-screen install, branded launch offline, in-app update toast on new
+deploys. **No API caching, no write queue** — those are deferred to
+Tier 2 / Tier 3 pending a decision gate. See `docs/pwa-tier1.md` for the
+full runbook, install instructions, escape hatch, and verification
+checklist.
+
+Key conventions to preserve when editing PWA-adjacent code:
+
+- **`registerType: 'prompt'`** in `vite.config.ts` — a new SW activates
+  ONLY when the user clicks Reload in `PWAUpdatePrompt`. Never silent.
+  This protects installed clients from a borked deploy.
+- **`/sw-kill.html`** — branded escape hatch that unregisters every SW
+  for the origin + clears caches + redirects. Send this URL to a stuck
+  user out-of-band if recovery is needed.
+- **`navigateFallbackDenylist`** in the workbox config explicitly
+  excludes `/api/`, `/.auth/`, and `/sw-kill.html`. The SW must NEVER
+  intercept these. Re-check the denylist whenever the SW config is
+  touched.
+- **`OfflineError`** (`src/api/client.ts`) is the typed error for
+  network failures. `client.ts` pre-flight-checks `navigator.onLine`
+  before mutations and fast-fails with `OfflineError` + a
+  "Not saved — you are offline." toast (via the `toastBridge`
+  module so `client.ts` doesn't need a React import).
+- **`useOnline`** hook + **`OfflineBanner`** — top-center hover pill
+  when offline. Banner uses `position: fixed`; it does NOT push content
+  down.
+- **Safe-area insets** — `index.html` has `viewport-fit=cover`. CSS
+  uses `env(safe-area-inset-*)` on `.app-content` (top, for the iOS
+  notch) and `.app-tabbar` / `.pwa-update-banner` (bottom, for the home
+  indicator). All collapse to 0 in non-installed browsers.
+- **Icon regen** — `public/icons/source/icon.svg` is the master; PNGs
+  are generated via `node scripts/gen-icons.mjs` (requires
+  `npm install sharp --no-save`). Source SVG mirrors the iOS
+  `AppIcon-1024.png` (pure black + white "B1" wordmark) so the two
+  installs look like siblings on the same home screen.

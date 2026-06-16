@@ -1,3 +1,5 @@
+import { emitToast } from "./toastBridge";
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
 // Cookie names — must match server (entities/auth/business/service.py).
@@ -14,6 +16,36 @@ export class ApiError extends Error {
     this.status = status;
     this.detail = detail;
   }
+}
+
+/**
+ * Thrown when a request fails because the browser is offline. Distinct
+ * from ApiError (server returned a 4xx/5xx); offline means we never reached
+ * the server. Callers can `instanceof OfflineError` to differentiate.
+ *
+ * For mutations (POST/PUT/DELETE/PATCH), client.ts ALSO emits a
+ * "Not saved — you are offline." toast via the toast bridge so the user
+ * sees a clean failure without every call site having to opt in.
+ *
+ * For GETs, no toast — React Query handles the failure (it'll retry on
+ * reconnect or fall back to cached data once Tier 2 lands).
+ */
+export class OfflineError extends Error {
+  constructor(message = "You are offline.") {
+    super(message);
+    this.name = "OfflineError";
+  }
+}
+
+function isMutation(method: string | undefined): boolean {
+  if (!method) return false;
+  const m = method.toUpperCase();
+  return m === "POST" || m === "PUT" || m === "DELETE" || m === "PATCH";
+}
+
+function isOnline(): boolean {
+  if (typeof navigator === "undefined") return true;
+  return navigator.onLine;
 }
 
 function readCookie(name: string): string | null {
@@ -76,18 +108,61 @@ function redirectToLogin(): never {
  * Fetch that retries once on 401 after a successful refresh. Callers
  * that need auth just pass `buildInit()` for their current token; if a
  * retry is needed, we rebuild with the refreshed token from localStorage.
+ *
+ * Offline handling (PWA Tier 1): if navigator.onLine is false at call
+ * time AND the method is a mutation, fail fast with OfflineError + an
+ * "Not saved — you are offline." toast — skips the fetch attempt so the
+ * user doesn't sit through the network timeout. For reads, we still try
+ * the fetch (the browser may have a stale cached response).
+ *
+ * Network failure path (TypeError on fetch — DNS, dropped Wi-Fi mid-call,
+ * etc.) is also caught and reshaped to OfflineError so the rest of the
+ * app can `instanceof OfflineError` without having to know about
+ * TypeError's many causes.
  */
 export async function fetchWithRefresh(
   url: string,
   buildInit: () => RequestInit,
 ): Promise<Response> {
-  let res = await fetch(url, buildInit());
+  const init = buildInit();
+
+  // Pre-flight offline fast-fail on mutations.
+  if (!isOnline() && isMutation(init.method)) {
+    emitToast("Not saved — you are offline.", "error");
+    throw new OfflineError();
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch (err) {
+    // fetch() throws TypeError on network failure. Treat it as offline
+    // (covers laptop-sleep, captive portal lost, dropped Wi-Fi mid-call).
+    if (err instanceof TypeError) {
+      if (isMutation(init.method)) {
+        emitToast("Not saved — you are offline.", "error");
+      }
+      throw new OfflineError();
+    }
+    throw err;
+  }
+
   if (res.status !== 401) return res;
 
   const newToken = await refreshAccessToken();
   if (newToken === null) return res; // caller handles 401 → redirect
 
-  res = await fetch(url, buildInit());
+  try {
+    res = await fetch(url, buildInit());
+  } catch (err) {
+    if (err instanceof TypeError) {
+      if (isMutation(init.method)) {
+        emitToast("Not saved — you are offline.", "error");
+      }
+      throw new OfflineError();
+    }
+    throw err;
+  }
   return res;
 }
 

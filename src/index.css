@@ -109,6 +109,10 @@ body {
   flex: 1;
   overflow-y: auto;
   padding: var(--space-xl);
+  /* iOS standalone PWA: pad the top so content clears the notch /
+     Dynamic Island. env() returns 0 in a regular browser, so no effect
+     on the desktop or non-installed mobile view. */
+  padding-top: calc(var(--space-xl) + env(safe-area-inset-top, 0px));
 }
 
 /* =========================================================================
@@ -286,7 +290,9 @@ body {
    Hidden at desktop (AppSidebar takes over). */
 .app-tabbar {
   position: fixed;
-  bottom: 16px;
+  /* Sit above the iOS home indicator in standalone mode; collapses to
+     16px in a regular browser since env() returns 0. */
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   background: var(--color-surface);

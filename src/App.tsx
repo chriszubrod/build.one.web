@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
 import { ToastProvider } from "./components/Toast";
+import ToastBridge from "./components/ToastBridge";
 import PWAUpdatePrompt from "./components/PWAUpdatePrompt";
 import OfflineBanner from "./components/OfflineBanner";
 import ProtectedRoute from "./auth/ProtectedRoute";
@@ -39,6 +40,7 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <ToastProvider>
+          <ToastBridge />
           <PWAUpdatePrompt />
           <OfflineBanner />
           <Routes>
