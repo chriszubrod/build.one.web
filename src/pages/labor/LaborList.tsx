@@ -57,6 +57,7 @@ const EMPTY_COPY: Record<LaborStatus, string> = {
 export default function LaborList() {
   const navigate = useNavigate();
   const [status, setStatus] = useState<LaborStatus>("pending_review");
+  const [nameFilter, setNameFilter] = useState<string>("");
 
   const laborQuery = useQuery<ContractLabor[]>({
     queryKey: ["contract-labor", "by-status", status],
@@ -65,13 +66,18 @@ export default function LaborList() {
   });
 
   const sorted = useMemo<ContractLabor[]>(() => {
-    return (laborQuery.data ?? []).slice().sort((a, b) => {
+    const needle = nameFilter.trim().toLowerCase();
+    const rows = (laborQuery.data ?? []).slice();
+    const filtered = needle
+      ? rows.filter((r) => (r.employee_name ?? "").toLowerCase().includes(needle))
+      : rows;
+    return filtered.sort((a, b) => {
       const ad = a.work_date ?? "";
       const bd = b.work_date ?? "";
       if (ad !== bd) return bd.localeCompare(ad);
       return (a.employee_name ?? "").localeCompare(b.employee_name ?? "");
     });
-  }, [laborQuery.data]);
+  }, [laborQuery.data, nameFilter]);
 
   return (
     <div className="ios-page">
@@ -82,6 +88,18 @@ export default function LaborList() {
         value={status}
         onChange={setStatus}
       />
+
+      <div className="labor-name-filter">
+        <input
+          type="search"
+          className="labor-name-filter-input"
+          placeholder="Filter by name…"
+          value={nameFilter}
+          onChange={(e) => setNameFilter(e.target.value)}
+          autoComplete="off"
+          aria-label="Filter labor entries by worker name"
+        />
+      </div>
 
       <div className="section-label-prose">{SECTION_LABEL[status]}</div>
 

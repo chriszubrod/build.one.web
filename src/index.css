@@ -3703,6 +3703,34 @@ a.scout-record-header-link:hover .scout-record-name {
   padding: 0 var(--space-sm) var(--space-sm);
 }
 
+/* Labor list — name filter input */
+.labor-name-filter {
+  padding: var(--space-sm) var(--space-sm) 0;
+}
+
+.labor-name-filter-input {
+  width: 100%;
+  padding: 10px var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-body);
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.labor-name-filter-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-focus-ring);
+}
+
+.labor-name-filter-input::placeholder {
+  color: var(--color-text-muted);
+}
+
 /* Validation / helper text under sheet inputs */
 .sheet-hint {
   padding: var(--space-md) var(--space-lg);
