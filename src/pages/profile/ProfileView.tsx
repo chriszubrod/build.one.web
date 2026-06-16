@@ -85,8 +85,7 @@ export default function ProfileView() {
         />
         <ListRow
           icon={<Palette size={16} />}
-          title="Theme"
-          value="Light"
+          title="Appearance"
           to="/profile/appearance"
         />
         <ListRow
