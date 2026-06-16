@@ -69,8 +69,11 @@ export default function UserDetailScreen() {
       </SectionCard>
 
       <SectionCard header="Work">
-        <ListRow title="Organization" value="—" />
-        <ListRow title="Company" value="—" />
+        <ListRow
+          title="Organization"
+          value={me.active_company?.organization?.name ?? "—"}
+        />
+        <ListRow title="Company" value={me.active_company?.name ?? "—"} />
         <ListRow title="Role & assignments" value={me.role?.name ?? "—"} />
         <ListRow title="Modules" value={`${moduleCount} module${moduleCount === 1 ? "" : "s"}`} />
         <ListRow title="Projects" value={`${projectCount} project${projectCount === 1 ? "" : "s"}`} />

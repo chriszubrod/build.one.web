@@ -110,6 +110,17 @@ export interface CurrentUserModule {
   can_view_team: boolean;
 }
 
+export interface CurrentUserOrganization {
+  public_id: string;
+  name: string;
+}
+
+export interface CurrentUserCompany {
+  public_id: string;
+  name: string;
+  organization: CurrentUserOrganization | null;
+}
+
 export interface CurrentUser {
   auth: { public_id: string; username: string };
   user: {
@@ -120,8 +131,15 @@ export interface CurrentUser {
   } | null;
   role: { public_id: string; name: string } | null;
   is_admin: boolean;
+  is_system_admin?: boolean;
   modules: CurrentUserModule[];
   accessible_project_ids: number[];
+  /** All companies the user can switch to. */
+  companies?: CurrentUserCompany[];
+  /** Distinct organizations across `companies`. */
+  organizations?: CurrentUserOrganization[];
+  /** The currently-active company (drives RBAC + tenant scoping). */
+  active_company?: CurrentUserCompany | null;
 }
 
 /** Full entity types — returned by CRUD endpoints */

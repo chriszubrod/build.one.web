@@ -1,9 +1,12 @@
 import { Bell, Building2, Briefcase, LogOut, Mail, Palette, Shield, ShieldOff, User } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../auth/AuthContext";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { getList } from "../../api/client";
 import HeaderRich from "../../components/ui/HeaderRich";
 import SectionCard from "../../components/ui/SectionCard";
 import ListRow from "../../components/ui/ListRow";
+import type { Contact } from "../../types/api";
 
 function initialsFromName(first?: string | null, last?: string | null): string {
   const f = (first ?? "").trim();
@@ -17,6 +20,16 @@ function initialsFromName(first?: string | null, last?: string | null): string {
 export default function ProfileView() {
   const { data: me, isLoading } = useCurrentUser();
   const { logout } = useAuth();
+  const userPublicId = me?.user?.public_id;
+
+  // Pull contacts for the Contact summary row. Tier 2's NetworkFirst
+  // caches the response, so subsequent visits paint instantly from disk.
+  const contactsQuery = useQuery<Contact[]>({
+    queryKey: ["user-contacts", userPublicId],
+    queryFn: async () =>
+      (await getList<Contact>(`/api/v1/get/contacts/user/${userPublicId}`)).data,
+    enabled: !!userPublicId,
+  });
 
   if (isLoading || !me) {
     return <div className="ios-page"><div className="page-loading">Loading…</div></div>;
@@ -27,6 +40,13 @@ export default function ProfileView() {
   const fullName = [firstname, lastname].filter(Boolean).join(" ") || me.auth.username;
   const initials = initialsFromName(firstname, lastname);
   const roleName = me.role?.name ?? null;
+  const companyName = me.active_company?.name ?? null;
+  const primaryContact = contactsQuery.data?.[0];
+  const contactValue =
+    primaryContact?.email ??
+    primaryContact?.mobile_phone ??
+    primaryContact?.office_phone ??
+    null;
 
   const personalDetailsValue = firstname || fullName;
 
@@ -47,7 +67,7 @@ export default function ProfileView() {
         initials={initials}
         name={fullName}
         role={roleName ?? undefined}
-        company={undefined}
+        company={companyName ?? undefined}
       />
 
       <SectionCard header="Account">
@@ -60,7 +80,7 @@ export default function ProfileView() {
         <ListRow
           icon={<Mail size={16} />}
           title="Contact"
-          value="—"
+          value={contactValue ?? "—"}
           to="/profile/details"
         />
         <ListRow
@@ -72,7 +92,7 @@ export default function ProfileView() {
         <ListRow
           icon={<Building2 size={16} />}
           title="Company"
-          value="—"
+          value={companyName ?? "—"}
           to="/profile/details"
         />
       </SectionCard>
