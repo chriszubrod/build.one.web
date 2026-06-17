@@ -99,6 +99,45 @@ paths would hit `localhost:3000/api/...` with no proxy — 502. If an
 endpoint doesn't fit the envelope pattern (`{data: ...}`), use
 `rawRequest` directly; the other helpers unwrap automatically.
 
+## Navigation architecture
+
+Single source of truth: `src/layout/menuConfig.ts`. Both `BottomTabBar`
+(mobile/tablet) and `AppSidebar` (desktop) render from
+`primarySlotsForUser(me)`. The `MoreDrawer` (bottom sheet) consumes
+`entriesInSection(section, me)` for everything that overflows the 5-slot
+bottom pill cap. Module name constants live in `src/shared/modules.ts`
+— mirror of `build.one.api/shared/rbac_constants.py`. Never use the raw
+module-name string literals (`"Contract Labor"`, etc.) in nav code;
+typos on a literal silently hide entries while typos on a constant fail
+compilation.
+
+Breakpoint tiers (2026-06-17 flip):
+- **Mobile portrait** (default, < 768w): `.app-shell` is a 430px column,
+  BottomTabBar floating pill visible, AppSidebar hidden.
+- **Tablet + Desktop** (≥ 768w): sidebar + main row, BottomTabBar hidden.
+  Previously gated on `(min-width: 1024px) and (hover: hover) and
+  (pointer: fine)` — left iPad PMs in the 430px phone column. iPad
+  portrait may feel cramped at 768; an opt-out under
+  `(orientation: portrait) and (max-width: 820px)` is documented in
+  index.css for the future if needed.
+- **Mobile landscape** (`(orientation: landscape) and (max-height: 500px)`):
+  rotate overlay (RotateOverlay component).
+
+Primary slots are CURATED per role in `PRIMARY_SLOTS_BY_ROLE`
+(menuConfig.ts). Phase 1+ extends each role's list as financial entities
+unpark. **Do NOT gate any menuConfig entry on a hardcoded role name
+string at the consumer level** — gate on module read perms or
+`is_admin` only. Role names are RBAC-table mutable; gating on them
+creates silent breakage if Ops renames a role.
+
+Landing route: `LandingRedirect` resolves `/` and `*` to either Time
+Tracking or Profile based on `Time Tracking.can_read` (with
+`is_admin` bypass). System admins land on Time. Field workers without
+Time grant land on Profile.
+
+For the full nav strategy + Phase 1+ roadmap, see TODO.md "Nav strategy"
+section.
+
 ## PWA / Service Worker
 
 Build One is an installable PWA. **Tier 1** (shell-only) shipped

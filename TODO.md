@@ -13,6 +13,62 @@ Pending work, deferred decisions, known issues. Check off as done; prune anythin
 
 ---
 
+## Nav strategy — Phase 1+ (from 2026-06-17 navigation evaluation)
+
+Pattern locked: **Bottom Tab Bar + Hamburger Drawer** with a curated per-role primary-slot resolver. Phase 0 shipped this session (chassis only — no user-visible nav change except the tablet sidebar flip). For the full evaluation see the workflow output at `/private/tmp/claude-501/-Users-chris-Applications-build-one/7b4ffd2a-28ac-4754-9941-d5889b92a8cd/tasks/w0sh0c392.output`.
+
+Project-scoped vs entity-scoped doors decision (2026-06-17): **both, sharing one component.** Each entity (Bills, Expenses, Invoices, BillCredits, Budget, ContractLabor) gets a top-level nav entry (entity-centric flat list with filters) AND a Project detail page tab (project-scoped pre-filtered view). The list component takes `defaultFilter` + `hiddenFilters` + `showProjectColumn` props; top-level call passes nothing, project tab call locks project_id.
+
+### Phase 1 — Tier 1 reactivation (1-2 weeks, web-only)
+
+- [ ] **Unpark Vendors / Customers / Projects.** Remove from `tsconfig.app.json` exclude list. Verify the parked scaffolds against the current API envelope + Tier 2 cache patterns. Add to `menuConfig.ts`:
+  - Vendors → section: `"contacts"`, module: `Modules.VENDORS`
+  - Customers → section: `"contacts"`, module: `Modules.CUSTOMERS`
+  - Projects → section: `"financials"`, module: `Modules.PROJECTS`
+- [ ] **Build `ProjectDetailScreen` tab framework.** Tabs: Overview, Budget, Bills (placeholder), Expenses (placeholder), Invoices (placeholder), Contract Labor (placeholder), Documents (placeholder), Team (UserProject membership). Budget tab fully functional (move BudgetView from `/budget/:id` into this tab). Other tabs render an empty state until Phase 2 brings the entities online.
+- [ ] **Retire `BudgetLayout` / `BudgetSidebar`.** Fold Budgets into the unified `AppLayout` + `AppSidebar`. Existing `/budget/*` routes redirect to `/project/:id?tab=budget` (or the top-level Controller view at `/budget/list` if we keep that as the cross-project view).
+- [ ] **PM / Owner primary slot resolver update.** Add Projects to their bottom pill: `["time", "labor", "projects", "profile"]`. Update `PRIMARY_SLOTS_BY_ROLE` in `menuConfig.ts`.
+- [ ] **Add a `more` slot to the bottom pill.** Once Phase 1 adds 3+ section entries beyond primaries, every role's bottom pill ends with a "More" slot that opens `MoreDrawer`. The slot uses `MoreHorizontal` from lucide-react.
+
+### Phase 2 — Tier 3 financial surfaces (3-4 weeks, web-only)
+
+- [ ] **Unpark Bills.** Verify scaffolds against API envelope + auto-save (300ms debounce per pattern) + completion-outbox + ReviewTimeline patterns. Add to `menuConfig.ts` under `section: "financials"`, module `Modules.BILLS`. AP / Controller pill swaps to `["bills", "expenses", "invoices", "more", "profile"]`.
+- [ ] **Unpark Expenses.** Same scaffolding verification. AP / field-receipt-capture get Expenses in their pill.
+- [ ] **Unpark Invoices.** Same. AR / Controller pill gains Invoices.
+- [ ] **Unpark BillCredits.** Lower-frequency surface; lives in More drawer Financials section, not a primary slot.
+- [ ] **Project detail page Bills/Expenses/Invoices/ContractLabor tabs** become fully functional — same list component as top-level entries, with `defaultFilter={{ project_id }}` + `hiddenFilters={['project_id']}` + `showProjectColumn={false}`.
+- [ ] **Per-role primary slot mapping update** in `PRIMARY_SLOTS_BY_ROLE` for AP / AR / Controller / Reviewer / Auditor / Tenant Admin.
+
+### Phase 3 — Admin section (2-3 weeks, web-only)
+
+- [ ] **Unpark Users / UserList / UserCreate, Roles, Modules, Organizations, Companies, Integrations, Review Statuses.** Add admin section entries with `requiresAdmin: true` where appropriate. Most lives in sidebar Admin section (collapsed by default).
+- [ ] **Reference Data sub-group inside Admin.** Cost Codes / Sub Cost Codes / Payment Terms / Review Statuses / Address Types / Vendor Types / Taxpayers. Collapsed by default; phone access only via deep link.
+- [ ] **UserRole / RoleModule / UserModule / UserProject** as standalone Admin entries for bulk operations (inline editors on User/Role pages handle the common case).
+
+### Phase 4 — Dynamic menuConfig + IsNavigable (1 week, requires API change)
+
+- [ ] **API: `dbo.Module.IsNavigable BIT NOT NULL DEFAULT 1`.** Lets ops hide modules from nav without revoking permissions. ~2 hours server.
+- [ ] **Refactor `menuConfig` to consume `me.modules` directly.** Render any module with `can_read && is_navigable && route !== null`. Hardcoded `MENU_ENTRIES` collapses to ~5 (Profile, sub-screens of Profile, anything without a Module). Per-role primary slot resolver becomes a priority map keyed on module name.
+
+### Phase 5 — Deferred (do not attempt until earlier phases prove out)
+
+- [ ] **Cross-entity Search.** Multi-week — needs API + indexing decision. When built, lands as a header bar input (cmd-K) — NOT a menuConfig entry.
+- [ ] **Dashboard.** Defer until Phase 3 telemetry shows what roles open first. Too many audience-specific KPIs to spec prematurely.
+- [ ] **Inbox / Email Messages.** Gated on the larger inbox rebuild per umbrella MEMORY.md — no timeline.
+- [ ] **ScoutTray revival.** Separate UX project.
+
+### Anti-patterns to avoid (codebase-specific)
+
+- Don't ship a 5+ entry flat bottom tab bar. Stay at 5 slots max. Capacity grows via the More drawer.
+- Don't put financials as Profile sub-screens just because they fit alphabetically under "Account."
+- Don't spin up another `BudgetLayout`-style sibling chrome.
+- Don't gate menuConfig entries on hardcoded role name strings. Use module read perms or `is_admin`.
+- Don't add Reports / Inbox menuConfig entries as placeholders — both need API support that doesn't exist.
+- Don't touch `NavHeader.tsx` per-page back/title conventions — orthogonal to top-level nav.
+- Don't revive `ScoutTray` or `src/agents/` tree as part of nav work — separate UX project.
+
+---
+
 ## Auth / authz hardening — API repo follow-ups (from 2026-06-16 evaluation)
 
 The full auth+authz evaluation lives in the workflow transcript at

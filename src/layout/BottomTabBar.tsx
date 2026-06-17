@@ -1,51 +1,39 @@
 import { NavLink } from "react-router-dom";
-import { Clock, HardHat, User } from "lucide-react";
 import { useCurrentUser } from "../hooks/useCurrentUser";
+import { primarySlotsForUser } from "./menuConfig";
 
-const CONTRACT_LABOR_MODULE = "Contract Labor";
-
+/**
+ * Mobile / tablet bottom nav. Renders from `primarySlotsForUser(me)`
+ * (src/layout/menuConfig.ts) — the curated per-role slot mapping is
+ * the single source of truth. Add a new entry to menuConfig and update
+ * the role's PRIMARY_SLOTS_BY_ROLE list to surface it here.
+ *
+ * Capped at MAX_PRIMARY_SLOTS (5) per the iOS/Android ergonomic
+ * contract. Anything beyond that lives in the More drawer.
+ *
+ * CSS hides this pill at the desktop breakpoint; AppSidebar takes over.
+ */
 export default function BottomTabBar() {
   const { data: me } = useCurrentUser();
-  const showLabor = !!(
-    me?.is_admin ||
-    me?.modules?.find((m) => m.name === CONTRACT_LABOR_MODULE)?.can_read
-  );
-
-  // Budgets nav entry hidden 2026-06-15 per Chris. Routes under /budget/*
-  // remain wired (see App.tsx) so existing bookmarks still resolve, but
-  // there's no entry point from the nav until Budgets is reactivated.
+  const slots = primarySlotsForUser(me);
 
   return (
     <nav className="app-tabbar" role="tablist">
-      <NavLink
-        to="/time-entry/list"
-        className={({ isActive }) =>
-          `app-tabbar-tab${isActive ? " app-tabbar-tab-active" : ""}`
-        }
-      >
-        <Clock size={20} strokeWidth={2} />
-        <span className="app-tabbar-tab-label">Time</span>
-      </NavLink>
-      {showLabor && (
-        <NavLink
-          to="/labor/list"
-          className={({ isActive }) =>
-            `app-tabbar-tab${isActive ? " app-tabbar-tab-active" : ""}`
-          }
-        >
-          <HardHat size={20} strokeWidth={2} />
-          <span className="app-tabbar-tab-label">Labor</span>
-        </NavLink>
-      )}
-      <NavLink
-        to="/profile"
-        className={({ isActive }) =>
-          `app-tabbar-tab${isActive ? " app-tabbar-tab-active" : ""}`
-        }
-      >
-        <User size={20} strokeWidth={2} />
-        <span className="app-tabbar-tab-label">Profile</span>
-      </NavLink>
+      {slots.map((entry) => {
+        const Icon = entry.icon;
+        return (
+          <NavLink
+            key={entry.id}
+            to={entry.route}
+            className={({ isActive }) =>
+              `app-tabbar-tab${isActive ? " app-tabbar-tab-active" : ""}`
+            }
+          >
+            <Icon size={20} strokeWidth={2} />
+            <span className="app-tabbar-tab-label">{entry.label}</span>
+          </NavLink>
+        );
+      })}
     </nav>
   );
 }

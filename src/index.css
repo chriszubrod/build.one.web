@@ -120,22 +120,18 @@ body {
    -------------------------------------------------------------------------
    Breakpoint tiers (kept in one place so everything else can refer back):
 
-     Mobile portrait     : default                       shell max 430px
+     Mobile portrait     : default                       shell max 430px,
+                                                         BottomTabBar visible
      Mobile landscape    : (landscape AND ≤ 500h)        rotate overlay
-     Tablet (any orient) : touch device, > 430w viewport shell max 430px,
-                                                         centered with margin
-     Desktop             : (≥ 1024w AND hover:hover AND pointer:fine)
-                                                         sidebar + full width
+     Tablet + Desktop    : (≥ 768w)                      sidebar + main row,
+                                                         BottomTabBar hidden
 
-   The desktop trigger combines width with hover/pointer media queries to
-   distinguish laptops from tablets at the same width — an iPad in landscape
-   (1024×768, touch) stays in tablet mode; a 1024px-wide laptop window
-   (mouse, hover-capable) gets the sidebar.
-
-   Tablet renders identically to mobile portrait — a 430px phone-shaped
-   column centered in the viewport, with empty side margins. Matches the
-   production iOS feel. To widen tablet content later, override .app-shell
-   max-width via a tablet-tier @media + revisit table / filter rules.
+   Breakpoint flipped 2026-06-17 (Nav Phase 0.5): the prior trigger
+   `(min-width: 1024px) and (hover: hover) and (pointer: fine)` left iPad
+   PMs/Owners in the 430px phone column — a real pain point. The new
+   `min-width: 768px` includes iPad portrait. If iPad portrait ever feels
+   too cramped at 768, add a carve-out media query that reverts to the
+   430px column under `(orientation: portrait) and (max-width: 820px)`.
    ========================================================================= */
 
 /* Mobile portrait (default) — phone-shaped column centered on viewport,
@@ -167,7 +163,7 @@ body {
    orientation and revisit the .cl-filters / .data-table responsive rules. */
 
 /* Desktop — sidebar + main row, full viewport width, BottomTabBar hidden. */
-@media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+@media (min-width: 768px) {
   .app-shell {
     max-width: 100%;
     flex-direction: row;
@@ -236,7 +232,7 @@ body {
   display: none;
 }
 
-@media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+@media (min-width: 768px) {
   .app-sidebar {
     display: flex;
     flex-direction: column;
@@ -304,7 +300,7 @@ body {
   z-index: 100;
 }
 
-@media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+@media (min-width: 768px) {
   .app-tabbar { display: none; }
 }
 
@@ -1456,6 +1452,65 @@ button[type="submit"]:disabled {
   color: var(--color-text-muted);
 }
 
+/* MoreDrawer — bottom-sheet overflow nav for non-primary entries.
+   Section-headed lists; sections with zero visible entries (per RBAC)
+   are omitted entirely. Phase 0 builds this empty for Phase 1 to fill. */
+.more-drawer-body {
+  padding: 0 var(--space-md) var(--space-xl);
+}
+
+.more-drawer-empty {
+  padding: var(--space-xl);
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-footnote);
+}
+
+.more-drawer-section {
+  margin-top: var(--space-lg);
+}
+
+.more-drawer-section:first-child {
+  margin-top: var(--space-md);
+}
+
+.more-drawer-section-label {
+  font-size: var(--font-size-footnote);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  margin: 0 0 var(--space-xs) var(--space-sm);
+}
+
+.more-drawer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.more-drawer-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-md);
+  color: var(--color-text);
+  text-decoration: none;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-callout);
+}
+
+.more-drawer-link:last-child {
+  border-bottom: none;
+}
+
+.more-drawer-link:hover {
+  background: var(--color-surface-tint);
+}
+
 /* Offline banner — hover overlay at the top, does NOT push content down.
    Slides in from the top when navigator.onLine flips false. */
 .offline-banner {
@@ -1522,7 +1577,7 @@ button[type="submit"]:disabled {
   }
 }
 
-@media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+@media (min-width: 768px) {
   /* On desktop the tab bar is hidden — anchor lower to the viewport edge. */
   .pwa-update-banner {
     bottom: calc(24px + env(safe-area-inset-bottom, 0px));
@@ -2619,7 +2674,7 @@ a.scout-record-header-link:hover .scout-record-name {
 /* Tablet still renders the phone-width column (430px shell), so filters
    stay stacked. Switch to the flex/wrap layout only at desktop where the
    sidebar layout gives the content area more horizontal room. */
-@media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+@media (min-width: 768px) {
   .cl-filters {
     display: flex;
     flex-wrap: wrap;

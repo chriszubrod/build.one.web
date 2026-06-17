@@ -8,6 +8,7 @@ import InvalidateOnReconnect from "./components/InvalidateOnReconnect";
 import ProtectedRoute from "./auth/ProtectedRoute";
 import LoginPage from "./auth/LoginPage";
 import AppLayout from "./layout/AppLayout";
+import LandingRedirect from "./layout/LandingRedirect";
 
 import ProfileView from "./pages/profile/ProfileView";
 import UserDetailScreen from "./pages/profile/UserDetailScreen";
@@ -50,7 +51,7 @@ export default function App() {
 
             <Route element={<ProtectedRoute />}>
               <Route element={<AppLayout />}>
-                <Route path="/" element={<Navigate to="/time-entry/list" replace />} />
+                <Route path="/" element={<LandingRedirect />} />
 
                 <Route path="/time-entry/list" element={<TodayScreen />} />
                 <Route path="/time-entry/past/:date" element={<PastDayScreen />} />
@@ -71,7 +72,7 @@ export default function App() {
                 <Route path="/user/:id" element={<Navigate to="/profile" replace />} />
                 <Route path="/user/:id/edit" element={<Navigate to="/profile" replace />} />
 
-                <Route path="*" element={<Navigate to="/time-entry/list" replace />} />
+                <Route path="*" element={<LandingRedirect />} />
               </Route>
 
               {/* Budget surface — desktop chrome, separate from the phone shell.
