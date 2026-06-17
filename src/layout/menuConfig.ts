@@ -1,4 +1,4 @@
-import { Clock, HardHat, User } from "lucide-react";
+import { Briefcase, Clock, HardHat, User } from "lucide-react";
 import type { ComponentType } from "react";
 import { Modules, type ModuleName } from "../shared/modules";
 import type { CurrentUser } from "../types/api";
@@ -66,6 +66,16 @@ export const MENU_ENTRIES: MenuEntry[] = [
     priority: 20,
   },
   {
+    id: "projects",
+    label: "Projects",
+    icon: Briefcase,
+    route: "/project/list",
+    module: Modules.PROJECTS,
+    permission: "can_read",
+    section: "financials",
+    priority: 30,
+  },
+  {
     id: "profile",
     label: "Profile",
     icon: User,
@@ -114,18 +124,18 @@ const PRIMARY_SLOTS_BY_ROLE: Record<string, string[]> = {
   "Field Crew": ["time", "profile"],
   "Intern": ["time", "profile"],
   "Time Clerk": ["time", "profile"],
-  "Project Manager": ["time", "labor", "profile"],
-  "Owner": ["time", "labor", "profile"],
-  "AP Specialist": ["time", "labor", "profile"],
-  "AR Specialist": ["time", "labor", "profile"],
-  "Controller": ["time", "labor", "profile"],
-  "Reviewer": ["time", "labor", "profile"],
-  "Auditor": ["time", "labor", "profile"],
-  "Tenant Admin": ["time", "labor", "profile"],
+  "Project Manager": ["time", "labor", "projects", "profile"],
+  "Owner": ["time", "labor", "projects", "profile"],
+  "AP Specialist": ["time", "labor", "projects", "profile"],
+  "AR Specialist": ["time", "labor", "projects", "profile"],
+  "Controller": ["time", "labor", "projects", "profile"],
+  "Reviewer": ["time", "labor", "projects", "profile"],
+  "Auditor": ["time", "labor", "projects", "profile"],
+  "Tenant Admin": ["time", "labor", "projects", "profile"],
 };
 
 /** Fallback primary slots for unknown roles + system admins. */
-export const DEFAULT_PRIMARY_SLOTS: string[] = ["time", "labor", "profile"];
+export const DEFAULT_PRIMARY_SLOTS: string[] = ["time", "labor", "projects", "profile"];
 
 /** Hard cap on bottom-pill slots — keeps the iOS/Android ergonomic contract. */
 export const MAX_PRIMARY_SLOTS = 5;

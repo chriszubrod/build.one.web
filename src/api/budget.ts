@@ -30,6 +30,8 @@ export const budgetKeys = {
     ["budget-revisions", budgetPublicId] as const,
   lineItems: (revisionPublicId: string) =>
     ["budget-line-items", revisionPublicId] as const,
+  byProject: (projectPublicId: string) =>
+    ["budget-by-project", projectPublicId] as const,
 };
 
 /* ---- reads ------------------------------------------------------------- */
@@ -39,6 +41,21 @@ export async function fetchBudgets(): Promise<BudgetListRow[]> {
 
 export function fetchBudget(publicId: string): Promise<Budget> {
   return getOne<Budget>(`/api/v1/get/budget/${publicId}`);
+}
+
+/** Resolve the budget for a given Project. Returns null if no budget yet. */
+export async function fetchBudgetByProject(
+  projectPublicId: string,
+): Promise<Budget | null> {
+  try {
+    return await getOne<Budget>(
+      `/api/v1/get/budget/by-project/${projectPublicId}`,
+    );
+  } catch {
+    // 404 = no budget for project; surface as null so the tab can prompt
+    // the user to create one.
+    return null;
+  }
 }
 
 export function fetchBudgetVariance(

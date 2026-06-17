@@ -70,27 +70,36 @@ describe("primarySlotsForUser — curated per-role mapping", () => {
     expect(primarySlotsForUser(me).map((s) => s.id)).toEqual(["time", "profile"]);
   });
 
-  it("Project Manager sees Time + Labor + Profile when fully permissioned", () => {
+  it("Project Manager sees Time + Labor + Projects + Profile when fully permissioned", () => {
     const me = makeUser({
       role: "Project Manager",
       modules: [
         makeModule("Time Tracking", { can_read: true }),
         makeModule("Contract Labor", { can_read: true }),
+        makeModule("Projects", { can_read: true }),
       ],
     });
     expect(primarySlotsForUser(me).map((s) => s.id)).toEqual([
       "time",
       "labor",
+      "projects",
       "profile",
     ]);
   });
 
-  it("Project Manager without Labor permission drops the Labor slot", () => {
+  it("Project Manager without Labor permission drops the Labor slot but keeps Projects", () => {
     const me = makeUser({
       role: "Project Manager",
-      modules: [makeModule("Time Tracking", { can_read: true })],
+      modules: [
+        makeModule("Time Tracking", { can_read: true }),
+        makeModule("Projects", { can_read: true }),
+      ],
     });
-    expect(primarySlotsForUser(me).map((s) => s.id)).toEqual(["time", "profile"]);
+    expect(primarySlotsForUser(me).map((s) => s.id)).toEqual([
+      "time",
+      "projects",
+      "profile",
+    ]);
   });
 
   it("Project Manager without ANY granted modules sees only unconditional Profile", () => {
@@ -109,13 +118,15 @@ describe("primarySlotsForUser — system admin", () => {
     expect(primarySlotsForUser(me).map((s) => s.id)).toEqual([
       "time",
       "labor",
+      "projects",
       "profile",
     ]);
   });
 
-  it("System admin with a role still uses DEFAULT_PRIMARY_SLOTS (admin takes precedence)", () => {
-    // Christopher (id=17, IsSystemAdmin=1) holds Tenant Admin role too —
-    // verify the admin bypass kicks in regardless.
+  it("System admin with a role uses the role's curated mapping (admin only bypasses module gating, not the slot map)", () => {
+    // Christopher (id=17, IsSystemAdmin=1) holds Tenant Admin role too.
+    // Tenant Admin's curated slots = ["time", "labor", "projects", "profile"]
+    // which currently matches DEFAULT_PRIMARY_SLOTS — they're independent.
     const me = makeUser({
       role: "Tenant Admin",
       is_admin: true,
@@ -124,6 +135,7 @@ describe("primarySlotsForUser — system admin", () => {
     expect(primarySlotsForUser(me).map((s) => s.id)).toEqual([
       "time",
       "labor",
+      "projects",
       "profile",
     ]);
   });
@@ -136,11 +148,13 @@ describe("primarySlotsForUser — fallback behavior", () => {
       modules: [
         makeModule("Time Tracking", { can_read: true }),
         makeModule("Contract Labor", { can_read: true }),
+        makeModule("Projects", { can_read: true }),
       ],
     });
     expect(primarySlotsForUser(me).map((s) => s.id)).toEqual([
       "time",
       "labor",
+      "projects",
       "profile",
     ]);
   });
@@ -197,9 +211,15 @@ describe("entriesInSection", () => {
     expect(primary).toEqual(["time", "labor"]); // priorities 10, 20
   });
 
-  it("Returns empty array for a section with no entries (yet)", () => {
+  it("Returns Projects under financials (Phase 1A entry)", () => {
     const me = makeUser({ is_admin: true });
-    expect(entriesInSection("financials", me)).toEqual([]);
+    expect(entriesInSection("financials", me).map((e) => e.id)).toEqual([
+      "projects",
+    ]);
+  });
+
+  it("Returns empty array for sections without entries yet (contacts / admin)", () => {
+    const me = makeUser({ is_admin: true });
     expect(entriesInSection("contacts", me)).toEqual([]);
     expect(entriesInSection("admin", me)).toEqual([]);
   });

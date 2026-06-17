@@ -1452,6 +1452,51 @@ button[type="submit"]:disabled {
   color: var(--color-text-muted);
 }
 
+/* Project detail tabs — horizontally scrollable strip on top of the
+   ProjectDetailScreen content. Each tab is a project-scoped slice of an
+   entity surface (Overview / Budget / Bills / Expenses / etc.). */
+.project-tabs {
+  display: flex;
+  gap: var(--space-xs);
+  overflow-x: auto;
+  padding: 0 var(--space-sm) var(--space-md);
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.project-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.project-tab {
+  flex-shrink: 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 6px var(--space-md);
+  font-size: var(--font-size-footnote);
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.project-tab:hover:not(.project-tab-active) {
+  background: var(--color-surface-tint);
+}
+
+.project-tab-active {
+  background: var(--color-text);
+  color: var(--color-surface);
+}
+
+.project-tab-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
 /* MoreDrawer — bottom-sheet overflow nav for non-primary entries.
    Section-headed lists; sections with zero visible entries (per RBAC)
    are omitted entirely. Phase 0 builds this empty for Phase 1 to fill. */

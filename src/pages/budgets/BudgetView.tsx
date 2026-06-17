@@ -57,8 +57,22 @@ function moneyCells(m: BudgetVarianceMoney, totals = false) {
   );
 }
 
-export default function BudgetView() {
-  const { publicId } = useParams<{ publicId: string }>();
+interface BudgetViewContentProps {
+  /**
+   * Budget.PublicId. When this content is rendered as a route-level page,
+   * the wrapper passes the value from useParams; when it's rendered as an
+   * embedded tab (e.g. ProjectDetailScreen → Budget tab), the caller
+   * resolves it via GET /get/budget/by-project/{project_public_id} and
+   * passes it directly.
+   */
+  publicId: string;
+}
+
+/**
+ * The Budget detail content — reusable inside a tab or as a full page.
+ * Page-level wrapper is below as the default export.
+ */
+export function BudgetViewContent({ publicId }: BudgetViewContentProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -68,7 +82,7 @@ export default function BudgetView() {
   const canCreate = !!(me?.is_admin || mod?.can_create);
   const canUpdate = !!(me?.is_admin || mod?.can_update);
 
-  const id = publicId!;
+  const id = publicId;
 
   const budgetQ = useQuery({
     queryKey: budgetKeys.detail(id),
@@ -364,4 +378,14 @@ export default function BudgetView() {
       </div>
     </div>
   );
+}
+
+/**
+ * Route-level page wrapper for /budget/:publicId. Reads the id from
+ * useParams and delegates to BudgetViewContent.
+ */
+export default function BudgetView() {
+  const { publicId } = useParams<{ publicId: string }>();
+  if (!publicId) return null;
+  return <BudgetViewContent publicId={publicId} />;
 }

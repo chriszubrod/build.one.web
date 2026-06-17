@@ -19,16 +19,27 @@ Pattern locked: **Bottom Tab Bar + Hamburger Drawer** with a curated per-role pr
 
 Project-scoped vs entity-scoped doors decision (2026-06-17): **both, sharing one component.** Each entity (Bills, Expenses, Invoices, BillCredits, Budget, ContractLabor) gets a top-level nav entry (entity-centric flat list with filters) AND a Project detail page tab (project-scoped pre-filtered view). The list component takes `defaultFilter` + `hiddenFilters` + `showProjectColumn` props; top-level call passes nothing, project tab call locks project_id.
 
-### Phase 1 — Tier 1 reactivation (1-2 weeks, web-only)
+### Phase 1A — Project as hub (shipped 2026-06-17)
 
-- [ ] **Unpark Vendors / Customers / Projects.** Remove from `tsconfig.app.json` exclude list. Verify the parked scaffolds against the current API envelope + Tier 2 cache patterns. Add to `menuConfig.ts`:
-  - Vendors → section: `"contacts"`, module: `Modules.VENDORS`
-  - Customers → section: `"contacts"`, module: `Modules.CUSTOMERS`
-  - Projects → section: `"financials"`, module: `Modules.PROJECTS`
-- [ ] **Build `ProjectDetailScreen` tab framework.** Tabs: Overview, Budget, Bills (placeholder), Expenses (placeholder), Invoices (placeholder), Contract Labor (placeholder), Documents (placeholder), Team (UserProject membership). Budget tab fully functional (move BudgetView from `/budget/:id` into this tab). Other tabs render an empty state until Phase 2 brings the entities online.
-- [ ] **Retire `BudgetLayout` / `BudgetSidebar`.** Fold Budgets into the unified `AppLayout` + `AppSidebar`. Existing `/budget/*` routes redirect to `/project/:id?tab=budget` (or the top-level Controller view at `/budget/list` if we keep that as the cross-project view).
-- [ ] **PM / Owner primary slot resolver update.** Add Projects to their bottom pill: `["time", "labor", "projects", "profile"]`. Update `PRIMARY_SLOTS_BY_ROLE` in `menuConfig.ts`.
-- [ ] **Add a `more` slot to the bottom pill.** Once Phase 1 adds 3+ section entries beyond primaries, every role's bottom pill ends with a "More" slot that opens `MoreDrawer`. The slot uses `MoreHorizontal` from lucide-react.
+- [x] **New `src/pages/project/ProjectDetailScreen.tsx`** with tabs: Overview, Budget, Bills (placeholder), Expenses (placeholder), Invoices (placeholder), Labor (placeholder). Lives at `/project/:publicId`. The "project as hub" pattern.
+- [x] **`BudgetView` refactor** — extracted `BudgetViewContent({ publicId })` so the same component renders as a route at `/budget/:publicId` AND embedded in the Project → Budget tab. The wrapper still renders at the page route.
+- [x] **New `src/pages/project/ProjectList.tsx`** — minimal list (name + abbreviation + status, click to detail). Phase 1B will refurbish to a richer list with filters + customer column.
+- [x] **menuConfig: Projects entry** under `section: "financials"`, module `Modules.PROJECTS`, priority 30, icon Briefcase.
+- [x] **PM / Owner / AP / AR / Controller / Reviewer / Auditor / Tenant Admin curated slots** updated to `["time", "labor", "projects", "profile"]`. DEFAULT_PRIMARY_SLOTS also updated for unknown-role + system-admin fallback.
+- [x] **App.tsx routes**: `/project/list` and `/project/:publicId` inside AppLayout, under ProtectedRoute.
+- [x] **menuConfig tests** updated (24/24 specs pass) — covers Projects in curated mappings, in entriesInSection("financials"), fallback for unknown roles.
+- [x] **CSS** for `.project-tabs` / `.project-tab` strip — horizontally scrollable, charcoal active state.
+- [x] **New `fetchBudgetByProject` + `budgetKeys.byProject`** in `src/api/budget.ts` so the Budget tab can resolve a project's budget without a manual lookup.
+
+### Phase 1B — Vendors + Customers unpark + BudgetLayout retirement (next session)
+
+- [ ] **Unpark `pages/vendors/`** — remove from tsconfig exclude. Verify VendorList / VendorView / VendorEdit / VendorCreate against current API envelope + Tier 2 cache patterns (`/api/v1/get/*` is whitelisted; `/list/*` is whitelisted). Add menuConfig entry under `section: "contacts"`, module `Modules.VENDORS`.
+- [ ] **Unpark `pages/customers/`** — same pattern as Vendors. Add menuConfig entry under `section: "contacts"`, module `Modules.CUSTOMERS`.
+- [ ] **Retire `BudgetLayout` / `BudgetSidebar`.** Move `/budget/list`, `/budget/create`, `/budget/:publicId`, `/budget/:publicId/edit` into `AppLayout` (currently in `BudgetLayout` sibling chrome). `/budget/:publicId` can either stay as the page route OR redirect to `/project/{budget.project_public_id}` with the Budget tab pre-selected — pick when implementing.
+- [ ] **Wire the `more` slot to BottomTabBar.** When `entriesInSection(...)` returns non-empty content for any drawer section (Phase 1B introduces Vendors + Customers in contacts), every role's bottom pill ends with a "More" slot that opens `MoreDrawer`. Cap stays at 5 slots — pill becomes 4 primary + 1 more.
+- [ ] **Refurbish `pages/projects/` ProjectList** to a richer list (filters, customer column, search) — replaces the minimal ProjectList from Phase 1A.
+
+### Phase 2 — Tier 3 financial surfaces (3-4 weeks, web-only)
 
 ### Phase 2 — Tier 3 financial surfaces (3-4 weeks, web-only)
 

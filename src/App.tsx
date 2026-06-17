@@ -18,6 +18,8 @@ import AppearanceScreen from "./pages/profile/AppearanceScreen";
 
 import LaborList from "./pages/labor/LaborList";
 import LaborReviewScreen from "./pages/labor/LaborReviewScreen";
+import ProjectList from "./pages/project/ProjectList";
+import ProjectDetailScreen from "./pages/project/ProjectDetailScreen";
 import TodayScreen from "./pages/time-entry/TodayScreen";
 import PastDayScreen from "./pages/time-entry/PastDayScreen";
 import EditEntryScreen from "./pages/time-entry/EditEntryScreen";
@@ -62,6 +64,9 @@ export default function App() {
 
                 <Route path="/labor/list" element={<LaborList />} />
                 <Route path="/labor/:public_id" element={<LaborReviewScreen />} />
+
+                <Route path="/project/list" element={<ProjectList />} />
+                <Route path="/project/:publicId" element={<ProjectDetailScreen />} />
 
                 <Route path="/profile" element={<ProfileView />} />
                 <Route path="/profile/details" element={<UserDetailScreen />} />
