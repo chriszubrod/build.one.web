@@ -66,9 +66,13 @@ export default function EditEntryScreen() {
     userId: entryQuery.data.user_id,
   };
 
+  // Anchor on the entry's Work Date so the TimeLogForm date guard enforces
+  // "this log belongs to this entry's day" (a log can't be edited onto a
+  // different date). Fall back to the log's own clock-in date only if the
+  // entry has no work_date.
   const dateForHeader =
-    (log.clock_in && /^(\d{4}-\d{2}-\d{2})/.exec(log.clock_in)?.[1]) ||
     entryQuery.data.work_date ||
+    (log.clock_in && /^(\d{4}-\d{2}-\d{2})/.exec(log.clock_in)?.[1]) ||
     "";
 
   const handleSave = async (next: TimeLogFormValues) => {

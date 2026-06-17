@@ -36,6 +36,18 @@ function fmtHeaderDate(s: string): string {
   return d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 }
 
+// "YYYY-MM-DD" + N calendar days → "YYYY-MM-DD" (local, DST-safe).
+function addDaysIso(iso: string, days: number): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return iso;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  d.setDate(d.getDate() + days);
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${da}`;
+}
+
 function projectAbbrev(name: string): string {
   return name.replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase() || "—";
 }
@@ -92,6 +104,13 @@ export default function TimeLogForm({
   const currentProjectName = projectId ? projectMap.get(projectId) ?? null : null;
   const currentUser = userId !== null ? userMap.get(userId) : undefined;
 
+  // The calendar day this entry belongs to. A log's Clock In MUST fall on it,
+  // so a single day's entry can't accumulate logs from other dates (the bug
+  // that produced a 55h "one day" entry spanning weeks). Clock Out may roll
+  // to the next morning for an overnight shift. Mirrors the server-side intent
+  // and the guard already in the admin TimeEntryView.
+  const day = (dateForHeader || "").slice(0, 10);
+
   const hasUnsavedChanges =
     clockInLocal !== initial.clockInLocal ||
     clockOutLocal !== initial.clockOutLocal ||
@@ -104,13 +123,22 @@ export default function TimeLogForm({
     if (new Date(clockOutLocal) <= new Date(clockInLocal)) {
       return "End time must be after start time.";
     }
+    if (day) {
+      if (clockInLocal.slice(0, 10) !== day) {
+        return `This entry is for ${day}. The start time must be on that date — to log a different day, open that day and add it there.`;
+      }
+      const outDay = clockOutLocal.slice(0, 10);
+      if (outDay !== day && outDay !== addDaysIso(day, 1)) {
+        return `The end time must be on ${day} (or the next morning for an overnight shift).`;
+      }
+    }
     if (mode === "create" && canPickUser && !userId) return "Pick a worker for this entry.";
     if (!isBreak && !projectId) return "Pick a project for this entry.";
     if (!isBreak && note.trim().length === 0) {
       return "A note is required for project entries.";
     }
     return null;
-  }, [clockInLocal, clockOutLocal, note, projectId, userId, isBreak, canPickUser, mode]);
+  }, [clockInLocal, clockOutLocal, note, projectId, userId, isBreak, canPickUser, mode, day]);
 
   const isValid = validationMessage === null;
 
@@ -207,6 +235,8 @@ export default function TimeLogForm({
               className="time-row-input"
               type="datetime-local"
               value={clockInLocal}
+              min={day ? `${day}T00:00` : undefined}
+              max={day ? `${day}T23:59` : undefined}
               onChange={(e) => setClockInLocal(e.target.value)}
             />
           </div>
@@ -217,6 +247,8 @@ export default function TimeLogForm({
               className="time-row-input"
               type="datetime-local"
               value={clockOutLocal}
+              min={day ? `${day}T00:00` : undefined}
+              max={day ? `${addDaysIso(day, 1)}T23:59` : undefined}
               onChange={(e) => setClockOutLocal(e.target.value)}
             />
           </div>
