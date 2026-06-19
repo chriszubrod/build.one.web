@@ -636,6 +636,9 @@ export interface Expense {
   memo: string | null;
   is_draft: boolean;
   is_credit: boolean;
+  // Additive: populated when an expense was created from a receipt email
+  // (receipt-intake pipeline); null for manual / QBO-pulled expenses.
+  source_email_message_id?: number | null;
 }
 
 export interface ExpenseLineItem {
