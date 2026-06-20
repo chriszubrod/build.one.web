@@ -4,6 +4,17 @@ Pending work, deferred decisions, known issues. Check off as done; prune anythin
 
 ---
 
+## /docs surface — keep current + extend
+
+v1 (admin-only, iOS section) shipped 2026-06-20. **Standing rule:** every feature add/change refreshes the matching `/docs` section — the Docs step of the per-unit pipeline (see `CLAUDE.md` "Documentation surface" + umbrella memory `feedback_docs_keep_current.md`). Follow-ups:
+
+- [ ] **API section (LIVE)** — highest value: a live OpenAPI explorer from `/openapi.json` + entity/agent registries, behind a new `require_system_admin` admin endpoint in `build.one.api`. The first section that's genuinely always-current; replaces the "coming soon" stub in `docsSections.ts`.
+- [ ] **Web / MCP / Scheduler sections (DERIVED)** — build-time generators: web route table (`App.tsx` / `menuConfig.ts`), MCP tool manifest (`tools/*.py`), scheduler cron inventory (`function_app.py`). Each replaces a "coming soon" stub.
+- [ ] **Mobile reachability** — `/docs` is desktop-sidebar-only today (Reference group). Wire `MoreDrawer` into `BottomTabBar` so admins reach it on phones, or consciously accept desktop-only.
+- [ ] **Freshness enforcement (hardening)** — no CI exists; the iOS snapshot can silently lag if `gen_docs_manifest.py` + `docs:sync:ios` aren't re-run. Consider a `build`-time freshness check (fail if `src/docs/ios` differs from the iOS source when both repos are checked out) and/or a `settings.json` hook so refresh isn't purely manual.
+
+---
+
 ## PWA — Tier 2 / Tier 3 decision gates
 
 - [ ] **JWT-in-localStorage durability on installed PWAs.** Surfaced 2026-06-15 (Phase 1.9). iOS Safari may evict localStorage from standalone PWAs after ~7 days of non-use, silently logging the user out. Documented as a Tier 1 known limitation. Long-term fix is migrating refresh tokens to httpOnly cookies + access tokens to in-memory only; that's a separate auth-durability project with CORS + CSRF implications. Do NOT bundle into PWA Tier 2/3 work — flag it, then decide independently. Triggers: complaints from installed-PWA users about unexpected sign-outs, or once Tier 2 lands and the surface becomes more "app-like" in expectation.

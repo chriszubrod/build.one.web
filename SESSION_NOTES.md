@@ -4,6 +4,18 @@ Chronological session history. Newest at the top.
 
 ---
 
+## Session: Admin /docs surface — iOS-first (2026-06-20)
+
+Shipped v1 of an **admin-only `/docs`** surface — a Hybrid docs site documenting the whole 5-repo application, freshness-badged per repo (LIVE / DERIVED / CURATED). Decision: **iOS-first** (the hardest repo: can't be runtime-introspected from web). Built on native primitives (`ios-page` / `SectionCard` / `ListRow` / `NavHeader`) as a drill-down (`DocsHome` → section), matching Time/Labor/Profile. Routes are `React.lazy`-split in `App.tsx` (keeps react-markdown out of the main bundle). Dual-gated: `menuConfig` `requiresAdmin` + page `is_admin` guard; surfaced via a **new Reference group in `AppSidebar`** — NOT the primary bottom pill (which would overflow at 5 tabs).
+
+**iOS section** = DERIVED facts (version/build, features, services, endpoints, CoreData entities + user-scoping, privacy) vendored from `build.one.ios` via its new `scripts/gen_docs_manifest.py` + `npm run docs:sync:ios` (new `scripts/sync-ios-docs.mjs`), plus CURATED narrative (`build.one.ios/docs/app-guide/*.md`) and a build-time snapshot/staleness banner. API/Web/MCP/Scheduler are listed as "coming soon" so the IA is visible.
+
+**Files (new):** `src/pages/docs/*` (DocsPage, DocsHome, FreshnessBadge, DocsMarkdown, docsSections, iosManifest, types, `sections/{IOSDocs,ComingSoon}`), `src/docs/ios/*` (vendored), `scripts/sync-ios-docs.mjs`. **(edited):** `App.tsx` (lazy routes), `layout/{menuConfig,AppSidebar}.tsx` + `menuConfig.test.ts`, `index.css`, `package.json` (`docs:sync:ios`).
+
+**Process:** designed via a fan-out workflow (3 architectures → Hybrid). Two-pass adversarial review (16-agent workflow): 7 confirmed findings, all fixed — privacy `{}` → crash, `JSON.parse` boot-crash guard, `min_ios` variable-token filter, 5-tab pill overflow → Reference section, code-split `/docs`, vendoring automation. `tsc` clean · **28 tests** · build green with `/docs` in its own chunk. Pushed to `main` (`c42c94b`).
+
+**Standing rule added:** `/docs` must be kept current as features change — it's now the **Docs** step of the per-unit pipeline (see `CLAUDE.md` "Documentation surface" + umbrella memory `feedback_docs_keep_current.md`). Next increment: the **API live section** (`/openapi.json` + registries behind `require_system_admin`).
+
 ## Session: Budget UI — Phase 3 (2026-06-13)
 
 Built the Budget web UI against the live backend (API Phases 0–2 shipped 2026-06-11/12; plan at umbrella memory `project_budget_entity.md`). Customer-facing contract value per project, original schedule of values + change-order deltas, with a budget-vs-actual-vs-drawn variance consolidation.
