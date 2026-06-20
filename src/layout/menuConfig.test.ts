@@ -111,10 +111,11 @@ describe("primarySlotsForUser — curated per-role mapping", () => {
 describe("primarySlotsForUser — system admin", () => {
   it("System admin bypasses module gating and uses DEFAULT_PRIMARY_SLOTS", () => {
     const me = makeUser({
-      role: null,
+      role: null, // system admins get role: null on /auth/me
       is_admin: true,
       modules: [], // no module grants needed
     });
+    // Docs is NOT a primary slot — it lives in the reference section.
     expect(primarySlotsForUser(me).map((s) => s.id)).toEqual([
       "time",
       "labor",
@@ -202,6 +203,22 @@ describe("canSeeEntry — RBAC gating", () => {
     const labor = findMenuEntry("labor")!;
     expect(canSeeEntry(labor, me)).toBe(false);
   });
+
+  it("requiresAdmin entry (Docs) is visible to system admins", () => {
+    const me = makeUser({ is_admin: true, modules: [] });
+    expect(canSeeEntry(findMenuEntry("docs")!, me)).toBe(true);
+  });
+
+  it("requiresAdmin entry (Docs) is hidden from non-admins despite module === null", () => {
+    const me = makeUser({ role: "Field Crew", is_admin: false, modules: [] });
+    expect(canSeeEntry(findMenuEntry("docs")!, me)).toBe(false);
+  });
+
+  it("requiresAdmin entry (Docs) is hidden on unauth boots (me undefined)", () => {
+    // Guards the canSeeEntry ordering: requiresAdmin is checked before the
+    // `!me → module === null` shortcut, so an admin entry never leaks pre-auth.
+    expect(canSeeEntry(findMenuEntry("docs")!, undefined)).toBe(false);
+  });
 });
 
 describe("entriesInSection", () => {
@@ -227,5 +244,12 @@ describe("entriesInSection", () => {
   it("Account section contains Profile", () => {
     const me = makeUser({ role: "Field Crew" });
     expect(entriesInSection("account", me).map((e) => e.id)).toEqual(["profile"]);
+  });
+
+  it("Reference section surfaces Docs for system admins only", () => {
+    const admin = makeUser({ is_admin: true });
+    expect(entriesInSection("reference", admin).map((e) => e.id)).toEqual(["docs"]);
+    const nonAdmin = makeUser({ role: "Field Crew" });
+    expect(entriesInSection("reference", nonAdmin)).toEqual([]);
   });
 });

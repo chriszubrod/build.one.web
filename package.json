@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "docs:sync:ios": "node scripts/sync-ios-docs.mjs"
   },
   "dependencies": {
     "@tanstack/query-async-storage-persister": "^5.101.0",

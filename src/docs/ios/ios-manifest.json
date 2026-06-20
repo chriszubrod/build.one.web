@@ -1,0 +1,478 @@
+{
+  "repo": "build.one.ios",
+  "freshness": {
+    "class": "derived",
+    "live": false,
+    "source_commit": "01dd67a",
+    "source_commit_date": "2026-06-20T13:38:22-05:00",
+    "source_branch": "master",
+    "generated_at": "2026-06-20T18:57:33.884480+00:00",
+    "note": "iOS cannot be introspected at runtime from the web. This is a build-time snapshot of the build.one.ios source, regenerated on each release. The shipping App Store / TestFlight build may differ if this was not regenerated."
+  },
+  "app": {
+    "name": "Build.One",
+    "bundle_id": "one.build.app",
+    "marketing_version": "0.1.0",
+    "build": "10",
+    "min_ios": "17.0"
+  },
+  "architecture": {
+    "pattern": "SwiftUI + MVVM with the Observation framework (@Observable), centralized AppEnvironment dependency injection",
+    "networking": "actor-isolated APIClient + AuthenticatedSession (Bearer inject, pre-emptive refresh, 401 retry-once)",
+    "persistence": "CoreData (local-first write, async sync), Keychain for tokens",
+    "third_party_dependencies": 0
+  },
+  "features": [
+    "Bill",
+    "BillLineItem",
+    "Company",
+    "Contact",
+    "Expense",
+    "Invoice",
+    "Login",
+    "Module",
+    "Onboarding",
+    "Profile",
+    "Project",
+    "TimeEntry",
+    "User"
+  ],
+  "services": [
+    "Attachment",
+    "Auth",
+    "Bill",
+    "BillLineItem",
+    "BillLineItemAttachment",
+    "BuildOneAPI",
+    "Company",
+    "Contact",
+    "Expense",
+    "Invoice",
+    "Me",
+    "Module",
+    "Project",
+    "PushNotification",
+    "Role",
+    "RoleModule",
+    "TimeEntry",
+    "User",
+    "UserRole"
+  ],
+  "endpoints": [
+    {
+      "name": "GetMeEndpoint",
+      "method": "GET",
+      "path": "/api/v1/auth/me",
+      "file": "MeEndpoints.swift"
+    },
+    {
+      "name": "CreateBillEndpoint",
+      "method": "POST",
+      "path": "/api/v1/create/bill",
+      "file": "BillEndpoints.swift"
+    },
+    {
+      "name": "CreateBillLineItemEndpoint",
+      "method": "POST",
+      "path": "/api/v1/create/bill_line_item",
+      "file": "BillLineItemEndpoints.swift"
+    },
+    {
+      "name": "CreateBillLineItemAttachmentEndpoint",
+      "method": "POST",
+      "path": "/api/v1/create/bill_line_item_attachment",
+      "file": "BillLineItemAttachmentEndpoints.swift"
+    },
+    {
+      "name": "CreateCompanyEndpoint",
+      "method": "POST",
+      "path": "/api/v1/create/company",
+      "file": "CompanyEndpoints.swift"
+    },
+    {
+      "name": "DeleteBillEndpoint",
+      "method": "DELETE",
+      "path": "/api/v1/delete/bill/\\(publicId)",
+      "file": "BillEndpoints.swift"
+    },
+    {
+      "name": "DeleteBillLineItemEndpoint",
+      "method": "DELETE",
+      "path": "/api/v1/delete/bill_line_item/\\(publicId)",
+      "file": "BillLineItemEndpoints.swift"
+    },
+    {
+      "name": "DeleteBillLineItemAttachmentEndpoint",
+      "method": "DELETE",
+      "path": "/api/v1/delete/bill_line_item_attachment/\\(publicId)",
+      "file": "BillLineItemAttachmentEndpoints.swift"
+    },
+    {
+      "name": "DeleteCompanyEndpoint",
+      "method": "DELETE",
+      "path": "/api/v1/delete/company/\\(publicId)",
+      "file": "CompanyEndpoints.swift"
+    },
+    {
+      "name": "GetAttachmentByIdEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/attachment/id/\\(id)",
+      "file": "AttachmentEndpoints.swift"
+    },
+    {
+      "name": "GetBillLineItemAttachmentEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/bill-line-item-attachment/by-bill-line-item/\\(lineItemPublicId)",
+      "file": "BillLineItemAttachmentEndpoints.swift"
+    },
+    {
+      "name": "GetBillEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/bill/\\(publicId)",
+      "file": "BillEndpoints.swift"
+    },
+    {
+      "name": "GetBillByIdEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/bill/id/\\(id)",
+      "file": "BillEndpoints.swift"
+    },
+    {
+      "name": "GetBillLineItemEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/bill_line_item/\\(publicId)",
+      "file": "BillLineItemEndpoints.swift"
+    },
+    {
+      "name": "GetBillLineItemsByBillEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/bill_line_items/bill/\\(billId)",
+      "file": "BillLineItemEndpoints.swift"
+    },
+    {
+      "name": "GetBillLineItemsByProjectEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/bill_line_items/project/\\(projectId)",
+      "file": "BillLineItemEndpoints.swift"
+    },
+    {
+      "name": "GetBillsEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/bills",
+      "file": "BillEndpoints.swift"
+    },
+    {
+      "name": "GetCompaniesEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/companies",
+      "file": "CompanyEndpoints.swift"
+    },
+    {
+      "name": "GetCompanyEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/company/\\(publicId)",
+      "file": "CompanyEndpoints.swift"
+    },
+    {
+      "name": "GetContactEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/contact/\\(publicId)",
+      "file": "ContactEndpoints.swift"
+    },
+    {
+      "name": "GetContactsByUserEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/contacts/user/\\(userId)",
+      "file": "ContactEndpoints.swift"
+    },
+    {
+      "name": "GetExpensesEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/expenses",
+      "file": "ExpenseEndpoints.swift"
+    },
+    {
+      "name": "GetInvoicesEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/invoices",
+      "file": "InvoiceEndpoints.swift"
+    },
+    {
+      "name": "GetModulesByUserEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/modules/user/\\(userId)",
+      "file": "ModuleEndpoints.swift"
+    },
+    {
+      "name": "GetProjectsByUserEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/projects/user/\\(userId)",
+      "file": "ProjectEndpoints.swift"
+    },
+    {
+      "name": "GetMyRoleModulesEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/role_modules/me",
+      "file": "RoleModuleEndpoints.swift"
+    },
+    {
+      "name": "GetRolesByUserEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/roles/user/\\(userId)",
+      "file": "RoleEndpoints.swift"
+    },
+    {
+      "name": "GetMyUserEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/user/me",
+      "file": "UserEndpoints.swift"
+    },
+    {
+      "name": "GetUserRolesByUserEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/user_roles/user/\\(userId)",
+      "file": "UserRoleEndpoints.swift"
+    },
+    {
+      "name": "GetUsersEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/users",
+      "file": "UserEndpoints.swift"
+    },
+    {
+      "name": "ChangePasswordEndpoint",
+      "method": "POST",
+      "path": "/api/v1/mobile/auth/change-password",
+      "file": "AuthEndpoints.swift"
+    },
+    {
+      "name": "LoginEndpoint",
+      "method": "POST",
+      "path": "/api/v1/mobile/auth/login",
+      "file": "AuthEndpoints.swift"
+    },
+    {
+      "name": "LogoutEndpoint",
+      "method": "POST",
+      "path": "/api/v1/mobile/auth/logout",
+      "file": "AuthEndpoints.swift"
+    },
+    {
+      "name": "LogoutAllDevicesEndpoint",
+      "method": "POST",
+      "path": "/api/v1/mobile/auth/logout-all-devices",
+      "file": "AuthEndpoints.swift"
+    },
+    {
+      "name": "RefreshEndpoint",
+      "method": "POST",
+      "path": "/api/v1/mobile/auth/refresh",
+      "file": "AuthEndpoints.swift"
+    },
+    {
+      "name": "DeactivateDeviceTokenEndpoint",
+      "method": "POST",
+      "path": "/api/v1/mobile/device-token/deactivate",
+      "file": "PushNotificationEndpoints.swift"
+    },
+    {
+      "name": "RegisterDeviceTokenEndpoint",
+      "method": "POST",
+      "path": "/api/v1/mobile/device-token/register",
+      "file": "PushNotificationEndpoints.swift"
+    },
+    {
+      "name": "CreateTimeEntryEndpoint",
+      "method": "POST",
+      "path": "/api/v1/time-entries",
+      "file": "TimeEntryEndpoints.swift"
+    },
+    {
+      "name": "GetTimeEntriesEndpoint",
+      "method": "GET",
+      "path": "/api/v1/time-entries",
+      "file": "TimeEntryEndpoints.swift"
+    },
+    {
+      "name": "CreateTimeLogEndpoint",
+      "method": "POST",
+      "path": "/api/v1/time-entries/\\(entryPublicId)/logs",
+      "file": "TimeEntryEndpoints.swift"
+    },
+    {
+      "name": "GetTimeLogsEndpoint",
+      "method": "GET",
+      "path": "/api/v1/time-entries/\\(entryPublicId)/logs",
+      "file": "TimeEntryEndpoints.swift"
+    },
+    {
+      "name": "GetTimeEntryStatusesEndpoint",
+      "method": "GET",
+      "path": "/api/v1/time-entries/\\(entryPublicId)/statuses",
+      "file": "TimeEntryEndpoints.swift"
+    },
+    {
+      "name": "DeleteTimeEntryEndpoint",
+      "method": "DELETE",
+      "path": "/api/v1/time-entries/\\(publicId)",
+      "file": "TimeEntryEndpoints.swift"
+    },
+    {
+      "name": "GetTimeEntryEndpoint",
+      "method": "GET",
+      "path": "/api/v1/time-entries/\\(publicId)",
+      "file": "TimeEntryEndpoints.swift"
+    },
+    {
+      "name": "UpdateTimeEntryEndpoint",
+      "method": "PUT",
+      "path": "/api/v1/time-entries/\\(publicId)",
+      "file": "TimeEntryEndpoints.swift"
+    },
+    {
+      "name": "ApproveTimeEntryEndpoint",
+      "method": "POST",
+      "path": "/api/v1/time-entries/\\(publicId)/approve",
+      "file": "TimeEntryEndpoints.swift"
+    },
+    {
+      "name": "RejectTimeEntryEndpoint",
+      "method": "POST",
+      "path": "/api/v1/time-entries/\\(publicId)/reject",
+      "file": "TimeEntryEndpoints.swift"
+    },
+    {
+      "name": "SubmitTimeEntryEndpoint",
+      "method": "POST",
+      "path": "/api/v1/time-entries/\\(publicId)/submit",
+      "file": "TimeEntryEndpoints.swift"
+    },
+    {
+      "name": "DeleteTimeLogEndpoint",
+      "method": "DELETE",
+      "path": "/api/v1/time-logs/\\(publicId)",
+      "file": "TimeEntryEndpoints.swift"
+    },
+    {
+      "name": "UpdateTimeLogEndpoint",
+      "method": "PUT",
+      "path": "/api/v1/time-logs/\\(publicId)",
+      "file": "TimeEntryEndpoints.swift"
+    },
+    {
+      "name": "UpdateBillEndpoint",
+      "method": "PUT",
+      "path": "/api/v1/update/bill/\\(publicId)",
+      "file": "BillEndpoints.swift"
+    },
+    {
+      "name": "UpdateBillLineItemEndpoint",
+      "method": "PUT",
+      "path": "/api/v1/update/bill_line_item/\\(publicId)",
+      "file": "BillLineItemEndpoints.swift"
+    },
+    {
+      "name": "UpdateCompanyEndpoint",
+      "method": "PUT",
+      "path": "/api/v1/update/company/\\(publicId)",
+      "file": "CompanyEndpoints.swift"
+    },
+    {
+      "name": "UpdateContactEndpoint",
+      "method": "PUT",
+      "path": "/api/v1/update/contact/\\(publicId)",
+      "file": "ContactEndpoints.swift"
+    },
+    {
+      "name": "UpdateUserEndpoint",
+      "method": "PUT",
+      "path": "/api/v1/update/user/\\(publicId)",
+      "file": "UserEndpoints.swift"
+    }
+  ],
+  "core_data_entities": [
+    {
+      "name": "CDAttachment",
+      "user_scoped": false
+    },
+    {
+      "name": "CDBill",
+      "user_scoped": true
+    },
+    {
+      "name": "CDBillLineItem",
+      "user_scoped": true
+    },
+    {
+      "name": "CDBillLineItemAttachment",
+      "user_scoped": false
+    },
+    {
+      "name": "CDCompany",
+      "user_scoped": true
+    },
+    {
+      "name": "CDContact",
+      "user_scoped": true
+    },
+    {
+      "name": "CDModule",
+      "user_scoped": true
+    },
+    {
+      "name": "CDProject",
+      "user_scoped": true
+    },
+    {
+      "name": "CDRole",
+      "user_scoped": false
+    },
+    {
+      "name": "CDRoleModule",
+      "user_scoped": false
+    },
+    {
+      "name": "CDTimeEntry",
+      "user_scoped": true
+    },
+    {
+      "name": "CDTimeEntryStatus",
+      "user_scoped": true
+    },
+    {
+      "name": "CDTimeLog",
+      "user_scoped": true
+    },
+    {
+      "name": "CDUser",
+      "user_scoped": false
+    },
+    {
+      "name": "CDUserRole",
+      "user_scoped": true
+    }
+  ],
+  "privacy": {
+    "tracking": false,
+    "collected_data_types": [
+      "Name",
+      "EmailAddress",
+      "PhoneNumber",
+      "PreciseLocation",
+      "OtherUserContent"
+    ],
+    "required_reason_apis": [
+      "UserDefaults",
+      "FileTimestamp",
+      "SystemBootTime",
+      "DiskSpace"
+    ]
+  },
+  "counts": {
+    "features": 13,
+    "services": 19,
+    "endpoints": 55,
+    "core_data_entities": 15,
+    "user_scoped_entities": 10
+  }
+}

@@ -280,6 +280,24 @@ body {
     background: var(--color-sidebar-active);
     font-weight: var(--font-weight-semibold);
   }
+
+  /* Non-primary groups (e.g. admin-only Reference → Docs) below the nav. */
+  .app-sidebar-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    margin-top: var(--space-md);
+  }
+
+  .app-sidebar-section-label {
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-sidebar-text);
+    opacity: 0.6;
+    padding: 0 var(--space-md) var(--space-xs);
+  }
 }
 
 /* Bottom TabBar — floating pill capsule, fixed at viewport bottom.
@@ -298,6 +316,9 @@ body {
   gap: 4px;
   box-shadow: var(--shadow-fab);
   z-index: 100;
+  /* Never exceed the viewport regardless of slot count; scroll if it would. */
+  max-width: calc(100vw - 32px);
+  overflow-x: auto;
 }
 
 @media (min-width: 768px) {
@@ -4241,4 +4262,226 @@ a.scout-record-header-link:hover .scout-record-name {
 .submit-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ==========================================================================
+   Docs surface (/docs) — admin-only internal documentation.
+   Built on the native .ios-page / SectionCard / ListRow primitives; the rules
+   below only cover docs-specific content (badges, chips, endpoint table,
+   markdown prose) that has no shared primitive.
+   ========================================================================== */
+
+/* Padded body for non-ListRow content inside a SectionCard (.section-card has
+   no padding of its own — ListRows supply theirs). */
+.docs-pad {
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.docs-muted {
+  color: var(--color-text-muted);
+}
+.docs-sublabel {
+  font-size: var(--font-size-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-subtle);
+}
+
+/* Freshness badges */
+.docs-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.docs-badge-live {
+  background: var(--color-success-bg);
+  color: var(--color-success-fg);
+}
+.docs-badge-derived,
+.docs-badge-mixed {
+  background: var(--color-info-bg);
+  color: var(--color-info-fg);
+}
+.docs-badge-curated {
+  background: var(--color-warning-bg);
+  color: var(--color-warning-fg);
+}
+
+/* Chips */
+.docs-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+.docs-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-caption);
+  color: var(--color-text);
+}
+.docs-chip-scoped {
+  background: var(--color-success-bg);
+  border-color: transparent;
+  color: var(--color-success-fg);
+}
+
+/* Endpoint table (inside a collapsible <details>) */
+.docs-summary {
+  cursor: pointer;
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-accent);
+}
+.docs-table-wrap {
+  overflow-x: auto;
+  margin-top: var(--space-md);
+}
+.docs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-footnote);
+}
+.docs-table th,
+.docs-table td {
+  text-align: left;
+  padding: var(--space-sm);
+  border-bottom: 0.5px solid var(--color-border);
+  vertical-align: top;
+}
+.docs-table th {
+  font-size: var(--font-size-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-subtle);
+}
+.docs-table code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.docs-method {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+}
+.docs-method-GET {
+  background: var(--color-info-bg);
+  color: var(--color-info-fg);
+}
+.docs-method-POST {
+  background: var(--color-success-bg);
+  color: var(--color-success-fg);
+}
+.docs-method-PUT {
+  background: var(--color-warning-bg);
+  color: var(--color-warning-fg);
+}
+.docs-method-DELETE {
+  background: var(--color-danger-bg);
+  color: var(--color-danger-fg);
+}
+
+/* Badge legend (docs home) */
+.docs-legend {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.docs-legend-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  font-size: var(--font-size-footnote);
+  color: var(--color-text-muted);
+}
+
+/* Curated markdown prose */
+.docs-markdown {
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-relaxed);
+  color: var(--color-text);
+}
+.docs-markdown + .docs-markdown {
+  margin-top: var(--space-lg);
+  padding-top: var(--space-lg);
+  border-top: 0.5px solid var(--color-border);
+}
+.docs-markdown h2 {
+  font-size: var(--font-size-headline);
+  font-weight: var(--font-weight-semibold);
+  margin: var(--space-md) 0 var(--space-sm);
+}
+.docs-markdown h2:first-child {
+  margin-top: 0;
+}
+.docs-markdown h3 {
+  font-size: var(--font-size-callout);
+  font-weight: var(--font-weight-semibold);
+  margin: var(--space-md) 0 var(--space-xs);
+}
+.docs-markdown p {
+  margin: var(--space-sm) 0;
+}
+.docs-markdown ul,
+.docs-markdown ol {
+  margin: var(--space-sm) 0;
+  padding-left: var(--space-xl);
+}
+.docs-markdown li {
+  margin: var(--space-xs) 0;
+}
+.docs-markdown code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: var(--color-surface-2);
+  padding: 1px 4px;
+  border-radius: var(--radius-xs);
+}
+.docs-markdown pre {
+  background: var(--color-surface-2);
+  padding: var(--space-md);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+}
+.docs-markdown pre code {
+  background: none;
+  padding: 0;
+}
+.docs-markdown blockquote {
+  border-left: 3px solid var(--color-border);
+  padding-left: var(--space-md);
+  color: var(--color-text-muted);
+  margin: var(--space-md) 0;
+}
+.docs-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-footnote);
+  margin: var(--space-md) 0;
+}
+.docs-markdown th,
+.docs-markdown td {
+  text-align: left;
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+}
+.docs-markdown a {
+  color: var(--color-accent);
 }

@@ -1,4 +1,4 @@
-import { Briefcase, Clock, HardHat, User } from "lucide-react";
+import { BookOpen, Briefcase, Clock, HardHat, User } from "lucide-react";
 import type { ComponentType } from "react";
 import { Modules, type ModuleName } from "../shared/modules";
 import type { CurrentUser } from "../types/api";
@@ -84,6 +84,16 @@ export const MENU_ENTRIES: MenuEntry[] = [
     section: "account",
     priority: 100,
   },
+  {
+    id: "docs",
+    label: "Docs",
+    icon: BookOpen,
+    route: "/docs",
+    module: null, // no module — gated by requiresAdmin below
+    section: "reference",
+    priority: 200,
+    requiresAdmin: true, // system admins only
+  },
 ];
 
 /** Lookup by id. Cheap because the list is small; rebuild if it grows past ~30. */
@@ -99,8 +109,8 @@ export function findMenuEntry(id: string): MenuEntry | undefined {
  * - otherwise → the user has `permission` (default can_read) on the module
  */
 export function canSeeEntry(entry: MenuEntry, me: CurrentUser | undefined | null): boolean {
+  if (entry.requiresAdmin) return !!me?.is_admin; // admin entries: never on unauth boots
   if (!me) return entry.module === null; // unauth boots only see unconditional entries
-  if (entry.requiresAdmin) return !!me.is_admin;
   if (entry.module === null) return true;
   if (me.is_admin) return true;
   const mod = me.modules?.find((m) => m.name === entry.module);
@@ -134,7 +144,12 @@ const PRIMARY_SLOTS_BY_ROLE: Record<string, string[]> = {
   "Tenant Admin": ["time", "labor", "projects", "profile"],
 };
 
-/** Fallback primary slots for unknown roles + system admins. */
+/**
+ * Fallback primary slots for unknown roles + system admins. Admin tools like
+ * Docs are NOT here — they live in their section (e.g. "reference") and are
+ * rendered by AppSidebar's secondary-section list, keeping the primary pill at
+ * its ergonomic ≤5 cap and off the field-worker bottom tab bar.
+ */
 export const DEFAULT_PRIMARY_SLOTS: string[] = ["time", "labor", "projects", "profile"];
 
 /** Hard cap on bottom-pill slots — keeps the iOS/Android ergonomic contract. */
