@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ChevronRight, Send } from "lucide-react";
+import { AlertTriangle, ChevronRight, Plus, Send, Trash2 } from "lucide-react";
 import { getList, getOne, post, put } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
 import { useToast } from "../../components/Toast";
@@ -9,6 +9,7 @@ import NavHeader from "../../components/ui/NavHeader";
 import SectionCard from "../../components/ui/SectionCard";
 import ListRow from "../../components/ui/ListRow";
 import SubCostCodePickerSheet from "./SubCostCodePickerSheet";
+import ProjectPickerSheet from "../time-entry/ProjectPickerSheet";
 import type {
   ContractLabor,
   ContractLaborLineItem,
@@ -58,6 +59,7 @@ function abbrev(name: string): string {
  */
 interface LineEdit {
   sub_cost_code_id?: number | null;
+  project_id?: number | null;
   is_billable?: boolean;
   is_overhead?: boolean;
   description?: string;
@@ -67,6 +69,26 @@ interface LineEdit {
   rate?: string;
   /** percentage as typed (e.g. "50" for 0.50 fraction); converted on save. */
   markup_pct?: string;
+}
+
+/**
+ * Client-side-only line item the user has added on this screen. Identified
+ * by a synthetic client_id ("new-1", "new-2") that doubles as the key in
+ * the shared `edits` map. On save it ships with id=null so the server-side
+ * line-items diff sees it as an INSERT.
+ */
+interface AddedLine {
+  client_id: string;
+  line_date: string;
+  project_id: number | null;
+  sub_cost_code_id: number | null;
+  description: string;
+  hours: string;
+  rate: string;
+  /** percentage as typed (e.g. "50" for 0.50 fraction); converted on save. */
+  markup_pct: string;
+  is_billable: boolean;
+  is_overhead: boolean;
 }
 
 /** Display formatter — 2-decimal pad for the input boxes. Save path never
@@ -168,43 +190,138 @@ export default function LaborReviewScreen() {
   // edits is intentionally sparse — only fields the user has touched have
   // entries. Initial render and refetches do NOT seed edits, so untouched
   // fields preserve the raw server precision through the save path.
+  // Map is keyed by line.public_id for server lines and by AddedLine.client_id
+  // for newly-added lines (set at create time; never mutated).
   const [edits, setEdits] = useState<Map<string, LineEdit>>(new Map());
+  // Client-only state for additions + deletions. addedLines holds NewLines
+  // the user has tapped + Add for; removedServerLineIds holds public_ids of
+  // server lines they've tapped delete on. On save, server lines minus the
+  // removed set + addedLines are sent through the same diff endpoint.
+  const [addedLines, setAddedLines] = useState<AddedLine[]>([]);
+  const [removedServerLineIds, setRemovedServerLineIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const addedLineCounter = useRef(0);
   const [pickingForLineId, setPickingForLineId] = useState<string | null>(null);
+  const [pickingProjectForLineId, setPickingProjectForLineId] =
+    useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [submittingReview, setSubmittingReview] = useState(false);
 
-  const effectiveLines = useMemo(
-    () =>
-      (linesQuery.data ?? []).map((li) => {
-        const e = edits.get(li.public_id);
-        const hoursStr = e?.hours ?? decimalToDisplayString(li.hours);
-        const rateStr = e?.rate ?? decimalToDisplayString(li.rate);
-        const markupPctStr = e?.markup_pct ?? markupToPctDisplayString(li.markup);
-        const hoursNum = parseOrZero(hoursStr);
-        const rateNum = parseOrZero(rateStr);
-        const markupFraction = parseOrZero(markupPctStr) / 100;
-        const computedAmount = computeAmount(hoursNum, rateNum);
-        const computedPrice = computePrice(hoursNum, rateNum, markupFraction);
-        return {
-          ...li,
-          sub_cost_code_id: e?.sub_cost_code_id !== undefined ? e.sub_cost_code_id : li.sub_cost_code_id,
-          is_billable: e?.is_billable ?? li.is_billable,
-          is_overhead: e?.is_overhead ?? li.is_overhead,
-          description: e?.description ?? li.description ?? "",
-          hours_str: hoursStr,
-          rate_str: rateStr,
-          markup_pct_str: markupPctStr,
-          computed_amount: computedAmount,
-          computed_price: computedPrice,
-          /** Track per-field dirtiness so the save path can preserve raw
-           *  server precision on untouched fields. */
-          dirty_hours: e?.hours !== undefined,
-          dirty_rate: e?.rate !== undefined,
-          dirty_markup: e?.markup_pct !== undefined,
-        };
-      }),
-    [linesQuery.data, edits],
-  );
+  // After a refetch, drop any local state that became inconsistent — added
+  // lines that the server now knows about (id assigned), and removed ids
+  // that no longer exist on the server.
+  useEffect(() => {
+    const serverIds = new Set((linesQuery.data ?? []).map((li) => li.public_id));
+    setRemovedServerLineIds((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (serverIds.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+    // We intentionally don't auto-clear addedLines here — the user's
+    // additions are kept until they either save (server returns the row,
+    // then the next effective render shows it via linesQuery.data and
+    // addedLines is cleared at save success) or explicitly remove.
+  }, [linesQuery.data]);
+
+  const shapeLine = (
+    base: {
+      public_id: string;
+      id: number | null;
+      row_version: string | null;
+      line_date: string | null;
+      project_id: number | null;
+      sub_cost_code_id: number | null;
+      description: string | null;
+      hours: string | null;
+      rate: string | null;
+      markup: string | null;
+      is_billable: boolean;
+      is_overhead: boolean;
+      _line_kind: "server" | "new";
+      _client_id?: string;
+    },
+    e: LineEdit | undefined,
+  ) => {
+    const hoursStr = e?.hours ?? decimalToDisplayString(base.hours);
+    const rateStr = e?.rate ?? decimalToDisplayString(base.rate);
+    const markupPctStr = e?.markup_pct ?? markupToPctDisplayString(base.markup);
+    const hoursNum = parseOrZero(hoursStr);
+    const rateNum = parseOrZero(rateStr);
+    const markupFraction = parseOrZero(markupPctStr) / 100;
+    const computedAmount = computeAmount(hoursNum, rateNum);
+    const computedPrice = computePrice(hoursNum, rateNum, markupFraction);
+    return {
+      ...base,
+      sub_cost_code_id:
+        e?.sub_cost_code_id !== undefined ? e.sub_cost_code_id : base.sub_cost_code_id,
+      project_id:
+        e?.project_id !== undefined ? e.project_id : base.project_id,
+      is_billable: e?.is_billable ?? base.is_billable,
+      is_overhead: e?.is_overhead ?? base.is_overhead,
+      description: e?.description ?? base.description ?? "",
+      hours_str: hoursStr,
+      rate_str: rateStr,
+      markup_pct_str: markupPctStr,
+      computed_amount: computedAmount,
+      computed_price: computedPrice,
+      dirty_hours: e?.hours !== undefined,
+      dirty_rate: e?.rate !== undefined,
+      dirty_markup: e?.markup_pct !== undefined,
+    };
+  };
+
+  const effectiveLines = useMemo(() => {
+    const serverShaped = (linesQuery.data ?? [])
+      .filter((li) => !removedServerLineIds.has(li.public_id))
+      .map((li) =>
+        shapeLine(
+          {
+            public_id: li.public_id,
+            id: li.id,
+            row_version: li.row_version,
+            line_date: li.line_date,
+            project_id: li.project_id,
+            sub_cost_code_id: li.sub_cost_code_id,
+            description: li.description,
+            hours: li.hours,
+            rate: li.rate,
+            markup: li.markup,
+            is_billable: li.is_billable,
+            is_overhead: li.is_overhead,
+            _line_kind: "server",
+          },
+          edits.get(li.public_id),
+        ),
+      );
+    const addedShaped = addedLines.map((al) =>
+      shapeLine(
+        {
+          public_id: al.client_id,
+          id: null,
+          row_version: null,
+          line_date: al.line_date,
+          project_id: al.project_id,
+          sub_cost_code_id: al.sub_cost_code_id,
+          description: al.description,
+          hours: al.hours,
+          rate: al.rate,
+          markup: al.markup_pct === "" ? null : String(Number(al.markup_pct) / 100),
+          is_billable: al.is_billable,
+          is_overhead: al.is_overhead,
+          _line_kind: "new",
+          _client_id: al.client_id,
+        },
+        edits.get(al.client_id),
+      ),
+    );
+    return [...serverShaped, ...addedShaped];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linesQuery.data, edits, addedLines, removedServerLineIds]);
 
   const missingSCC = effectiveLines.some((li) => li.is_billable && li.sub_cost_code_id === null);
   // Block both empty AND zero values — a billable line with hours="0" or
@@ -214,7 +331,16 @@ export default function LaborReviewScreen() {
       li.is_billable &&
       (parseOrZero(li.hours_str) <= 0 || parseOrZero(li.rate_str) <= 0),
   );
-  const isReady = !missingSCC && !missingHoursOrRate && effectiveLines.length > 0;
+  // Billable, non-overhead lines need a project bound — added lines start
+  // null; server lines should always have one but a user could clear it.
+  const missingProject = effectiveLines.some(
+    (li) => li.is_billable && !li.is_overhead && li.project_id === null,
+  );
+  const isReady =
+    !missingSCC &&
+    !missingHoursOrRate &&
+    !missingProject &&
+    effectiveLines.length > 0;
 
   // Header totals are scoped to BILLABLE lines so the "X hours · $Y" pair
   // reconciles for the reviewer. Non-billable line hours are still shown
@@ -245,6 +371,61 @@ export default function LaborReviewScreen() {
       next.set(lineId, { ...current, ...patch });
       return next;
     });
+  };
+
+  /** Add a blank client-only line item. Defaults line_date to the CL's
+   *  work_date; rest is empty so the user fills it explicitly. The new
+   *  line participates in the same edit pipeline (via its client_id) and
+   *  ships to the server with id=null on save. */
+  const handleAddLine = () => {
+    if (!clQuery.data) return;
+    addedLineCounter.current += 1;
+    const clientId = `new-${Date.now()}-${addedLineCounter.current}`;
+    setAddedLines((prev) => [
+      ...prev,
+      {
+        client_id: clientId,
+        line_date: clQuery.data?.work_date ?? "",
+        project_id: null,
+        sub_cost_code_id: null,
+        description: "",
+        hours: "",
+        rate: "",
+        markup_pct: "",
+        is_billable: true,
+        is_overhead: false,
+      },
+    ]);
+  };
+
+  /** Remove a line. For server lines we mark the public_id removed (the
+   *  next save sees a missing id and the server's diff DELETEs it). For
+   *  added lines we just drop them from local state — they were never
+   *  persisted. Edits map entries for the removed line are cleared so
+   *  they don't survive into the next save payload. */
+  const handleRemoveLine = (li: typeof effectiveLines[number]) => {
+    const label =
+      li._line_kind === "new"
+        ? "this new line"
+        : `Line ${
+            effectiveLines.findIndex((x) => x.public_id === li.public_id) + 1
+          }`;
+    if (!confirm(`Remove ${label}? This cannot be undone after save.`)) return;
+    setEdits((prev) => {
+      if (!prev.has(li.public_id)) return prev;
+      const next = new Map(prev);
+      next.delete(li.public_id);
+      return next;
+    });
+    if (li._line_kind === "new") {
+      setAddedLines((prev) => prev.filter((al) => al.client_id !== li.public_id));
+    } else {
+      setRemovedServerLineIds((prev) => {
+        const next = new Set(prev);
+        next.add(li.public_id);
+        return next;
+      });
+    }
   };
 
   /** Build the line-items payload. For decimal fields (hours/rate/markup),
@@ -286,10 +467,14 @@ export default function LaborReviewScreen() {
       const r = rateForSave ?? 0;
       const mf = markupForSave ?? 0;
       const priceForSave = Math.max(0, h * r * (1 + mf));
+      // Server-line: keep its id + public_id + row_version. Added line:
+      // ship id=null so the diff-based PUT inserts it; public_id and
+      // row_version are dropped (they're client-only sentinels).
+      const isNew = li._line_kind === "new";
       return {
-        id: li.id,
-        public_id: li.public_id,
-        row_version: li.row_version,
+        id: isNew ? null : li.id,
+        public_id: isNew ? null : li.public_id,
+        row_version: isNew ? null : li.row_version,
         line_date: li.line_date,
         project_id: li.is_overhead ? null : li.project_id,
         sub_cost_code_id: li.sub_cost_code_id,
@@ -346,6 +531,12 @@ export default function LaborReviewScreen() {
       await post(`/api/v1/submit/review/contract-labor/${public_id}`, {
         comments: null,
       });
+      // PUT diff persisted: server now has our additions (with real ids)
+      // and removals are gone. Local sentinels can be dropped — the next
+      // mount won't see them, and we're navigating away here anyway.
+      setAddedLines([]);
+      setRemovedServerLineIds(new Set());
+      setEdits(new Map());
       toast("Submitted for review", "success");
       queryClient.invalidateQueries({ queryKey: ["contract-labor"] });
       navigate(-1);
@@ -392,6 +583,10 @@ export default function LaborReviewScreen() {
         status: "ready",
         line_items: buildLineItemsPayload(),
       });
+      // Same reasoning as the submit-for-review success path.
+      setAddedLines([]);
+      setRemovedServerLineIds(new Set());
+      setEdits(new Map());
       toast("Marked ready for billing", "success");
       queryClient.invalidateQueries({ queryKey: ["contract-labor"] });
       navigate(-1);
@@ -473,7 +668,7 @@ export default function LaborReviewScreen() {
             ? "Overhead"
             : li.project_id
             ? projectMap.get(li.project_id) ?? "Unknown project"
-            : "No project";
+            : "Pick project";
           const sccLabel =
             li.sub_cost_code_id !== null
               ? (() => {
@@ -484,8 +679,45 @@ export default function LaborReviewScreen() {
           return (
             <SectionCard
               key={li.public_id}
-              header={`Line ${idx + 1} · ${projectName}`}
+              header={
+                <span className="line-card-header">
+                  <span>
+                    Line {idx + 1} · {projectName}
+                    {li._line_kind === "new" && (
+                      <span className="line-card-new-badge">NEW</span>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    className="line-card-delete"
+                    onClick={() => handleRemoveLine(li)}
+                    aria-label={`Remove line ${idx + 1}`}
+                  >
+                    <Trash2 size={16} strokeWidth={2} />
+                  </button>
+                </span>
+              }
             >
+              <button
+                type="button"
+                className="list-row list-row-link"
+                onClick={() => setPickingProjectForLineId(li.public_id)}
+                disabled={li.is_overhead}
+              >
+                <div className="list-row-content">
+                  <div className="list-row-title">Project</div>
+                </div>
+                <div className="list-row-trailing">
+                  <span className="list-row-value">
+                    {li.is_overhead
+                      ? "Overhead (no project)"
+                      : li.project_id
+                      ? projectMap.get(li.project_id) ?? `#${li.project_id}`
+                      : "Pick project"}
+                  </span>
+                  <ChevronRight size={18} strokeWidth={2} className="list-row-chevron" />
+                </div>
+              </button>
               <div className="time-row">
                 <label className="time-row-label" htmlFor={`hours-${li.public_id}`}>Hours</label>
                 <input
@@ -587,15 +819,27 @@ export default function LaborReviewScreen() {
           );
         })}
 
-        {(missingSCC || missingHoursOrRate) && (
+        <button
+          type="button"
+          className="add-line-button"
+          onClick={handleAddLine}
+          disabled={cl.status !== "pending_review"}
+        >
+          <Plus size={16} strokeWidth={2} />
+          <span>Add line item</span>
+        </button>
+
+        {(missingSCC || missingHoursOrRate || missingProject) && (
           <div className="validation-banner">
             <AlertTriangle size={16} strokeWidth={2} />
             <span>
-              {missingSCC && missingHoursOrRate
-                ? "Every billable line item needs Hours, Rate (both > 0), and a sub cost code before this can be marked ready."
-                : missingHoursOrRate
-                ? "Every billable line item needs Hours and Rate greater than zero before this can be marked ready."
-                : "Every billable line item needs a sub cost code before this can be marked ready."}
+              {(() => {
+                const needs: string[] = [];
+                if (missingProject) needs.push("a project (or Overhead)");
+                if (missingHoursOrRate) needs.push("Hours and Rate > 0");
+                if (missingSCC) needs.push("a sub cost code");
+                return `Every billable line item needs ${needs.join(", ")} before this can be marked ready.`;
+              })()}
             </span>
           </div>
         )}
@@ -632,6 +876,17 @@ export default function LaborReviewScreen() {
             updateLine(pickingForLineId, { sub_cost_code_id: scc.id });
           }
           setPickingForLineId(null);
+        }}
+      />
+
+      <ProjectPickerSheet
+        open={pickingProjectForLineId !== null}
+        onDismiss={() => setPickingProjectForLineId(null)}
+        onSelect={(p) => {
+          if (pickingProjectForLineId) {
+            updateLine(pickingProjectForLineId, { project_id: p.id });
+          }
+          setPickingProjectForLineId(null);
         }}
       />
     </>

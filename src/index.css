@@ -3922,6 +3922,77 @@ a.scout-record-header-link:hover .scout-record-name {
   font-size: var(--font-size-caption);
 }
 
+/* Labor review — per-line card header with trailing delete icon */
+.line-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: var(--space-sm);
+}
+
+.line-card-new-badge {
+  display: inline-block;
+  margin-left: var(--space-sm);
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--color-primary);
+  background: var(--color-surface-tint);
+  border-radius: var(--radius-pill);
+  vertical-align: middle;
+}
+
+.line-card-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.line-card-delete:hover {
+  background: var(--color-surface-tint);
+  color: var(--color-danger, #dc2626);
+}
+
+/* Labor review — "Add line item" button */
+.add-line-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: calc(100% - var(--space-md) * 2);
+  margin: var(--space-sm) var(--space-md) 0;
+  padding: 12px var(--space-md);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-body);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.add-line-button:hover:not(:disabled) {
+  background: var(--color-surface-tint);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.add-line-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* Validation / helper text under sheet inputs */
 .sheet-hint {
   padding: var(--space-md) var(--space-lg);

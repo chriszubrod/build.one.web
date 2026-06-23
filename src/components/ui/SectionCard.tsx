@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 
 interface SectionCardProps {
-  header?: string;
+  /** Header content. `string` is rendered as plain text; ReactNode allows
+   *  custom inline elements (e.g. a trailing icon button). */
+  header?: ReactNode;
   footer?: ReactNode;
   children: ReactNode;
 }
