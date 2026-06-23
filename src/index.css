@@ -3824,12 +3824,42 @@ a.scout-record-header-link:hover .scout-record-name {
   padding: 0 var(--space-sm) var(--space-sm);
 }
 
-/* Labor list — name filter input */
-.labor-name-filter {
+/* Labor list — multi-field filter bar (name + date range + clear).
+   Stacks on phones, lays out as a row on tablet / desktop. */
+.labor-filter-bar {
   padding: var(--space-sm) var(--space-sm) 0;
 }
 
-.labor-name-filter-input {
+.labor-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  align-items: flex-end;
+}
+
+.labor-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.labor-filter-field-grow {
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+
+.labor-filter-label {
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding-left: var(--space-sm);
+}
+
+.labor-filter-input {
   width: 100%;
   padding: 10px var(--space-md);
   border: 1px solid var(--color-border);
@@ -3842,14 +3872,54 @@ a.scout-record-header-link:hover .scout-record-name {
   appearance: none;
 }
 
-.labor-name-filter-input:focus {
+.labor-filter-input:focus {
   outline: none;
   border-color: var(--color-primary);
   box-shadow: 0 0 0 2px var(--color-focus-ring);
 }
 
-.labor-name-filter-input::placeholder {
+.labor-filter-input::placeholder {
   color: var(--color-text-muted);
+}
+
+.labor-filter-input[type="date"] {
+  min-width: 150px;
+}
+
+.labor-filter-clear {
+  height: 40px;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-footnote);
+  font-weight: 500;
+  cursor: pointer;
+  align-self: flex-end;
+  flex: 0 0 auto;
+}
+
+.labor-filter-clear:hover:not(:disabled) {
+  background: var(--color-surface-tint);
+}
+
+.labor-filter-clear:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.labor-list-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-sm);
+}
+
+.labor-list-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
 }
 
 /* Validation / helper text under sheet inputs */

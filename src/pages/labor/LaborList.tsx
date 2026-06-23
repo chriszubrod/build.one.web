@@ -54,10 +54,14 @@ const EMPTY_COPY: Record<LaborStatus, string> = {
   billed: "Nothing billed yet.",
 };
 
+const NO_MATCH_COPY = "No matching entries.";
+
 export default function LaborList() {
   const navigate = useNavigate();
   const [status, setStatus] = useState<LaborStatus>("pending_review");
   const [nameFilter, setNameFilter] = useState<string>("");
+  const [fromDate, setFromDate] = useState<string>("");
+  const [toDate, setToDate] = useState<string>("");
 
   const laborQuery = useQuery<ContractLabor[]>({
     queryKey: ["contract-labor", "by-status", status],
@@ -65,22 +69,43 @@ export default function LaborList() {
       (await getList<ContractLabor>(`/api/v1/contract-labor/by-status/${status}`)).data,
   });
 
+  const hasActiveFilters =
+    nameFilter.trim() !== "" || fromDate !== "" || toDate !== "";
+
   const sorted = useMemo<ContractLabor[]>(() => {
     const needle = nameFilter.trim().toLowerCase();
     const rows = (laborQuery.data ?? []).slice();
-    const filtered = needle
-      ? rows.filter((r) => (r.employee_name ?? "").toLowerCase().includes(needle))
-      : rows;
+    // Date-range filter on work_date (YYYY-MM-DD lexicographic compare works
+    // because the format sorts naturally). Both bounds are inclusive; either
+    // can be empty (means "no lower / upper bound").
+    const filtered = rows.filter((r) => {
+      const wd = (r.work_date ?? "").slice(0, 10);
+      if (fromDate && (!wd || wd < fromDate)) return false;
+      if (toDate && (!wd || wd > toDate)) return false;
+      if (needle && !(r.employee_name ?? "").toLowerCase().includes(needle))
+        return false;
+      return true;
+    });
     return filtered.sort((a, b) => {
       const ad = a.work_date ?? "";
       const bd = b.work_date ?? "";
       if (ad !== bd) return bd.localeCompare(ad);
       return (a.employee_name ?? "").localeCompare(b.employee_name ?? "");
     });
-  }, [laborQuery.data, nameFilter]);
+  }, [laborQuery.data, nameFilter, fromDate, toDate]);
+
+  function clearFilters() {
+    setNameFilter("");
+    setFromDate("");
+    setToDate("");
+  }
+
+  const totalRows = laborQuery.data?.length ?? 0;
+  const showingRows = sorted.length;
+  const showCountChip = hasActiveFilters && totalRows > 0;
 
   return (
-    <div className="ios-page">
+    <div className="ios-page labor-list-page">
       <NavHeader title="Labor review" />
 
       <SegmentedControl<LaborStatus>
@@ -89,19 +114,60 @@ export default function LaborList() {
         onChange={setStatus}
       />
 
-      <div className="labor-name-filter">
-        <input
-          type="search"
-          className="labor-name-filter-input"
-          placeholder="Filter by name…"
-          value={nameFilter}
-          onChange={(e) => setNameFilter(e.target.value)}
-          autoComplete="off"
-          aria-label="Filter labor entries by worker name"
-        />
+      <div className="labor-filter-bar">
+        <div className="labor-filter-row">
+          <label className="labor-filter-field labor-filter-field-grow">
+            <span className="labor-filter-label">Name</span>
+            <input
+              type="search"
+              className="labor-filter-input"
+              placeholder="Filter by name…"
+              value={nameFilter}
+              onChange={(e) => setNameFilter(e.target.value)}
+              autoComplete="off"
+              aria-label="Filter labor entries by worker name"
+            />
+          </label>
+          <label className="labor-filter-field">
+            <span className="labor-filter-label">From</span>
+            <input
+              type="date"
+              className="labor-filter-input"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              aria-label="Work date from"
+            />
+          </label>
+          <label className="labor-filter-field">
+            <span className="labor-filter-label">To</span>
+            <input
+              type="date"
+              className="labor-filter-input"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              aria-label="Work date to"
+            />
+          </label>
+          <button
+            type="button"
+            className="labor-filter-clear"
+            onClick={clearFilters}
+            disabled={!hasActiveFilters}
+            aria-label="Clear all filters"
+          >
+            Clear
+          </button>
+        </div>
       </div>
 
-      <div className="section-label-prose">{SECTION_LABEL[status]}</div>
+      <div className="section-label-prose labor-list-meta">
+        <span>{SECTION_LABEL[status]}</span>
+        {showCountChip && (
+          <span className="labor-list-count">
+            {showingRows} of {totalRows}
+          </span>
+        )}
+      </div>
 
       {laborQuery.isLoading && (
         <div className="page-loading" style={{ padding: "var(--space-xl) 0" }}>
@@ -111,7 +177,7 @@ export default function LaborList() {
 
       {!laborQuery.isLoading && sorted.length === 0 && (
         <div className="page-loading" style={{ padding: "var(--space-xl) 0" }}>
-          {EMPTY_COPY[status]}
+          {hasActiveFilters && totalRows > 0 ? NO_MATCH_COPY : EMPTY_COPY[status]}
         </div>
       )}
 
