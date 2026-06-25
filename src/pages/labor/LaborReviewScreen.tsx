@@ -373,10 +373,40 @@ export default function LaborReviewScreen() {
     });
   };
 
+  /** Default Rate + Markup for a new line.
+   *
+   *  Source priority:
+   *    1. Parent CL.hourly_rate / .markup — set by the aggregator from
+   *       ReadEffectiveRateForVendorProject when the CL is single-project.
+   *    2. Fallback: scan existing line items for the first non-null rate.
+   *       Same-vendor day usually means same per-line rate, so picking the
+   *       first one is a reasonable default for multi-project CLs where
+   *       the parent's rate is NULL.
+   *    3. Empty (user fills in manually).
+   */
+  const defaultRateForNewLine = useMemo(() => {
+    const fromParent = clQuery.data?.hourly_rate;
+    if (fromParent && fromParent !== "") return decimalToDisplayString(fromParent);
+    for (const li of linesQuery.data ?? []) {
+      if (li.rate && li.rate !== "") return decimalToDisplayString(li.rate);
+    }
+    return "";
+  }, [clQuery.data?.hourly_rate, linesQuery.data]);
+
+  const defaultMarkupPctForNewLine = useMemo(() => {
+    const fromParent = clQuery.data?.markup;
+    if (fromParent && fromParent !== "") return markupToPctDisplayString(fromParent);
+    for (const li of linesQuery.data ?? []) {
+      if (li.markup && li.markup !== "") return markupToPctDisplayString(li.markup);
+    }
+    return "";
+  }, [clQuery.data?.markup, linesQuery.data]);
+
   /** Add a blank client-only line item. Defaults line_date to the CL's
-   *  work_date; rest is empty so the user fills it explicitly. The new
-   *  line participates in the same edit pipeline (via its client_id) and
-   *  ships to the server with id=null on save. */
+   *  work_date and Rate / Markup from defaultRateForNewLine /
+   *  defaultMarkupPctForNewLine (vendor defaults via the parent CL). The
+   *  new line participates in the same edit pipeline (via its client_id)
+   *  and ships to the server with id=null on save. */
   const handleAddLine = () => {
     if (!clQuery.data) return;
     addedLineCounter.current += 1;
@@ -390,8 +420,8 @@ export default function LaborReviewScreen() {
         sub_cost_code_id: null,
         description: "",
         hours: "",
-        rate: "",
-        markup_pct: "",
+        rate: defaultRateForNewLine,
+        markup_pct: defaultMarkupPctForNewLine,
         is_billable: true,
         is_overhead: false,
       },
@@ -561,6 +591,44 @@ export default function LaborReviewScreen() {
       }
     } finally {
       setSubmittingReview(false);
+    }
+  };
+
+  const hasUnsavedChanges =
+    edits.size > 0 || addedLines.length > 0 || removedServerLineIds.size > 0;
+
+  /** Persist current edits WITHOUT changing status or triggering review.
+   *  Use this when the CL is in `ready` (past review) but the user still
+   *  needs to tweak line items, or when the user wants a checkpoint
+   *  before walking away from a `pending_review` CL. The PUT does the
+   *  same line-items diff (insert / update / delete) as the other save
+   *  paths; status is left unchanged (undefined on the wire). */
+  const handleSaveChanges = async () => {
+    if (!clQuery.data || saving || submittingReview) return;
+    if (!hasUnsavedChanges) return;
+    setSaving(true);
+    try {
+      await put(`/api/v1/contract-labor/${public_id}/bill`, {
+        row_version: clQuery.data.row_version,
+        bill_vendor_id: null,
+        bill_date: null,
+        due_date: null,
+        bill_number: null,
+        status: undefined,
+        line_items: buildLineItemsPayload(),
+      });
+      setAddedLines([]);
+      setRemovedServerLineIds(new Set());
+      setEdits(new Map());
+      await refreshFromServer();
+      toast("Saved", "success");
+      queryClient.invalidateQueries({ queryKey: ["contract-labor"] });
+    } catch (err) {
+      console.error("Save failed", err);
+      await refreshFromServer().catch(() => undefined);
+      toast(err instanceof Error ? err.message : "Save failed", "error");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -784,7 +852,6 @@ export default function LaborReviewScreen() {
                 type="button"
                 className="list-row list-row-link"
                 onClick={() => setPickingForLineId(li.public_id)}
-                disabled={!li.is_billable}
               >
                 <div className="list-row-content">
                   <div className="list-row-title">Sub cost code</div>
@@ -823,7 +890,7 @@ export default function LaborReviewScreen() {
           type="button"
           className="add-line-button"
           onClick={handleAddLine}
-          disabled={cl.status !== "pending_review"}
+          disabled={cl.status === "billed"}
         >
           <Plus size={16} strokeWidth={2} />
           <span>Add line item</span>
@@ -844,6 +911,21 @@ export default function LaborReviewScreen() {
           </div>
         )}
 
+        {/* Save changes — visible for any non-billed CL whenever there are
+            unsaved edits. Submit / Mark Ready still gate on
+            status === 'pending_review' because those transition workflows
+            don't apply once review has resolved. */}
+        {cl.status !== "billed" && (
+          <button
+            type="button"
+            className="submit-button"
+            onClick={handleSaveChanges}
+            disabled={!hasUnsavedChanges || saving || submittingReview}
+          >
+            <Send size={16} strokeWidth={2} />
+            <span>{saving ? "Saving…" : "Save changes"}</span>
+          </button>
+        )}
         {cl.status === "pending_review" && (
           <>
             <button
