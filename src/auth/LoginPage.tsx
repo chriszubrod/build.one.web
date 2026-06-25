@@ -1,11 +1,12 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import { ApiError } from "../api/client";
+import { safeRedirect } from "./safeRedirect";
 
 export default function LoginPage() {
   const { login } = useAuth();
-  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -17,8 +18,13 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      await login(username, password);
-      navigate("/");
+      // Validate the redirect param at the boundary — never trust the URL.
+      // `safeRedirect` returns either a same-origin pathname (always
+      // starting with `/`) or `/` as a safe fallback. Passing the
+      // unvalidated value to login() would let an attacker hijack the
+      // post-login navigation via a crafted `?redirect=` link.
+      const redirectTo = safeRedirect(searchParams.get("redirect"));
+      await login(username, password, redirectTo);
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.detail);

@@ -8,7 +8,13 @@ import type { AuthResponse } from "../types/api";
 interface AuthState {
   isAuthenticated: boolean;
   username: string | null;
-  login: (username: string, password: string) => Promise<void>;
+  /**
+   * Sign in and hard-reload to `redirectTo` (default `/`). Callers MUST
+   * pre-validate `redirectTo` via `safeRedirect()` — this function does
+   * not re-validate. A bare relative path is required; passing an
+   * absolute URL would let the browser navigate cross-origin.
+   */
+  login: (username: string, password: string, redirectTo?: string) => Promise<void>;
   signup: (
     username: string,
     password: string,
@@ -37,7 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isAuthenticated = !!localStorage.getItem("access_token");
 
-  const login = useCallback(async (user: string, password: string) => {
+  const login = useCallback(async (user: string, password: string, redirectTo: string = "/") => {
     // Clear any prior user's persisted cache BEFORE writing the new token,
     // so the next-boot persister key resolution doesn't briefly see the
     // outgoing identity. (Belt-and-suspenders alongside the boot-time
@@ -59,7 +65,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // user's public_id. Without this, queries persist under the boot's
     // "guest" key and any subsequent login-as-other on the same tab
     // would reuse that key.
-    window.location.href = "/";
+    //
+    // `redirectTo` MUST be a same-origin path validated by `safeRedirect()`
+    // upstream. Setting `window.location.href` to an absolute URL would
+    // navigate cross-origin — the whole point of safeRedirect is to ensure
+    // that can't happen.
+    window.location.href = redirectTo;
   }, [queryClient]);
 
   const signup = useCallback(
