@@ -53,8 +53,8 @@ function makeLineItemCols(
 }
 
 export default function BillView() {
-  const { id } = useParams<{ id: string }>();
-  const { item, loading, error } = useEntityItem<Bill>(`/api/v1/get/bill/${id}`);
+  const { publicId } = useParams<{ publicId: string }>();
+  const { item, loading, error } = useEntityItem<Bill>(`/api/v1/get/bill/${publicId}`);
   const vendorMap = useIdNameMap<Vendor>("/api/v1/get/vendors", (v) => v.name);
   const sccMap = useIdNameMap<SubCostCode>("/api/v1/get/sub-cost-codes", (s) => s.number ? `${s.number} — ${s.name}` : s.name);
   const projectMap = useIdNameMap<Project>("/api/v1/get/projects", (p) => p.name);
@@ -96,7 +96,7 @@ export default function BillView() {
   return (
     <DetailView
       title={`Bill ${item.bill_number}`}
-      editPath={`/bill/${id}/edit`}
+      editPath={`/bill/${publicId}/edit`}
       breadcrumbs={entityCrumbs("Bills", "/bill/list", item.bill_number)}
       fields={[
         { label: "Bill Number", value: item.bill_number },
@@ -116,7 +116,7 @@ export default function BillView() {
         },
       ]}
     >
-      {id && <ReviewTimeline parentType="bill" parentPublicId={id} readOnly />}
+      {publicId && <ReviewTimeline parentType="bill" parentPublicId={publicId} readOnly />}
       <LineItemTable columns={makeLineItemCols(sccMap, projectMap)} items={lineItems} />
       {attachmentPublicId && (
         <div className="pdf-viewer">

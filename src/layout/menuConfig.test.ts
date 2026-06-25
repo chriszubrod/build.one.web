@@ -228,10 +228,11 @@ describe("entriesInSection", () => {
     expect(primary).toEqual(["time", "labor"]); // priorities 10, 20
   });
 
-  it("Returns Projects under financials (Phase 1A entry)", () => {
+  it("Returns Projects and Bills under financials (Phase 1A + Bills entry)", () => {
     const me = makeUser({ is_admin: true });
     expect(entriesInSection("financials", me).map((e) => e.id)).toEqual([
       "projects",
+      "bills",
     ]);
   });
 

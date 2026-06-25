@@ -1,4 +1,4 @@
-import { BookOpen, Briefcase, Clock, HardHat, User } from "lucide-react";
+import { BookOpen, Briefcase, Clock, FileText, HardHat, User } from "lucide-react";
 import type { ComponentType } from "react";
 import { Modules, type ModuleName } from "../shared/modules";
 import type { CurrentUser } from "../types/api";
@@ -74,6 +74,16 @@ export const MENU_ENTRIES: MenuEntry[] = [
     permission: "can_read",
     section: "financials",
     priority: 30,
+  },
+  {
+    id: "bills",
+    label: "Bills",
+    icon: FileText,
+    route: "/bill/list",
+    module: Modules.BILLS,
+    permission: "can_read",
+    section: "financials",
+    priority: 40,
   },
   {
     id: "profile",

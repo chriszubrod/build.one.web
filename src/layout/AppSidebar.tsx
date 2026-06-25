@@ -18,6 +18,7 @@ import {
  * BottomTabBar fills the phone column below.
  */
 const SECONDARY_SECTIONS: { section: NavSection; label: string }[] = [
+  { section: "financials", label: "Financials" },
   { section: "reference", label: "Reference" },
   { section: "admin", label: "Admin" },
 ];

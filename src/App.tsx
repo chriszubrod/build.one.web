@@ -41,6 +41,13 @@ import BudgetCreate from "./pages/budgets/BudgetCreate";
 import BudgetView from "./pages/budgets/BudgetView";
 import BudgetEdit from "./pages/budgets/BudgetEdit";
 
+// Bill surface — desktop AP-completion workflow, same chrome shape as Budgets.
+import BillLayout from "./layout/BillLayout";
+import BillList from "./pages/bills/BillList";
+import BillCreate from "./pages/bills/BillCreate";
+import BillView from "./pages/bills/BillView";
+import BillEdit from "./pages/bills/BillEdit";
+
 // Parked for v0.1.0 — Option B trim (excluded via tsconfig.app.json,
 // not bundled by Vite since unreachable from this route tree). Restore
 // pages by re-adding their imports + routes here when ready.
@@ -122,6 +129,15 @@ export default function App() {
                 <Route path="/budget/:publicId" element={<BudgetView />} />
                 <Route path="/budget/:publicId/edit" element={<BudgetEdit />} />
                 <Route path="/budget/*" element={<Navigate to="/budget/list" replace />} />
+              </Route>
+
+              {/* Bill surface — desktop AP completion workflow. Same shape as Budget. */}
+              <Route element={<BillLayout />}>
+                <Route path="/bill/list" element={<BillList />} />
+                <Route path="/bill/create" element={<BillCreate />} />
+                <Route path="/bill/:publicId" element={<BillView />} />
+                <Route path="/bill/:publicId/edit" element={<BillEdit />} />
+                <Route path="/bill/*" element={<Navigate to="/bill/list" replace />} />
               </Route>
             </Route>
           </Routes>

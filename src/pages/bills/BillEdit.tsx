@@ -57,9 +57,9 @@ function newLineItem(): LineItemRow {
 }
 
 export default function BillEdit() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
-  const { item, loading, error } = useEntityItem<Bill>(`/api/v1/get/bill/${id}`);
+  const { item, loading, error } = useEntityItem<Bill>(`/api/v1/get/bill/${publicId}`);
   const { data: lookups } = useLookups("vendors,payment_terms,sub_cost_codes,projects");
   const { items: fullVendors } = useEntityList<FullVendor>("/api/v1/get/vendors");
   const { items: fullPaymentTerms } = useEntityList<{ id: number; public_id: string }>("/api/v1/get/payment-terms");
@@ -153,7 +153,7 @@ export default function BillEdit() {
     try {
       // Save header — total_amount computed from line items
       const computedTotal = lineItems.reduce((sum, li) => sum + (li.amount !== "" ? Number(li.amount) : 0), 0);
-      const updated = await put<Bill>(`/api/v1/update/bill/${id}`, {
+      const updated = await put<Bill>(`/api/v1/update/bill/${publicId}`, {
         row_version: latestForm.row_version,
         vendor_public_id: latestForm.vendor_public_id || undefined,
         payment_term_public_id: latestForm.payment_term_public_id || undefined,
@@ -177,7 +177,7 @@ export default function BillEdit() {
       const savedItems: LineItemRow[] = [];
       for (const li of lineItems) {
         const body = {
-          bill_public_id: id!,
+          bill_public_id: publicId!,
           sub_cost_code_id: li.sub_cost_code_id !== "" ? Number(li.sub_cost_code_id) : null,
           project_public_id: li.project_public_id || null,
           description: li.description || null,
@@ -214,7 +214,7 @@ export default function BillEdit() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (await saveAll()) {
-      navigate(`/bill/${id}`);
+      navigate(`/bill/${publicId}`);
     }
   };
 
@@ -224,7 +224,7 @@ export default function BillEdit() {
     setCompleting(true);
     setSaveError("");
     try {
-      await post(`/api/v1/complete/bill/${id}`, {});
+      await post(`/api/v1/complete/bill/${publicId}`, {});
       navigate("/bill/list");
     } catch (err: any) {
       setSaveError(err.message);
@@ -238,7 +238,7 @@ export default function BillEdit() {
       <form className="form-card" onSubmit={handleSubmit}>
         {saveError && <div className="form-error">{saveError}</div>}
 
-        {id && <ReviewTimeline parentType="bill" parentPublicId={id} />}
+        {publicId && <ReviewTimeline parentType="bill" parentPublicId={publicId} />}
 
         <div className="form-header-grid">
           <FormField label="Bill Number" name="bill_number" value={form.bill_number} onChange={onChange} required />
@@ -371,7 +371,7 @@ export default function BillEdit() {
               if (!confirm("Delete this bill? This cannot be undone.")) return;
               setDeleting(true);
               try {
-                await deleteEntity(`/api/v1/delete/bill/${id}`);
+                await deleteEntity(`/api/v1/delete/bill/${publicId}`);
                 toast("Bill deleted.");
                 navigate("/bill/list");
               } catch (err: any) {
@@ -383,7 +383,7 @@ export default function BillEdit() {
             {deleting ? "Deleting..." : "Delete"}
           </button>
           <div className="page-header-spacer" />
-          <button type="button" className="btn btn-secondary" onClick={() => navigate(`/bill/${id}`)}>Cancel</button>
+          <button type="button" className="btn btn-secondary" onClick={() => navigate(`/bill/${publicId}`)}>Cancel</button>
           <button type="submit" className="btn btn-primary" disabled={saving || completing || deleting}>
             {saving ? "Saving..." : "Save"}
           </button>
