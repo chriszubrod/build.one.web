@@ -129,16 +129,16 @@ export default function BillCreate() {
           </div>
         </div>
 
-        <p className="text-muted" style={{ marginTop: 16, fontSize: 13 }}>
-          Save first, then add line items on the edit page.
-        </p>
-
         <div className="form-actions">
           <button type="submit" className="btn btn-primary" disabled={saving || !file}>
-            {saving ? "Submitting..." : "Submit for Review"}
+            {saving ? "Saving..." : "Save & Continue"}
           </button>
           <button type="button" className="btn btn-secondary" onClick={() => navigate("/bill/list")}>Cancel</button>
         </div>
+        <p className="text-muted" style={{ marginTop: 12, fontSize: 12 }}>
+          The bill will land as a draft. Add line-item details (project, sub-cost-code, description)
+          on the next page, then click <strong>Submit for Review</strong> to notify reviewers.
+        </p>
       </form>
     </div>
   );

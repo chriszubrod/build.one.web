@@ -76,6 +76,7 @@ export default function BillEdit() {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState("");
 
@@ -232,6 +233,31 @@ export default function BillEdit() {
     }
   };
 
+  const handleSubmitForReview = async () => {
+    // Flush pending edits before submitting — otherwise the notification
+    // would resolve recipients against stale line items. Same discipline
+    // the Complete handler follows.
+    const saved = await saveAll();
+    if (!saved) return;
+    setSubmitting(true);
+    setSaveError("");
+    try {
+      await post(`/api/v1/submit/review/bill/${publicId}`, {});
+      toast("Submitted for review — notification queued.");
+      navigate(`/bill/${publicId}`);
+    } catch (err: any) {
+      setSaveError(err.message);
+      setSubmitting(false);
+    }
+  };
+
+  // Recipient resolution (PMs / Owners) walks Bill → BillLineItem → Project →
+  // UserProject. With no project on any line item, no PMs are found and the
+  // notification ships BCC-only with a blank body — the exact bug that
+  // motivated moving Submit off the create path. Gate the button until at
+  // least one line item carries a project.
+  const hasProjectOnLineItem = lineItems.some((li) => !!li.project_public_id);
+
   return (
     <div className="page form-page-wide">
       <div className="page-header"><h1>Edit Bill {item?.bill_number}</h1></div>
@@ -366,7 +392,7 @@ export default function BillEdit() {
           <button
             type="button"
             className="btn btn-danger"
-            disabled={saving || completing || deleting}
+            disabled={saving || completing || submitting || deleting}
             onClick={async () => {
               if (!confirm("Delete this bill? This cannot be undone.")) return;
               setDeleting(true);
@@ -384,15 +410,30 @@ export default function BillEdit() {
           </button>
           <div className="page-header-spacer" />
           <button type="button" className="btn btn-secondary" onClick={() => navigate(`/bill/${publicId}`)}>Cancel</button>
-          <button type="submit" className="btn btn-primary" disabled={saving || completing || deleting}>
+          <button type="submit" className="btn btn-primary" disabled={saving || completing || submitting || deleting}>
             {saving ? "Saving..." : "Save"}
           </button>
           {form.is_draft && (
             <button
               type="button"
+              className="btn btn-primary"
+              onClick={handleSubmitForReview}
+              disabled={saving || completing || submitting || deleting || !hasProjectOnLineItem}
+              title={
+                hasProjectOnLineItem
+                  ? "Submit for review — drafts an email to the project PMs and advances the bill state."
+                  : "Add a line item with a project before submitting for review."
+              }
+            >
+              {submitting ? "Submitting..." : "Submit for Review"}
+            </button>
+          )}
+          {form.is_draft && (
+            <button
+              type="button"
               className="btn btn-success"
               onClick={handleComplete}
-              disabled={saving || completing || deleting}
+              disabled={saving || completing || submitting || deleting}
             >
               {completing ? "Completing..." : "Complete Bill"}
             </button>
