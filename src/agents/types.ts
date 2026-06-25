@@ -25,7 +25,7 @@ export interface ToolResultPayload {
  * Source-identification fields stamped on forwardable events when the
  * delegation tool republishes a sub-agent's events onto a parent's
  * stream. Lets the UI group concurrent sub-agent flows into per-
- * specialist lanes. Unset = primary agent (scout's own events).
+ * specialist lanes. Unset = primary agent (Build.One's own events).
  */
 interface EventSource {
   session_public_id?: string | null;
@@ -104,7 +104,7 @@ export interface RunError {
 
 /**
  * A single entry in the conversation. Each user message is followed by
- * an agent entry holding the scout's turns for that message.
+ * an agent entry holding the Build.One's turns for that message.
  */
 /**
  * Approval state — mirrors server-side status literals except that we

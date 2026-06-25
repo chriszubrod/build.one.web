@@ -2,26 +2,26 @@ import { useAuth } from "../auth/AuthContext";
 
 
 interface HeaderProps {
-  scoutOpen?: boolean;
-  onToggleScout?: () => void;
+  buildoneOpen?: boolean;
+  onToggleBuildOne?: () => void;
 }
 
 
-export default function Header({ scoutOpen, onToggleScout }: HeaderProps) {
+export default function Header({ buildoneOpen, onToggleBuildOne }: HeaderProps) {
   const { username, logout } = useAuth();
 
   return (
     <header className="header">
       <div className="header-spacer" />
-      {onToggleScout && (
+      {onToggleBuildOne && (
         <button
           type="button"
-          className={`header-scout${scoutOpen ? " is-open" : ""}`}
-          onClick={onToggleScout}
-          aria-pressed={scoutOpen}
-          aria-label={scoutOpen ? "Close Scout" : "Open Scout"}
+          className={`header-buildone${buildoneOpen ? " is-open" : ""}`}
+          onClick={onToggleBuildOne}
+          aria-pressed={buildoneOpen}
+          aria-label={buildoneOpen ? "Close Build.One" : "Open Build.One"}
         >
-          Scout
+          Build.One
         </button>
       )}
       <div className="header-user">

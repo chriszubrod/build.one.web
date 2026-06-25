@@ -2,7 +2,7 @@
  * React hook for driving a threaded agent conversation over SSE.
  *
  *   const { state, entries, start, cancel, reset, loadConversation, recent }
- *     = useAgentRun("scout");
+ *     = useAgentRun("buildone");
  *
  * Each call to start(message) appends a user entry + a new agent entry
  * to the conversation. Routing:
@@ -512,7 +512,7 @@ function eventSource(event: LoopEvent): {
   sourceSessionPublicId: string | null;
   sourceAgentName: string | null;
 } {
-  // Only forwardable events carry source-id fields; scout's own
+  // Only forwardable events carry source-id fields; Build.One's own
   // events leave them undefined → primary lane (sourceSessionPublicId === null).
   if ("session_public_id" in event && event.session_public_id) {
     return {

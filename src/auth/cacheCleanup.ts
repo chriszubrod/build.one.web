@@ -14,7 +14,7 @@ const PERSISTER_KEY_PREFIX = "bo.rq.v1."; // must match src/main.tsx
 
 /**
  * localStorage key prefixes that hold per-user data and must be wiped on
- * logout. Currently covers agent conversation transcripts (Scout chat
+ * logout. Currently covers agent conversation transcripts (Build.One chat
  * history etc., see src/agents/useAgentRun.ts). Any future module that
  * stashes per-user content under a stable key prefix should be added
  * here so the multi-user state-bleed contract stays whole.

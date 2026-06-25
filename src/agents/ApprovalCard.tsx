@@ -68,16 +68,16 @@ export default function ApprovalCard({ entry, onDecide }: Props) {
 
   return (
     <div
-      className={`scout-approval scout-approval-${entry.status}`}
+      className={`buildone-approval buildone-approval-${entry.status}`}
       role="region"
       aria-label="Approval request"
     >
-      <header className="scout-approval-header">
-        <span className="scout-approval-status">{statusLabel}</span>
-        <span className="scout-approval-tool">{entry.toolName}</span>
+      <header className="buildone-approval-header">
+        <span className="buildone-approval-status">{statusLabel}</span>
+        <span className="buildone-approval-tool">{entry.toolName}</span>
       </header>
 
-      <div className="scout-approval-summary">{entry.summary}</div>
+      <div className="buildone-approval-summary">{entry.summary}</div>
 
       {!editing ? (
         <FieldTable values={currentDisplay} />
@@ -90,10 +90,10 @@ export default function ApprovalCard({ entry, onDecide }: Props) {
         />
       )}
 
-      {error && <div className="scout-approval-error">{error}</div>}
+      {error && <div className="buildone-approval-error">{error}</div>}
 
       {pending && (
-        <div className="scout-approval-actions">
+        <div className="buildone-approval-actions">
           {editing ? (
             <>
               <button
@@ -107,7 +107,7 @@ export default function ApprovalCard({ entry, onDecide }: Props) {
               >
                 Cancel edit
               </button>
-              <div className="scout-approval-actions-spacer" />
+              <div className="buildone-approval-actions-spacer" />
               <button
                 type="button"
                 className="btn btn-primary btn-sm"
@@ -139,7 +139,7 @@ export default function ApprovalCard({ entry, onDecide }: Props) {
               >
                 Edit
               </button>
-              <div className="scout-approval-actions-spacer" />
+              <div className="buildone-approval-actions-spacer" />
               <button
                 type="button"
                 className="btn btn-primary btn-sm"
@@ -154,7 +154,7 @@ export default function ApprovalCard({ entry, onDecide }: Props) {
       )}
 
       {!pending && entry.finalInput && editedDiffers && (
-        <div className="scout-approval-diff-note">
+        <div className="buildone-approval-diff-note">
           Values differ from the original proposal.
         </div>
       )}
@@ -169,12 +169,12 @@ export default function ApprovalCard({ entry, onDecide }: Props) {
 function FieldTable({ values }: { values: Record<string, unknown> }) {
   const keys = Object.keys(values);
   if (keys.length === 0) {
-    return <div className="scout-approval-empty">(no fields)</div>;
+    return <div className="buildone-approval-empty">(no fields)</div>;
   }
   return (
-    <dl className="scout-approval-fields">
+    <dl className="buildone-approval-fields">
       {keys.map((k) => (
-        <div key={k} className="scout-approval-field">
+        <div key={k} className="buildone-approval-field">
           <dt>{k}</dt>
           <dd>{renderValue(values[k])}</dd>
         </div>
@@ -215,7 +215,7 @@ function EditForm({
   const properties =
     (schema?.properties as Record<string, unknown>) ?? {};
   // Merge schema-known fields with any extra keys present in values
-  // (defensive — schema may lag or omit a field scout is passing).
+  // (defensive — schema may lag or omit a field Build.One is passing).
   const keys = Array.from(
     new Set([...Object.keys(properties), ...Object.keys(values)]),
   );
@@ -225,7 +225,7 @@ function EditForm({
   };
 
   return (
-    <div className="scout-approval-form">
+    <div className="buildone-approval-form">
       {keys.map((key) => {
         const fieldSchema = (properties[key] as Record<string, unknown>) ?? {};
         const value = values[key];
@@ -263,13 +263,13 @@ function FieldRow({
   const type = schema.type as string | undefined;
   const description = (schema.description as string | undefined) ?? "";
 
-  const labelClass = `scout-approval-form-label${changed ? " scout-approval-form-label-changed" : ""}`;
+  const labelClass = `buildone-approval-form-label${changed ? " buildone-approval-form-label-changed" : ""}`;
 
   // Boolean → checkbox
   if (type === "boolean") {
     const checked = Boolean(value);
     return (
-      <label className="scout-approval-form-row">
+      <label className="buildone-approval-form-row">
         <span className={labelClass}>{name}</span>
         <input
           type="checkbox"
@@ -278,7 +278,7 @@ function FieldRow({
             onChange(e.target.checked)
           }
         />
-        {description && <span className="scout-approval-form-help">{description}</span>}
+        {description && <span className="buildone-approval-form-help">{description}</span>}
       </label>
     );
   }
@@ -292,7 +292,7 @@ function FieldRow({
         ? ""
         : String(value);
     return (
-      <label className="scout-approval-form-row">
+      <label className="buildone-approval-form-row">
         <span className={labelClass}>{name}</span>
         <input
           type="number"
@@ -308,7 +308,7 @@ function FieldRow({
             onChange(Number.isNaN(n) ? t : n);
           }}
         />
-        {description && <span className="scout-approval-form-help">{description}</span>}
+        {description && <span className="buildone-approval-form-help">{description}</span>}
       </label>
     );
   }
@@ -318,11 +318,11 @@ function FieldRow({
     const str = value == null ? "" : String(value);
     const looksMultiline = str.length > 60 || str.includes("\n");
     return (
-      <label className="scout-approval-form-row">
+      <label className="buildone-approval-form-row">
         <span className={labelClass}>{name}</span>
         {looksMultiline ? (
           <textarea
-            className="scout-approval-form-textarea"
+            className="buildone-approval-form-textarea"
             value={str}
             rows={Math.min(6, Math.max(2, str.split("\n").length))}
             onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
@@ -336,7 +336,7 @@ function FieldRow({
             }
           />
         )}
-        {description && <span className="scout-approval-form-help">{description}</span>}
+        {description && <span className="buildone-approval-form-help">{description}</span>}
       </label>
     );
   }
@@ -350,10 +350,10 @@ function FieldRow({
     }
   })();
   return (
-    <label className="scout-approval-form-row">
+    <label className="buildone-approval-form-row">
       <span className={labelClass}>{name}</span>
       <textarea
-        className="scout-approval-form-textarea"
+        className="buildone-approval-form-textarea"
         value={jsonStr}
         rows={4}
         onChange={(e) => {
@@ -367,7 +367,7 @@ function FieldRow({
           }
         }}
       />
-      {description && <span className="scout-approval-form-help">{description}</span>}
+      {description && <span className="buildone-approval-form-help">{description}</span>}
     </label>
   );
 }

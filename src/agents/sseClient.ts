@@ -7,7 +7,7 @@
  *   - Sends Authorization: Bearer <token> from localStorage
  *   - Routes every fetch through fetchWithRefresh so a 401 triggers a silent
  *     POST /api/v1/auth/refresh + retry before bubbling up — same as the rest
- *     of the API client. Without this, scout-tray runs hit 30-min lockouts.
+ *     of the API client. Without this, buildone-tray runs hit 30-min lockouts.
  *   - Yields parsed {event, data} records as an async generator
  *   - Propagates AbortSignal cleanly (for cancel / unmount)
  *

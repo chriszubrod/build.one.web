@@ -77,7 +77,7 @@ Project-scoped vs entity-scoped doors decision (2026-06-17): **both, sharing one
 - [ ] **Cross-entity Search.** Multi-week — needs API + indexing decision. When built, lands as a header bar input (cmd-K) — NOT a menuConfig entry.
 - [ ] **Dashboard.** Defer until Phase 3 telemetry shows what roles open first. Too many audience-specific KPIs to spec prematurely.
 - [ ] **Inbox / Email Messages.** Gated on the larger inbox rebuild per umbrella MEMORY.md — no timeline.
-- [ ] **ScoutTray revival.** Separate UX project.
+- [ ] **BuildOneTray revival.** Separate UX project.
 
 ### Anti-patterns to avoid (codebase-specific)
 
@@ -87,7 +87,7 @@ Project-scoped vs entity-scoped doors decision (2026-06-17): **both, sharing one
 - Don't gate menuConfig entries on hardcoded role name strings. Use module read perms or `is_admin`.
 - Don't add Reports / Inbox menuConfig entries as placeholders — both need API support that doesn't exist.
 - Don't touch `NavHeader.tsx` per-page back/title conventions — orthogonal to top-level nav.
-- Don't revive `ScoutTray` or `src/agents/` tree as part of nav work — separate UX project.
+- Don't revive `BuildOneTray` or `src/agents/` tree as part of nav work — separate UX project.
 
 ---
 
