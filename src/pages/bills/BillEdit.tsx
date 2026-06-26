@@ -7,6 +7,7 @@ import { useViewAttachmentObjectUrl } from "../../hooks/useViewAttachmentObjectU
 import { useLookups } from "../../hooks/useLookups";
 import { useEntityList } from "../../hooks/useEntity";
 import type { Vendor as FullVendor, SubCostCode, Project } from "../../types/api";
+import { computeBillLine } from "./lineMath";
 import FormField from "../../components/FormField";
 import DateField from "../../components/DateField";
 import TextareaField from "../../components/TextareaField";
@@ -36,18 +37,7 @@ function fmtMoney(v: string): string {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
-function computeLineItem(li: LineItemRow): LineItemRow {
-  const qty = li.quantity !== "" ? Number(li.quantity) : 0;
-  const rate = li.rate !== "" ? Number(li.rate) : 0;
-  const markup = li.markup !== "" ? Number(li.markup) : 0;
-  const amount = qty * rate;
-  const price = amount * (1 + markup);
-  return {
-    ...li,
-    amount: amount ? amount.toFixed(2) : "",
-    price: price ? price.toFixed(2) : "",
-  };
-}
+const computeLineItem = (li: LineItemRow): LineItemRow => computeBillLine(li);
 
 function newLineItem(): LineItemRow {
   return {
