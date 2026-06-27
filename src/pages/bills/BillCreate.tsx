@@ -2,6 +2,9 @@ import { useNavigate } from "react-router-dom";
 import { useRef, useState } from "react";
 import { post, uploadFile } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { useToast } from "../../components/Toast";
+import { Modules } from "../../shared/modules";
 import { computeBillLine } from "./lineMath";
 import FormField from "../../components/FormField";
 import DateField from "../../components/DateField";
@@ -51,6 +54,16 @@ function fmtMoney(v: string): string {
 export default function BillCreate() {
   const navigate = useNavigate();
   const { data: lookups } = useLookups("vendors,payment_terms,sub_cost_codes,projects");
+  const { data: me } = useCurrentUser();
+  const { toast } = useToast();
+  // Complete bypasses Review entirely — straight to IsDraft=False + outbox
+  // (SharePoint, Excel, QBO). The API gates it on Modules.BILLS.can_complete;
+  // we mirror that here so the button only shows when it would actually work.
+  // System admins bypass the module check on the server side; bypass here too.
+  const canCompleteBills =
+    !!me &&
+    (me.is_admin ||
+      !!me.modules?.find((m) => m.name === Modules.BILLS)?.can_complete);
   const [form, setForm] = useState({
     vendor_public_id: "",
     payment_term_public_id: "",
@@ -61,14 +74,18 @@ export default function BillCreate() {
   });
   const [line, setLine] = useState<LineItemDraft>(EMPTY_LINE);
   const [file, setFile] = useState<File | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  // Three mutually-exclusive in-flight actions collapsed into one state.
+  // null = idle. The button labels + disabled gates branch off this value
+  // instead of three separate booleans.
+  const [busyAction, setBusyAction] = useState<"save" | "submit" | "complete" | null>(null);
+  const busy = busyAction !== null;
   const [saveError, setSaveError] = useState("");
-  // Which button triggered the submit? Both buttons are type="submit" so
-  // HTML required-field validation runs uniformly; we just need to remember
-  // which one fired the form's submit event. A ref (not state) because we
-  // don't render off of it and need to read it synchronously inside onSubmit.
-  const pendingActionRef = useRef<"save" | "submit" | null>(null);
+  // Which button triggered the submit? All three buttons are type="submit"
+  // so HTML required-field validation runs uniformly; we just need to
+  // remember which one fired the form's submit event. A ref (not state)
+  // because we don't render off of it and need to read it synchronously
+  // inside onSubmit.
+  const pendingActionRef = useRef<"save" | "submit" | "complete" | null>(null);
 
   const onChange = (name: string, value: string) =>
     setForm((prev) => ({ ...prev, [name]: value }));
@@ -102,6 +119,11 @@ export default function BillCreate() {
   // recipient resolver can find PMs/Owners. Without it the notification
   // would queue empty (the K06988 bug). Tooltip explains.
   const canSubmitForReview = !!line.project_public_id;
+  // Complete needs both project + SCC because the post-complete outbox
+  // pushes the line to SharePoint (per-project folder), the project's
+  // Excel workbook (per-SCC section), and QBO (line.item maps via SCC).
+  // Missing either → dead-letter rows; gate to prevent.
+  const canCompleteFromHere = !!line.project_public_id && !!line.sub_cost_code_id;
 
   const buildBody = (submitForReview: boolean) => {
     const body: Record<string, unknown> = {
@@ -131,31 +153,52 @@ export default function BillCreate() {
     return body;
   };
 
-  const handleSubmit = async (submitForReview: boolean) => {
+  const handleSubmit = async (action: "save" | "submit" | "complete") => {
     if (!file) {
       setSaveError("A PDF attachment is required.");
       return;
     }
-    const busySetter = submitForReview ? setSubmitting : setSaving;
-    busySetter(true);
+    setBusyAction(action);
     setSaveError("");
     try {
       const attachment = await uploadFile<AttachmentResponse>(
         "/api/v1/upload/attachment",
         file,
       );
+      // Complete bypasses Review entirely — never auto-Submit on create.
+      const submitForReview = action === "submit";
       const created = await post<Bill>("/api/v1/create/bill", {
         ...buildBody(submitForReview),
         attachment_public_id: attachment.public_id,
       });
+      if (action === "complete") {
+        try {
+          // /complete/bill returns 202 (background); navigate immediately,
+          // user sees the bill transition on the detail page.
+          await post(`/api/v1/complete/bill/${created.public_id}`, {});
+        } catch (completeErr: any) {
+          // Bill was created OK but completion failed. Re-attempting
+          // from this form would hit a (vendor, bill_number, date)
+          // uniqueness 409. Send the user to the edit page where the
+          // Complete button on BillEdit can retry against the already-
+          // created draft.
+          toast(
+            `Bill saved as draft. Completion failed: ${completeErr.message}. ` +
+              `Retry Complete from this page.`,
+            "error",
+          );
+          navigate(`/bill/${created.public_id}/edit`);
+          return;
+        }
+      }
       navigate(
-        submitForReview
-          ? `/bill/${created.public_id}`
-          : `/bill/${created.public_id}/edit`,
+        action === "save"
+          ? `/bill/${created.public_id}/edit`
+          : `/bill/${created.public_id}`,
       );
     } catch (err: any) {
       setSaveError(err.message);
-      busySetter(false);
+      setBusyAction(null);
     }
   };
 
@@ -177,12 +220,17 @@ export default function BillCreate() {
           e.preventDefault();
           // pendingActionRef is set by whichever button initiated the
           // submit. Defaults to "save" so an Enter-key submission from
-          // a header field behaves like Save For Later (the safer of
-          // the two — no notification fires).
+          // a header field behaves like Save For Later (the safest of
+          // the three — no notification, no completion side effects).
           const action = pendingActionRef.current ?? "save";
           pendingActionRef.current = null;
-          handleSubmit(action === "submit");
+          handleSubmit(action);
         }}
+        // If HTML5 validation blocks the submit, clear the pending action
+        // so a follow-up Enter-key submission doesn't silently inherit
+        // the previous button's intent (e.g. firing Complete after the
+        // user fixed a missing field and pressed Enter to retry a Save).
+        onInvalid={() => { pendingActionRef.current = null; }}
       >
         {saveError && <div className="form-error">{saveError}</div>}
 
@@ -218,7 +266,7 @@ export default function BillCreate() {
                 accept="application/pdf"
                 onChange={onFileChange}
                 required
-                disabled={saving || submitting}
+                disabled={busy}
               />
               {file && (
                 <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
@@ -338,23 +386,23 @@ export default function BillCreate() {
             type="button"
             className="btn btn-secondary"
             onClick={() => navigate("/bill/list")}
-            disabled={saving || submitting}
+            disabled={busy}
           >
             Cancel
           </button>
           <button
             type="submit"
             className="btn btn-primary"
-            disabled={saving || submitting || !file}
+            disabled={busy || !file}
             onClick={() => { pendingActionRef.current = "save"; }}
             title="Save the bill as a draft and continue editing on the next page."
           >
-            {saving ? "Saving..." : "Save For Later"}
+            {busyAction === "save" ? "Saving..." : "Save For Later"}
           </button>
           <button
             type="submit"
             className="btn btn-success"
-            disabled={saving || submitting || !file || !canSubmitForReview}
+            disabled={busy || !file || !canSubmitForReview}
             onClick={() => { pendingActionRef.current = "submit"; }}
             title={
               canSubmitForReview
@@ -362,8 +410,23 @@ export default function BillCreate() {
                 : "Set Project on the line item to enable Submit for Review."
             }
           >
-            {submitting ? "Submitting..." : "Submit For Review"}
+            {busyAction === "submit" ? "Submitting..." : "Submit For Review"}
           </button>
+          {canCompleteBills && (
+            <button
+              type="submit"
+              className="btn btn-success"
+              disabled={busy || !file || !canCompleteFromHere}
+              onClick={() => { pendingActionRef.current = "complete"; }}
+              title={
+                canCompleteFromHere
+                  ? "Save the bill AND finalize it directly — bypasses review, kicks off SharePoint / Excel / QBO push."
+                  : "Set both Project and Sub Cost Code on the line item to enable Complete."
+              }
+            >
+              {busyAction === "complete" ? "Completing..." : "Complete Bill"}
+            </button>
+          )}
         </div>
       </form>
     </div>
