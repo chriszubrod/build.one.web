@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 const STORAGE_KEY = "buildOne.timeEntryList.params";
 const SCROLL_KEY = "buildOne.timeEntryList.scrollTop";
@@ -54,7 +54,6 @@ interface CountEnvelope {
 
 export default function TimeEntryList() {
   const [params, setParams] = useSearchParams();
-  const navigate = useNavigate();
   const { data: me } = useCurrentUser();
   const isAdmin = me?.is_admin ?? false;
 
@@ -228,12 +227,16 @@ export default function TimeEntryList() {
     );
   }, [entries.length]);
 
-  function handleRowClick(viewPath: string) {
+  // Row cells render as <Link> so cmd/middle/right-click → "Open in new tab"
+  // works natively. On plain left-click we save scroll position, then let the
+  // Link's default SPA navigation run. Modifier-key clicks fall through to the
+  // browser's link-handling and never trigger this handler.
+  function handleRowLinkClick(e: React.MouseEvent) {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
     const sc = document.getElementById("content");
     if (sc) {
       try { sessionStorage.setItem(SCROLL_KEY, String(sc.scrollTop)); } catch { /* ignore */ }
     }
-    navigate(viewPath);
   }
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
@@ -385,23 +388,36 @@ export default function TimeEntryList() {
                 const workerName =
                   entry.user_id != null ? userMap.get(entry.user_id) ?? "—" : "—";
                 const viewPath = `/time-entry/${entry.public_id}`;
+                // Each cell wraps its content in a Link so the whole row is
+                // clickable AND modifier-key clicks (cmd / middle / right)
+                // open the record in a new tab natively. The Link styling
+                // sits in the .table-row-link CSS class so cells still
+                // visually look like plain table cells.
                 return (
-                  <tr
-                    key={entry.public_id}
-                    className="clickable-row"
-                    onClick={() => handleRowClick(viewPath)}
-                  >
-                    <td>{fmtDate(entry.work_date)}</td>
-                    <td>{workerName}</td>
-                    <td className="cell-multi-truncate">
-                      {(entry.distinct_project_ids ?? [])
-                        .map((pid) => projectLabelMap.get(pid) ?? `#${pid}`)
-                        .join(", ") || <span className="text-muted">—</span>}
+                  <tr key={entry.public_id} className="clickable-row">
+                    <td>
+                      <Link to={viewPath} className="table-row-link" onClick={handleRowLinkClick}>
+                        {fmtDate(entry.work_date)}
+                      </Link>
                     </td>
                     <td>
-                      <span className={`status-badge ${STATUS_CLASSES[current] ?? ""}`}>
-                        {STATUS_LABELS[current] ?? current}
-                      </span>
+                      <Link to={viewPath} className="table-row-link" onClick={handleRowLinkClick}>
+                        {workerName}
+                      </Link>
+                    </td>
+                    <td className="cell-multi-truncate">
+                      <Link to={viewPath} className="table-row-link" onClick={handleRowLinkClick}>
+                        {(entry.distinct_project_ids ?? [])
+                          .map((pid) => projectLabelMap.get(pid) ?? `#${pid}`)
+                          .join(", ") || <span className="text-muted">—</span>}
+                      </Link>
+                    </td>
+                    <td>
+                      <Link to={viewPath} className="table-row-link" onClick={handleRowLinkClick}>
+                        <span className={`status-badge ${STATUS_CLASSES[current] ?? ""}`}>
+                          {STATUS_LABELS[current] ?? current}
+                        </span>
+                      </Link>
                     </td>
                   </tr>
                 );

@@ -782,6 +782,24 @@ body {
   }
 }
 
+/* Table cell wrapper used when a row should be cmd/middle/right-clickable
+   to open a record in a new tab. Wrap the cell's content in
+   <Link className="table-row-link">; the link fills the cell, inherits
+   text styling, and the row's hover state still applies via parent .tr. */
+.table-row-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  /* Pull link to cell edges so the whole cell area is clickable. */
+  margin: -1px -2px;
+  padding: 1px 2px;
+}
+.table-row-link:hover,
+.table-row-link:focus {
+  color: inherit;
+  text-decoration: none;
+}
+
 /* Project / multi-value cell truncation — applied per-cell, not globally.
    Truncates with ellipsis at mobile, wraps to multiple lines at tablet+. */
 .cell-multi-truncate {
