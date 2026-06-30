@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQuery, useQueries, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Send } from "lucide-react";
-import { getList, getOne, post } from "../../api/client";
+import { getList, post } from "../../api/client";
 import { useToast } from "../../components/Toast";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useLookups } from "../../hooks/useLookups";
@@ -118,25 +118,20 @@ export default function PastDayScreen() {
   };
 
   const userId = me?.user?.id;
+  // Single-request fetch: ask the list endpoint to inline time_logs via
+  // include_logs=true so we don't N+1 per-entry detail GETs on the team view.
+  // The server batches the log lookup into one sproc call.
   const entriesQuery = useQuery<TimeEntry[]>({
     queryKey: ["time-entries-day", effectiveScope, userId, iso],
     queryFn: async () => {
       const userParam = effectiveScope === "team" ? "" : `user_id=${userId}&`;
       return (
         await getList<TimeEntry>(
-          `/api/v1/time-entries?${userParam}start_date=${iso}&end_date=${iso}&page_size=100`,
+          `/api/v1/time-entries?${userParam}start_date=${iso}&end_date=${iso}&page_size=100&include_logs=true`,
         )
       ).data;
     },
     enabled: !!userId,
-  });
-
-  const detailQueries = useQueries({
-    queries: (entriesQuery.data ?? []).map((te) => ({
-      queryKey: ["time-entry", te.public_id],
-      queryFn: () => getOne<TimeEntry>(`/api/v1/time-entries/${te.public_id}`),
-      enabled: !!te.public_id,
-    })),
   });
 
   interface EntryGroup {
@@ -147,9 +142,7 @@ export default function PastDayScreen() {
 
   const entryGroups: EntryGroup[] = useMemo(() => {
     const groups: EntryGroup[] = [];
-    detailQueries.forEach((q) => {
-      const entry = q.data;
-      if (!entry) return;
+    (entriesQuery.data ?? []).forEach((entry) => {
       const sortedLogs = (entry.time_logs ?? []).slice().sort((a, b) =>
         (a.clock_in ?? "").localeCompare(b.clock_in ?? ""),
       );
@@ -163,7 +156,7 @@ export default function PastDayScreen() {
       groups.sort((a, b) => (a.workerName ?? "").localeCompare(b.workerName ?? ""));
     }
     return groups;
-  }, [detailQueries, effectiveScope, userMap]);
+  }, [entriesQuery.data, effectiveScope, userMap]);
 
   const totalHours = useMemo(() => {
     let sum = 0;
@@ -251,9 +244,7 @@ export default function PastDayScreen() {
 
       {totalLogCount === 0 && (
         <div className="page-loading" style={{ padding: "var(--space-xl) 0" }}>
-          {entriesQuery.isLoading || detailQueries.some((q) => q.isLoading)
-            ? "Loading…"
-            : "No entries on this day."}
+          {entriesQuery.isLoading ? "Loading…" : "No entries on this day."}
         </div>
       )}
 
