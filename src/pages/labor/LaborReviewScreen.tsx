@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ChevronRight, Plus, Send, Trash2 } from "lucide-react";
-import { getList, getOne, post, put } from "../../api/client";
+import { ApiError, getList, getOne, post, put } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
 import { useToast } from "../../components/Toast";
 import NavHeader from "../../components/ui/NavHeader";
@@ -555,9 +555,10 @@ export default function LaborReviewScreen() {
         line_items: buildLineItemsPayload(),
       });
       putSucceeded = true;
-      // Refresh local caches so the follow-up POST (and any retry) sees
-      // the bumped parent row_version.
-      await refreshFromServer();
+      // Skip the mid-flow refetch — /submit/review doesn't consume
+      // row_version, so we save ~1s of blocking round-trip. The final
+      // invalidateQueries + navigate at the end triggers React Query's
+      // background refetch on the next mount.
       await post(`/api/v1/submit/review/contract-labor/${public_id}`, {
         comments: null,
       });
@@ -573,9 +574,31 @@ export default function LaborReviewScreen() {
     } catch (err) {
       // Tag the log with which phase failed for prod-side diagnosis.
       console.error("Submit for review failed", { putSucceeded, err });
-      // If the PUT succeeded but the POST failed, the edits are persisted
-      // but the review request didn't start. Refresh state so a retry
-      // uses fresh row_versions, and surface a phase-specific message.
+
+      // 409 "review already in progress" / "already approved" — the
+      // server-side Review row already exists (either an earlier submit
+      // succeeded silently from the client's perspective, or another
+      // window submitted first). Treat as effective success: clean up
+      // local state and navigate away instead of showing a misleading
+      // "tap Submit again to retry" that would just 409 again.
+      const isAlreadySubmitted =
+        err instanceof ApiError &&
+        err.status === 409 &&
+        /already (in progress|approved)/i.test(err.detail ?? "");
+      if (isAlreadySubmitted) {
+        setAddedLines([]);
+        setRemovedServerLineIds(new Set());
+        setEdits(new Map());
+        toast("Already submitted for review", "success");
+        queryClient.invalidateQueries({ queryKey: ["contract-labor"] });
+        navigate(-1);
+        return;
+      }
+
+      // If the PUT succeeded but the POST failed for some OTHER reason,
+      // the edits are persisted but the review request didn't start.
+      // Refresh state so a retry uses fresh row_versions, and surface a
+      // phase-specific message.
       if (putSucceeded) {
         await refreshFromServer().catch(() => undefined);
         toast(
