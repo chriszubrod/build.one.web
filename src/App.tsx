@@ -21,10 +21,10 @@ import LaborList from "./pages/labor/LaborList";
 import LaborReviewScreen from "./pages/labor/LaborReviewScreen";
 import ProjectList from "./pages/project/ProjectList";
 import ProjectDetailScreen from "./pages/project/ProjectDetailScreen";
-import TodayScreen from "./pages/time-entry/TodayScreen";
 import PastDayScreen from "./pages/time-entry/PastDayScreen";
 import EditEntryScreen from "./pages/time-entry/EditEntryScreen";
 import CreateLogScreen from "./pages/time-entry/CreateLogScreen";
+import TimeEntryListRoute from "./pages/time-entry/TimeEntryListRoute";
 import TimeEntryView from "./pages/time-entry/TimeEntryView";
 import TimeEntryCreate from "./pages/time-entry/TimeEntryCreate";
 
@@ -76,7 +76,7 @@ export default function App() {
               <Route element={<AppLayout />}>
                 <Route path="/" element={<LandingRedirect />} />
 
-                <Route path="/time-entry/list" element={<TodayScreen />} />
+                <Route path="/time-entry/list" element={<TimeEntryListRoute />} />
                 <Route path="/time-entry/past/:date" element={<PastDayScreen />} />
                 <Route path="/time-entry/create" element={<TimeEntryCreate />} />
                 <Route path="/time-entry/log/new" element={<CreateLogScreen />} />

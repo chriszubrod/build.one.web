@@ -2847,6 +2847,187 @@ a.buildone-record-header-link:hover .buildone-record-name {
   flex-wrap: wrap;
 }
 
+/* =============================================================================
+   TimeEntry list — tablet/laptop/desktop toolbar + table
+   =============================================================================
+   Goal (2026-07-01): fewer clicks and less scrolling to scan time entries by
+   date, status, and worker. Stacks on mobile portrait (430w column), gains
+   sticky behavior + horizontal chip rows at ≥ 768w.
+
+   Toolbar layout:
+     .te-toolbar
+       .te-filters       ← existing .cl-filters group (search/dates/user/proj)
+       .te-quickbar      ← two horizontal chip rows: date presets + status
+
+   At tablet+, .te-toolbar sticks to the top of #content so scanning long
+   pages doesn't hide the filters. Table thead sticks below it (offset by
+   the toolbar's approximate height). Values chosen so a 3-row toolbar
+   (filters wrapping to two rows + quickbar) still leaves the first
+   entry visible.
+============================================================================= */
+
+.te-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  background: var(--color-bg);
+}
+
+.te-filters {
+  margin-bottom: 0;
+}
+
+.te-quickbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.te-quickbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+/* Generic chip used by both date presets and status filter. Matches the
+   pill radius already used elsewhere in the surface (--radius-pill). */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  white-space: nowrap;
+}
+.chip:hover {
+  background: var(--color-surface-tint);
+}
+.chip-active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+.chip-active:hover {
+  background: var(--color-primary-hover);
+}
+.chip-ghost {
+  color: var(--color-text-muted);
+  border-style: dashed;
+  background: transparent;
+}
+.chip-ghost:hover {
+  color: var(--color-text);
+}
+
+/* Status chips inherit the badge palette when active so an "Approved" chip
+   reads green, "Rejected" reads red, etc. — visual continuity with the
+   status column in the table. When inactive they're neutral pills. */
+.status-chip.chip-active.draft,
+.status-chip.chip-active.in-review,
+.status-chip.chip-active.approved,
+.status-chip.chip-active.declined,
+.status-chip.chip-active.finalized {
+  color: var(--color-on-primary);
+}
+.status-chip.chip-active.draft {
+  background: var(--color-text-muted);
+  border-color: var(--color-text-muted);
+}
+.status-chip.chip-active.in-review {
+  background: var(--color-warning-fg);
+  border-color: var(--color-warning-fg);
+}
+.status-chip.chip-active.approved {
+  background: var(--color-success-fg);
+  border-color: var(--color-success-fg);
+}
+.status-chip.chip-active.declined {
+  background: var(--color-danger-fg);
+  border-color: var(--color-danger-fg);
+}
+.status-chip.chip-active.finalized {
+  background: var(--color-info-fg);
+  border-color: var(--color-info-fg);
+}
+
+/* Sticky toolbar at tablet width and up. Mobile keeps the scrolling
+   layout because the shell is only 430px wide and a fixed toolbar would
+   eat too much vertical space.
+
+   Sticky column headers were tried and dropped: `position: sticky` on
+   `<th>` inside a table with the scroll ancestor being #content produced
+   headers that floated in the middle of the table depending on scroll
+   position. The toolbar stickiness alone is enough to keep the filters
+   and status/date chips in reach while scanning long lists. */
+@media (min-width: 768px) {
+  .te-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    padding-top: var(--space-sm);
+    box-shadow: 0 4px 6px -6px rgba(0, 0, 0, 0.15);
+  }
+}
+
+/* Date-group sub-header row inside the table. Non-clickable, visual only. */
+.te-group-header td {
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 6px var(--space-lg);
+  border-bottom: 1px solid var(--color-border);
+}
+.te-group-header:hover td {
+  background: var(--color-surface-2);
+}
+.te-group-header-count {
+  color: var(--color-text-subtle);
+  margin-left: 6px;
+  font-weight: var(--font-weight-regular);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Per-row Submit action — draft entries only. Right-aligned narrow column
+   so the button is close to the row's Status pill without disrupting the
+   scan-flow of the four data columns. */
+.te-col-actions {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+/* In-table variant of TodayScreen's .submit-button. Matches the same
+   outlined-pill visual language (primary color border + fill on hover)
+   but sized down for inline row use and left auto-sized to hug its text. */
+.submit-button.submit-button-row {
+  width: auto;
+  max-width: none;
+  margin: 0;
+  min-height: 0;
+  padding: 5px 12px;
+  gap: 6px;
+  font-size: var(--font-size-footnote);
+  border-width: 1px;
+  white-space: nowrap;
+}
+
 .cl-empty-state {
   text-align: center;
   padding: var(--space-2xl);

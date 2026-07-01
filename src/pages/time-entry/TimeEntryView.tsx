@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, del, getList, getOne, post, put } from "../../api/client";
+import { ApiError, del, getOne, post, put } from "../../api/client";
 import { useAutoSave } from "../../hooks/useAutoSave";
 import { useEntityList } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
@@ -171,21 +171,20 @@ export default function TimeEntryView() {
   }, [me]);
 
   // === Server-fetched entry ===
-  const { data: entry, isLoading, error } = useQuery<TimeEntry>({
+  // The API's GET /time-entries/{id} now bundles time_logs, status_history,
+  // AND billed_lineage into one response (2026-07-01 perf pass). Previously
+  // the page fired a follow-up GET /billed-lineage; that waterfall is gone.
+  const { data: entry, isLoading, error } = useQuery<
+    TimeEntry & { billed_lineage?: TimeEntryBilledLineageRow[] }
+  >({
     queryKey: ["time-entry", publicId],
-    queryFn: () => getOne<TimeEntry>(`/api/v1/time-entries/${publicId}`),
+    queryFn: () =>
+      getOne<TimeEntry & { billed_lineage?: TimeEntryBilledLineageRow[] }>(
+        `/api/v1/time-entries/${publicId}`,
+      ),
     enabled: !!publicId,
   });
-
-  // === Downstream lineage (Phase 7c) — what ContractLabor/EmployeeLabor row
-  // this entry produced, and whether it's been billed/invoiced. Refetches
-  // when status flips so a fresh submit picks up the new lineage row.
-  const { data: lineageRes } = useQuery<{ data: TimeEntryBilledLineageRow[]; count: number }>({
-    queryKey: ["time-entry-lineage", publicId, entry?.current_status],
-    queryFn: () => getList<TimeEntryBilledLineageRow>(`/api/v1/time-entries/${publicId}/billed-lineage`),
-    enabled: !!publicId && !!entry,
-  });
-  const lineage = lineageRes?.data ?? [];
+  const lineage = entry?.billed_lineage ?? [];
 
   const users = useEntityList<User>("/api/v1/get/users").items;
   const userMap = useMemo(() => {
