@@ -142,24 +142,36 @@ export default function LaborList() {
       if (toDate && (!wd || wd > toDate)) return false;
       if (needle) {
         // Case-insensitive substring match against a haystack of the
-        // parent CL's searchable fields. Multi-project days that leave
-        // CL.project_id / CL.sub_cost_code_id NULL will only match on
-        // employee/job/description — the per-line project/SCC data
-        // isn't in the list payload. Covers ~84% single-line CLs fully.
-        const project = r.project_id ? projectById.get(r.project_id) : null;
-        const scc = r.sub_cost_code_id ? sccById.get(r.sub_cost_code_id) : null;
-        const haystack = [
+        // parent CL's fields PLUS every distinct project/SCC referenced
+        // by its line items (surfaced via by-status sproc as
+        // line_item_project_ids / line_item_sub_cost_code_ids). This is
+        // what makes multi-project days searchable — the parent's own
+        // project_id is NULL there per Migration 009.
+        const parts: (string | null | undefined)[] = [
           r.employee_name,
           r.job_name,
           r.description,
-          project?.name,
-          project?.abbreviation,
-          scc?.number,
-          scc?.name,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
+        ];
+        // Parent-level project + SCC (single-line CLs, and historical
+        // rows that pre-date Migration 009).
+        const parentProject = r.project_id ? projectById.get(r.project_id) : null;
+        if (parentProject) {
+          parts.push(parentProject.name, parentProject.abbreviation);
+        }
+        const parentScc = r.sub_cost_code_id ? sccById.get(r.sub_cost_code_id) : null;
+        if (parentScc) {
+          parts.push(parentScc.number, parentScc.name);
+        }
+        // Line-item scoped project + SCC (multi-project days).
+        (r.line_item_project_ids ?? []).forEach((pid) => {
+          const p = projectById.get(pid);
+          if (p) parts.push(p.name, p.abbreviation);
+        });
+        (r.line_item_sub_cost_code_ids ?? []).forEach((sid) => {
+          const s = sccById.get(sid);
+          if (s) parts.push(s.number, s.name);
+        });
+        const haystack = parts.filter(Boolean).join(" ").toLowerCase();
         if (!haystack.includes(needle)) return false;
       }
       return true;
