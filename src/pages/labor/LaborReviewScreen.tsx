@@ -949,27 +949,33 @@ export default function LaborReviewScreen() {
             <span>{saving ? "Saving…" : "Save changes"}</span>
           </button>
         )}
+        {/* Submit for review: pending_review only. Once flipped to
+            'submitted' the row already has a Review; re-submitting
+            409s. */}
         {cl.status === "pending_review" && (
-          <>
-            <button
-              type="button"
-              className="submit-button"
-              onClick={handleSubmitForReview}
-              disabled={submittingReview || saving || effectiveLines.length === 0}
-            >
-              <Send size={16} strokeWidth={2} />
-              <span>{submittingReview ? "Submitting…" : "Submit for review"}</span>
-            </button>
-            <button
-              type="button"
-              className="submit-button"
-              onClick={handleMarkReady}
-              disabled={!isReady || saving || submittingReview}
-            >
-              <Send size={16} strokeWidth={2} />
-              <span>{saving ? "Saving…" : "Mark ready for billing"}</span>
-            </button>
-          </>
+          <button
+            type="button"
+            className="submit-button"
+            onClick={handleSubmitForReview}
+            disabled={submittingReview || saving || effectiveLines.length === 0}
+          >
+            <Send size={16} strokeWidth={2} />
+            <span>{submittingReview ? "Submitting…" : "Submit for review"}</span>
+          </button>
+        )}
+        {/* Mark ready: both pending_review AND submitted. The
+            'submitted' state is where the user is applying PM
+            responses (SCCs) and then advancing to 'ready' manually. */}
+        {(cl.status === "pending_review" || cl.status === "submitted") && (
+          <button
+            type="button"
+            className="submit-button"
+            onClick={handleMarkReady}
+            disabled={!isReady || saving || submittingReview}
+          >
+            <Send size={16} strokeWidth={2} />
+            <span>{saving ? "Saving…" : "Mark ready for billing"}</span>
+          </button>
         )}
       </div>
 
