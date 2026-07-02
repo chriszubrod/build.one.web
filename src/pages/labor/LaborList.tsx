@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useCallback, useMemo } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { FileText } from "lucide-react";
 import { getList } from "../../api/client";
@@ -68,12 +68,44 @@ const EMPTY_COPY: Record<LaborStatus, string> = {
 
 const NO_MATCH_COPY = "No matching entries.";
 
+const VALID_STATUSES: LaborStatus[] = ["pending_review", "submitted", "ready", "billed"];
+
 export default function LaborList() {
   const navigate = useNavigate();
-  const [status, setStatus] = useState<LaborStatus>("pending_review");
-  const [searchTerm, setSearchTerm] = useState<string>("");
-  const [fromDate, setFromDate] = useState<string>("");
-  const [toDate, setToDate] = useState<string>("");
+
+  // Filter state is URL-backed so navigating to a CL → editing → returning
+  // via navigate(-1) restores the exact filter set. Bookmarkable too.
+  // `replace: true` on every setSearchParams so per-keystroke updates
+  // don't bloat browser history.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const statusParam = searchParams.get("status");
+  const status: LaborStatus =
+    statusParam && (VALID_STATUSES as string[]).includes(statusParam)
+      ? (statusParam as LaborStatus)
+      : "pending_review";
+  const searchTerm = searchParams.get("q") ?? "";
+  const fromDate = searchParams.get("from") ?? "";
+  const toDate = searchParams.get("to") ?? "";
+
+  const setParam = useCallback(
+    (key: string, value: string) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (value === "") next.delete(key);
+          else next.set(key, value);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const setStatus = (v: LaborStatus) => setParam("status", v);
+  const setSearchTerm = (v: string) => setParam("q", v);
+  const setFromDate = (v: string) => setParam("from", v);
+  const setToDate = (v: string) => setParam("to", v);
 
   const { data: lookups } = useLookups("projects,sub_cost_codes");
 
@@ -141,9 +173,17 @@ export default function LaborList() {
   }, [laborQuery.data, searchTerm, fromDate, toDate, projectById, sccById]);
 
   function clearFilters() {
-    setSearchTerm("");
-    setFromDate("");
-    setToDate("");
+    // Batched delete — one URL write, one re-render.
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("q");
+        next.delete("from");
+        next.delete("to");
+        return next;
+      },
+      { replace: true },
+    );
   }
 
   const totalRows = laborQuery.data?.length ?? 0;
