@@ -534,9 +534,9 @@ export default function LaborReviewScreen() {
   const handleSubmitForReview = async () => {
     if (!clQuery.data || submittingReview || saving) return;
     if (effectiveLines.length === 0) return;
-    const msg =
-      `Submit ${clQuery.data.employee_name}'s line items for review? Reviewers will be notified.`;
-    if (!confirm(msg)) return;
+    // No confirm — click is authoritative (per Chris 2026-07-02); the
+    // button is disabled while submitting so accidental double-taps are
+    // blocked and 409 "already submitted" is treated as success now.
     setSubmittingReview(true);
     let putSucceeded = false;
     try {
