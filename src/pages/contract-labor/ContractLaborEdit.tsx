@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, del, getList, getOne, post, put } from "../../api/client";
 import { useEntityList } from "../../hooks/useEntity";
 import ReviewTimeline from "../../components/ReviewTimeline";
@@ -28,7 +28,6 @@ const STATUS_CLASSES: Record<string, string> = {
 };
 
 const MAX_DAILY_HOURS = 8;
-const MR2_MARKUP_PERCENT = 5;
 
 interface LineRow {
   // Server identity (null = new, unsaved row)
@@ -128,6 +127,7 @@ export default function ContractLaborEdit() {
   const { id: publicId } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
+  const queryClient = useQueryClient();
   const [entry, setEntry] = useState<ContractLabor | null>(null);
   const [rowVersion, setRowVersion] = useState<string>("");
   // Bill metadata (vendor / number / date / due) used to be entered here;
@@ -279,16 +279,52 @@ export default function ContractLaborEdit() {
       const next = { ...row, ...patch };
       // Overhead toggle clears the project FK and disables the dropdown
       if (patch.is_overhead === true) next.project_id = "";
-      // MR2* project → auto-set markup to 5% (preserves Jinja behavior)
-      if (patch.project_id !== undefined && patch.project_id !== "") {
-        const p = projectById.get(Number(patch.project_id));
-        const abbr = (p?.abbreviation ?? "").trim().toUpperCase();
-        if (abbr.startsWith("MR2")) {
-          next.markup_percent = String(MR2_MARKUP_PERCENT);
-        }
-      }
       return next;
     }));
+    // Project changed to a real id → fire DB-source-of-truth lookup for
+    // (vendor × project). Same sproc the aggregator uses on TE submission
+    // (Vendor.Markup default + VendorProjectRate override — MR2 → 5%,
+    // Selvin → 35%, everyone-else → 50%). Silent-fail so user can still
+    // type manually if the endpoint is down. queryClient.fetchQuery
+    // caches per (vendor, project) so re-picks and cross-line lookups
+    // share a single round trip.
+    if (
+      patch.project_id !== undefined &&
+      patch.project_id !== "" &&
+      entry?.vendor_id
+    ) {
+      const vendorId = entry.vendor_id;
+      const projectId = Number(patch.project_id);
+      void queryClient
+        .fetchQuery({
+          queryKey: ["cl-effective-rate", vendorId, projectId],
+          queryFn: () =>
+            getOne<{
+              hourly_rate: string | null;
+              markup: string | null;
+              rate_source: string;
+            }>(
+              `/api/v1/contract-labor/effective-rate?vendor_id=${vendorId}&project_id=${projectId}`,
+            ),
+          staleTime: Infinity,
+        })
+        .then((r) => {
+          setLines((prev) =>
+            prev.map((row, i) => {
+              if (i !== index) return row;
+              // Only overwrite fields the DB actually returned.
+              const p: Partial<LineRow> = {};
+              if (r.hourly_rate !== null) p.rate = r.hourly_rate;
+              if (r.markup !== null)
+                p.markup_percent = String(Number(r.markup) * 100);
+              return { ...row, ...p };
+            }),
+          );
+        })
+        .catch((err) => {
+          console.error("Effective-rate lookup failed", err);
+        });
+    }
   }
 
   function addLine() {
