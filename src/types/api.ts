@@ -810,6 +810,13 @@ export interface ContractLabor {
    *  ReadContractLaborByPublicId. Lets the Edit page fetch the source
    *  TimeEntry's TimeLogs for the "Time Log Details" section. */
   source_time_entry_public_id?: string | null;
+  /** Distinct ProjectIds across all child line items. Populated by the
+   *  by-status list sproc so /labor/list search can match multi-project
+   *  CLs where the parent project_id is NULL (Migration 009). Empty on
+   *  single-fetch endpoints. */
+  line_item_project_ids?: number[];
+  /** Distinct SubCostCodeIds across all child line items — same reason. */
+  line_item_sub_cost_code_ids?: number[];
 }
 
 /** Downstream lineage for a TimeEntry — what labor row was created and
