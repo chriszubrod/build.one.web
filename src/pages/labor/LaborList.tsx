@@ -3,10 +3,15 @@ import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { FileText } from "lucide-react";
 import { getList } from "../../api/client";
+import { useLookups } from "../../hooks/useLookups";
 import NavHeader from "../../components/ui/NavHeader";
 import EntryCard from "../../components/ui/EntryCard";
 import SegmentedControl from "../../components/ui/SegmentedControl";
-import type { ContractLabor } from "../../types/api";
+import type {
+  ContractLabor,
+  LookupProject,
+  LookupSubCostCode,
+} from "../../types/api";
 
 function fmtIsoDate(s: string | null | undefined): string {
   if (!s) return "—";
@@ -66,9 +71,23 @@ const NO_MATCH_COPY = "No matching entries.";
 export default function LaborList() {
   const navigate = useNavigate();
   const [status, setStatus] = useState<LaborStatus>("pending_review");
-  const [nameFilter, setNameFilter] = useState<string>("");
+  const [searchTerm, setSearchTerm] = useState<string>("");
   const [fromDate, setFromDate] = useState<string>("");
   const [toDate, setToDate] = useState<string>("");
+
+  const { data: lookups } = useLookups("projects,sub_cost_codes");
+
+  const projectById = useMemo(() => {
+    const m = new Map<number, LookupProject>();
+    (lookups.projects ?? []).forEach((p: LookupProject) => m.set(p.id, p));
+    return m;
+  }, [lookups.projects]);
+
+  const sccById = useMemo(() => {
+    const m = new Map<number, LookupSubCostCode>();
+    (lookups.sub_cost_codes ?? []).forEach((s: LookupSubCostCode) => m.set(s.id, s));
+    return m;
+  }, [lookups.sub_cost_codes]);
 
   const laborQuery = useQuery<ContractLabor[]>({
     queryKey: ["contract-labor", "by-status", status],
@@ -77,10 +96,10 @@ export default function LaborList() {
   });
 
   const hasActiveFilters =
-    nameFilter.trim() !== "" || fromDate !== "" || toDate !== "";
+    searchTerm.trim() !== "" || fromDate !== "" || toDate !== "";
 
   const sorted = useMemo<ContractLabor[]>(() => {
-    const needle = nameFilter.trim().toLowerCase();
+    const needle = searchTerm.trim().toLowerCase();
     const rows = (laborQuery.data ?? []).slice();
     // Date-range filter on work_date (YYYY-MM-DD lexicographic compare works
     // because the format sorts naturally). Both bounds are inclusive; either
@@ -89,8 +108,28 @@ export default function LaborList() {
       const wd = (r.work_date ?? "").slice(0, 10);
       if (fromDate && (!wd || wd < fromDate)) return false;
       if (toDate && (!wd || wd > toDate)) return false;
-      if (needle && !(r.employee_name ?? "").toLowerCase().includes(needle))
-        return false;
+      if (needle) {
+        // Case-insensitive substring match against a haystack of the
+        // parent CL's searchable fields. Multi-project days that leave
+        // CL.project_id / CL.sub_cost_code_id NULL will only match on
+        // employee/job/description — the per-line project/SCC data
+        // isn't in the list payload. Covers ~84% single-line CLs fully.
+        const project = r.project_id ? projectById.get(r.project_id) : null;
+        const scc = r.sub_cost_code_id ? sccById.get(r.sub_cost_code_id) : null;
+        const haystack = [
+          r.employee_name,
+          r.job_name,
+          r.description,
+          project?.name,
+          project?.abbreviation,
+          scc?.number,
+          scc?.name,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(needle)) return false;
+      }
       return true;
     });
     return filtered.sort((a, b) => {
@@ -99,10 +138,10 @@ export default function LaborList() {
       if (ad !== bd) return bd.localeCompare(ad);
       return (a.employee_name ?? "").localeCompare(b.employee_name ?? "");
     });
-  }, [laborQuery.data, nameFilter, fromDate, toDate]);
+  }, [laborQuery.data, searchTerm, fromDate, toDate, projectById, sccById]);
 
   function clearFilters() {
-    setNameFilter("");
+    setSearchTerm("");
     setFromDate("");
     setToDate("");
   }
@@ -136,15 +175,15 @@ export default function LaborList() {
       <div className="labor-filter-bar">
         <div className="labor-filter-row">
           <label className="labor-filter-field labor-filter-field-grow">
-            <span className="labor-filter-label">Name</span>
+            <span className="labor-filter-label">Search</span>
             <input
               type="search"
               className="labor-filter-input"
-              placeholder="Filter by name…"
-              value={nameFilter}
-              onChange={(e) => setNameFilter(e.target.value)}
+              placeholder="Name, project, sub cost code…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
               autoComplete="off"
-              aria-label="Filter labor entries by worker name"
+              aria-label="Search labor entries by name, project, or sub cost code"
             />
           </label>
           <label className="labor-filter-field">
