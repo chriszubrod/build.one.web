@@ -657,9 +657,9 @@ export default function LaborReviewScreen() {
 
   const handleMarkReady = async () => {
     if (!isReady || !clQuery.data || saving) return;
-    const msg =
-      `Mark ${clQuery.data.employee_name} ready for billing? Once ready, line items can no longer be edited from this screen.`;
-    if (!confirm(msg)) return;
+    // No confirm — click is authoritative (per Chris 2026-07-02); button
+    // is disabled while `saving` is true so accidental double-taps are
+    // blocked. Same posture as Submit-for-review and Save-changes.
     setSaving(true);
     try {
       // bill_vendor_id / bill_date / due_date / bill_number are deliberately
