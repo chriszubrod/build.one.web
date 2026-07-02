@@ -994,10 +994,40 @@ export default function LaborReviewScreen() {
         open={pickingProjectForLineId !== null}
         onDismiss={() => setPickingProjectForLineId(null)}
         onSelect={(p) => {
-          if (pickingProjectForLineId) {
-            updateLine(pickingProjectForLineId, { project_id: p.id });
-          }
+          const lineId = pickingProjectForLineId;
           setPickingProjectForLineId(null);
+          if (!lineId) return;
+          updateLine(lineId, { project_id: p.id });
+          // DB-source-of-truth rate/markup for (vendor × project) — same
+          // sproc the aggregator uses on TE submission (Vendor.Markup
+          // default + VendorProjectRate override, MR2 → 5%, Selvin → 35%,
+          // everyone-else → 50%). Silent-fail so user can still type
+          // manually if the endpoint is down.
+          void queryClient
+            .fetchQuery({
+              queryKey: ["cl-effective-rate", cl.vendor_id, p.id],
+              queryFn: () =>
+                getOne<{
+                  hourly_rate: string | null;
+                  markup: string | null;
+                  rate_source: string;
+                }>(
+                  `/api/v1/contract-labor/effective-rate?vendor_id=${cl.vendor_id}&project_id=${p.id}`,
+                ),
+              staleTime: Infinity,
+            })
+            .then((r) => {
+              const patch: LineEdit = {};
+              if (r.hourly_rate !== null)
+                patch.rate = decimalToDisplayString(r.hourly_rate);
+              if (r.markup !== null)
+                patch.markup_pct = markupToPctDisplayString(r.markup);
+              if (Object.keys(patch).length > 0) updateLine(lineId, patch);
+            })
+            .catch((err) => {
+              // Silent per policy — non-blocking helper.
+              console.error("Effective-rate lookup failed", err);
+            });
         }}
       />
     </>
