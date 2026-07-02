@@ -4373,7 +4373,7 @@ a.scout-record-header-link:hover .scout-record-name {
 
 .description-area textarea {
   width: 100%;
-  min-height: 56px;
+  min-height: 112px;
   border: none;
   outline: none;
   background: transparent;
