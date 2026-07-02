@@ -35,22 +35,28 @@ function abbrev(name: string): string {
   return name.replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase() || "—";
 }
 
-type LaborStatus = "pending_review" | "ready" | "billed";
+// Interim vocab (2026-07-02): 'submitted' shim added alongside legacy
+// pending_review / ready / billed. Full rename (pending_review → draft;
+// ready → approved; billed → completed) lands in a follow-up.
+type LaborStatus = "pending_review" | "submitted" | "ready" | "billed";
 
 const STATUS_OPTIONS: { value: LaborStatus; label: string }[] = [
   { value: "pending_review", label: "Pending" },
+  { value: "submitted", label: "Submitted" },
   { value: "ready", label: "Ready" },
   { value: "billed", label: "Billed" },
 ];
 
 const SECTION_LABEL: Record<LaborStatus, string> = {
   pending_review: "Pending review",
+  submitted: "Submitted for review",
   ready: "Ready for billing",
   billed: "Billed",
 };
 
 const EMPTY_COPY: Record<LaborStatus, string> = {
   pending_review: "Nothing to review.",
+  submitted: "Nothing awaiting reviewer reply.",
   ready: "Nothing ready for billing.",
   billed: "Nothing billed yet.",
 };
