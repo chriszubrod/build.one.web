@@ -20,7 +20,11 @@ export default function AppLayout() {
       <RotateOverlay />
       <div className="app-shell">
         <AppSidebar />
-        <main className="app-shell-content">
+        {/* id="content" makes this element the canonical scroll container
+            for pages under AppLayout (matches the convention BillLayout +
+            BudgetLayout already use). Pages that save/restore scroll position
+            (e.g., TimeEntryList) target it via document.getElementById. */}
+        <main id="content" className="app-shell-content">
           <Outlet />
         </main>
         <BottomTabBar />

@@ -138,8 +138,8 @@ describe("clearAllUserScopedStorage", () => {
     // Set up: user signed in with some agent chat history persisted.
     localStorage.setItem("access_token", makeFakeJwt({ uid: "user-A" }));
     localStorage.setItem("username", "user-a-name");
-    localStorage.setItem("intelligence.conversation.scout.v2", "scout-current-thread");
-    localStorage.setItem("intelligence.conversations.scout.v2", JSON.stringify([{ id: 1 }]));
+    localStorage.setItem("intelligence.conversation.buildone.v2", "buildone-current-thread");
+    localStorage.setItem("intelligence.conversations.buildone.v2", JSON.stringify([{ id: 1 }]));
     localStorage.setItem("intelligence.conversation.bill_specialist.v2", "bill-thread");
     // A non-matching key that must be preserved.
     localStorage.setItem("unrelated.app.setting", "keep-me");
@@ -149,8 +149,8 @@ describe("clearAllUserScopedStorage", () => {
     await clearAllUserScopedStorage();
 
     // All agent transcript keys are gone.
-    expect(localStorage.getItem("intelligence.conversation.scout.v2")).toBeNull();
-    expect(localStorage.getItem("intelligence.conversations.scout.v2")).toBeNull();
+    expect(localStorage.getItem("intelligence.conversation.buildone.v2")).toBeNull();
+    expect(localStorage.getItem("intelligence.conversations.buildone.v2")).toBeNull();
     expect(localStorage.getItem("intelligence.conversation.bill_specialist.v2")).toBeNull();
     // Unrelated entries survive — we don't nuke localStorage indiscriminately.
     expect(localStorage.getItem("unrelated.app.setting")).toBe("keep-me");

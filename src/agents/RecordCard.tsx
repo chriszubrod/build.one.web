@@ -1,5 +1,5 @@
 /**
- * RecordCard — structured rendering of a single entity record that scout
+ * RecordCard — structured rendering of a single entity record that Build.One
  * emits as a fenced `record` JSON block at the end of its answer.
  *
  * The tray's parser strips the block from the markdown text and hands the
@@ -50,25 +50,25 @@ export default function RecordCard({ record }: { record: AgentRecord }) {
 function SubCostCodeCard({ record }: { record: SubCostCodeRecord }) {
   const headerInner = (
     <>
-      <span className="scout-record-entity">sub-cost-code</span>
-      <span className="scout-record-number">{record.number ?? "—"}</span>
-      <span className="scout-record-name">{record.name ?? "—"}</span>
+      <span className="buildone-record-entity">sub-cost-code</span>
+      <span className="buildone-record-number">{record.number ?? "—"}</span>
+      <span className="buildone-record-name">{record.name ?? "—"}</span>
     </>
   );
   return (
-    <div className="scout-record scout-record-sub-cost-code">
+    <div className="buildone-record buildone-record-sub-cost-code">
       {record.public_id ? (
         <Link
           to={entityRoute("sub_cost_code", record.public_id)}
-          className="scout-record-header scout-record-header-link"
+          className="buildone-record-header buildone-record-header-link"
           title="Open sub-cost-code page"
         >
           {headerInner}
         </Link>
       ) : (
-        <div className="scout-record-header">{headerInner}</div>
+        <div className="buildone-record-header">{headerInner}</div>
       )}
-      <dl className="scout-record-fields">
+      <dl className="buildone-record-fields">
         {record.description ? (
           <>
             <dt>Description</dt>
@@ -104,25 +104,25 @@ function SubCostCodeCard({ record }: { record: SubCostCodeRecord }) {
 function CostCodeCard({ record }: { record: CostCodeRecord }) {
   const headerInner = (
     <>
-      <span className="scout-record-entity">cost code</span>
-      <span className="scout-record-number">{record.number ?? "—"}</span>
-      <span className="scout-record-name">{record.name ?? "—"}</span>
+      <span className="buildone-record-entity">cost code</span>
+      <span className="buildone-record-number">{record.number ?? "—"}</span>
+      <span className="buildone-record-name">{record.name ?? "—"}</span>
     </>
   );
   return (
-    <div className="scout-record scout-record-cost-code">
+    <div className="buildone-record buildone-record-cost-code">
       {record.public_id ? (
         <Link
           to={entityRoute("cost_code", record.public_id)}
-          className="scout-record-header scout-record-header-link"
+          className="buildone-record-header buildone-record-header-link"
           title="Open cost code page"
         >
           {headerInner}
         </Link>
       ) : (
-        <div className="scout-record-header">{headerInner}</div>
+        <div className="buildone-record-header">{headerInner}</div>
       )}
-      <dl className="scout-record-fields">
+      <dl className="buildone-record-fields">
         {record.description ? (
           <>
             <dt>Description</dt>
@@ -150,12 +150,12 @@ function ParentPill({
   // so this stays non-clickable for now. Could be linkified once we
   // include parent.public_id in the record schema.
   return (
-    <span className="scout-record-pill">
-      <span className="scout-record-pill-entity">cost code</span>
-      <span className="scout-record-pill-number">
+    <span className="buildone-record-pill">
+      <span className="buildone-record-pill-entity">cost code</span>
+      <span className="buildone-record-pill-number">
         {parent.number ?? "—"}
       </span>
-      <span className="scout-record-pill-name">{parent.name ?? "—"}</span>
+      <span className="buildone-record-pill-name">{parent.name ?? "—"}</span>
     </span>
   );
 }
@@ -186,7 +186,7 @@ function CopyableCode({ value }: { value: string }) {
 
   return (
     <code
-      className="scout-record-copyable"
+      className="buildone-record-copyable"
       onClick={onClick}
       title="Click to copy"
       role="button"
@@ -199,7 +199,7 @@ function CopyableCode({ value }: { value: string }) {
       }}
     >
       {value}
-      <span className="scout-record-copied" aria-hidden={!copied}>
+      <span className="buildone-record-copied" aria-hidden={!copied}>
         {copied ? "copied" : "copy"}
       </span>
     </code>

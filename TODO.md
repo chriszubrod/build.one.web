@@ -77,7 +77,7 @@ Project-scoped vs entity-scoped doors decision (2026-06-17): **both, sharing one
 - [ ] **Cross-entity Search.** Multi-week — needs API + indexing decision. When built, lands as a header bar input (cmd-K) — NOT a menuConfig entry.
 - [ ] **Dashboard.** Defer until Phase 3 telemetry shows what roles open first. Too many audience-specific KPIs to spec prematurely.
 - [ ] **Inbox / Email Messages.** Gated on the larger inbox rebuild per umbrella MEMORY.md — no timeline.
-- [ ] **ScoutTray revival.** Separate UX project.
+- [ ] **BuildOneTray revival.** Separate UX project.
 
 ### Anti-patterns to avoid (codebase-specific)
 
@@ -87,7 +87,7 @@ Project-scoped vs entity-scoped doors decision (2026-06-17): **both, sharing one
 - Don't gate menuConfig entries on hardcoded role name strings. Use module read perms or `is_admin`.
 - Don't add Reports / Inbox menuConfig entries as placeholders — both need API support that doesn't exist.
 - Don't touch `NavHeader.tsx` per-page back/title conventions — orthogonal to top-level nav.
-- Don't revive `ScoutTray` or `src/agents/` tree as part of nav work — separate UX project.
+- Don't revive `BuildOneTray` or `src/agents/` tree as part of nav work — separate UX project.
 
 ---
 
@@ -100,7 +100,9 @@ cleanup, Sign out of all devices, agent transcript scoping) shipped this
 session. The items below are API-repo work, in priority order per the
 user's answers to the open questions.
 
-### Phase 0.5 — URGENT user-facing: refresh cookie never reaches the API (SameSite=Lax + cross-site)
+### Phase 0.5 — refresh cookie never reaches the API (SameSite=Lax + cross-site) — ⏳ Path B IN PROGRESS (2026-07-10)
+
+> **UPDATE 2026-07-10 — Path A REVERTED; Path B underway; deploy HELD at Gate 2.** Path A (SameSite=None) was built then reverted: Codex Pass-1 confirmed a **P1** — even once the cookies transmit cross-site, the CSRF double-submit still 403s because the web reads `token.csrf` from `document.cookie` (`src/api/client.ts:68`) but that cookie is host-only on the API host and unreadable from `app.bld-one.com`. Path A just trades a 401 for a 403; the hourly logout persists (plus SameSite=None is third-party-cookie auth → Safari ITP / Chrome phase-out fragility). Pivoted to **Path B (custom API domain `api.bld-one.com`)** → app+api share eTLD+1 `bld-one.com` → same-site → Lax works AND the CSRF cookie is readable (scoped `Domain=bld-one.com`). **Progress:** DNS live; `api.bld-one.com` hostname + managed cert bound & serving; API cookie fix committed (`build.one.api` `feat/model-cascade` `1294d1f`, NOT deployed). **Remaining web step:** flip `VITE_API_BASE_URL` → `https://api.bld-one.com` + SWA deploy — do this AFTER the API deploy (web-first against old code → 403 on refresh), scoping around the 2 dirty WIP files currently on `feat/buildone-orchestrator`. Full runbook + API detail: `build.one.api/TODO.md` "Auth cross-site 'hourly re-login' fix → Path B". The original Path A/B write-up below is retained for context — Path A is now moot.
 
 - [ ] **Fix the refresh-cookie cross-site drop.** Surfaced 2026-06-16. User reports being forced to log in roughly every hour. Root cause confirmed by reading `entities/auth/api/router.py:95-120` + `.env:18`: the three auth cookies (`access_token`, `refresh_token`, `token.csrf`) are all set with `samesite="lax"`. The web is hosted at `app.bld-one.com`; the API is at `buildone-esgaducjg4d3eucf.eastus-01.azurewebsites.net`. These are different sites (different eTLD+1). `SameSite=Lax` allows cookies on top-level navigation but **NOT on `fetch()` cross-site requests**. So every time the access token expires (60 min per `access_token_expire_seconds=3600`), the web POSTs to `/api/v1/auth/refresh` → browser refuses to send the refresh cookie → server returns 401 → user bounces to /login. The 30-day refresh token TTL is irrelevant because the cookie never reaches the server.
 

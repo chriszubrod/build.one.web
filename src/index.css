@@ -782,6 +782,24 @@ body {
   }
 }
 
+/* Table cell wrapper used when a row should be cmd/middle/right-clickable
+   to open a record in a new tab. Wrap the cell's content in
+   <Link className="table-row-link">; the link fills the cell, inherits
+   text styling, and the row's hover state still applies via parent .tr. */
+.table-row-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  /* Pull link to cell edges so the whole cell area is clickable. */
+  margin: -1px -2px;
+  padding: 1px 2px;
+}
+.table-row-link:hover,
+.table-row-link:focus {
+  color: inherit;
+  text-decoration: none;
+}
+
 /* Project / multi-value cell truncation — applied per-cell, not globally.
    Truncates with ellipsis at mobile, wraps to multiple lines at tablet+. */
 .cell-multi-truncate {
@@ -1741,10 +1759,10 @@ button[type="submit"]:disabled {
   margin-top: var(--space-xl);
 }
 
-/* ── Scout / agent tray ───────────────────────────────────────────────── */
+/* ── Build.One / agent tray ───────────────────────────────────────────────── */
 
-.scout-tray {
-  --scout-width: 420px;
+.buildone-tray {
+  --buildone-width: 420px;
   width: 0;
   flex-shrink: 0;
   overflow: hidden;
@@ -1753,19 +1771,19 @@ button[type="submit"]:disabled {
   transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.scout-tray-open {
-  width: var(--scout-width);
+.buildone-tray-open {
+  width: var(--buildone-width);
 }
 
-.scout-tray-inner {
-  width: var(--scout-width);
+.buildone-tray-inner {
+  width: var(--buildone-width);
   height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--color-surface);
 }
 
-.scout-tray-header {
+.buildone-tray-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1774,13 +1792,13 @@ button[type="submit"]:disabled {
   flex-shrink: 0;
 }
 
-.scout-tray-header-actions {
+.buildone-tray-header-actions {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.scout-tray-new {
+.buildone-tray-new {
   background: transparent;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -1791,16 +1809,16 @@ button[type="submit"]:disabled {
   cursor: pointer;
 }
 
-.scout-tray-new:hover {
+.buildone-tray-new:hover {
   background: var(--color-bg);
   color: var(--color-text);
 }
 
-.scout-history {
+.buildone-history {
   position: relative;
 }
 
-.scout-history-toggle {
+.buildone-history-toggle {
   background: transparent;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -1811,12 +1829,12 @@ button[type="submit"]:disabled {
   cursor: pointer;
 }
 
-.scout-history-toggle:hover {
+.buildone-history-toggle:hover {
   background: var(--color-bg);
   color: var(--color-text);
 }
 
-.scout-history-panel {
+.buildone-history-panel {
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
@@ -1831,7 +1849,7 @@ button[type="submit"]:disabled {
   z-index: 50;
 }
 
-.scout-history-new {
+.buildone-history-new {
   display: block;
   width: 100%;
   text-align: left;
@@ -1845,21 +1863,21 @@ button[type="submit"]:disabled {
   border-radius: var(--radius-xs);
 }
 
-.scout-history-new:hover:not(:disabled) {
+.buildone-history-new:hover:not(:disabled) {
   background: var(--color-bg);
 }
 
-.scout-history-new:disabled {
+.buildone-history-new:disabled {
   color: var(--color-text-muted);
   cursor: not-allowed;
 }
 
-.scout-history-sep {
+.buildone-history-sep {
   border-top: 1px solid var(--color-border);
   margin: var(--space-xs) 0;
 }
 
-.scout-history-label {
+.buildone-history-label {
   font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   text-transform: uppercase;
@@ -1867,13 +1885,13 @@ button[type="submit"]:disabled {
   padding: var(--space-xs) 10px;
 }
 
-.scout-history-list {
+.buildone-history-list {
   list-style: none;
   padding: 0;
   margin: 0;
 }
 
-.scout-history-item {
+.buildone-history-item {
   display: block;
   width: 100%;
   text-align: left;
@@ -1885,11 +1903,11 @@ button[type="submit"]:disabled {
   border-radius: var(--radius-xs);
 }
 
-.scout-history-item:hover {
+.buildone-history-item:hover {
   background: var(--color-bg);
 }
 
-.scout-history-title {
+.buildone-history-title {
   font-size: var(--font-size-footnote);
   color: var(--color-text);
   line-height: 1.35;
@@ -1900,20 +1918,20 @@ button[type="submit"]:disabled {
   -webkit-box-orient: vertical;
 }
 
-.scout-history-meta {
+.buildone-history-meta {
   font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   margin-top: 2px;
 }
 
-.scout-tray-title {
+.buildone-tray-title {
   margin: 0;
   font-size: var(--font-size-body);
   font-weight: 600;
   letter-spacing: 0.01em;
 }
 
-.scout-tray-close {
+.buildone-tray-close {
   background: transparent;
   border: none;
   font-size: var(--font-size-title-2);
@@ -1924,12 +1942,12 @@ button[type="submit"]:disabled {
   border-radius: var(--radius-xs);
 }
 
-.scout-tray-close:hover {
+.buildone-tray-close:hover {
   background: var(--color-bg);
   color: var(--color-text);
 }
 
-.scout-tray-body {
+.buildone-tray-body {
   flex: 1;
   overflow-y: auto;
   padding: var(--space-md) 14px;
@@ -1938,7 +1956,7 @@ button[type="submit"]:disabled {
   gap: 10px;
 }
 
-.scout-tray-form {
+.buildone-tray-form {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
@@ -1948,18 +1966,18 @@ button[type="submit"]:disabled {
   background: var(--color-surface);
 }
 
-.scout-tray-form-actions {
+.buildone-tray-form-actions {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
 }
 
-.scout-tray-form-actions button {
+.buildone-tray-form-actions button {
   width: auto;
 }
 
 /* Header trigger button */
-.header-scout {
+.header-buildone {
   background: transparent;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -1972,24 +1990,24 @@ button[type="submit"]:disabled {
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-.header-scout:hover {
+.header-buildone:hover {
   background: var(--color-bg);
 }
 
-.header-scout.is-open {
+.header-buildone.is-open {
   background: var(--color-primary);
   color: var(--color-on-primary);
   border-color: var(--color-primary);
 }
 
-.scout-empty {
+.buildone-empty {
   color: var(--color-text-muted);
   font-style: italic;
   padding: var(--space-md) 0;
   font-size: var(--font-size-footnote);
 }
 
-.scout-thinking {
+.buildone-thinking {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1998,33 +2016,33 @@ button[type="submit"]:disabled {
   padding: 10px var(--space-xs);
 }
 
-.scout-thinking-dots {
+.buildone-thinking-dots {
   display: inline-flex;
   gap: var(--space-xs);
 }
 
-.scout-thinking-dots > span {
+.buildone-thinking-dots > span {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--color-primary);
   opacity: 0.25;
-  animation: scout-dot-pulse 1.2s ease-in-out infinite;
+  animation: buildone-dot-pulse 1.2s ease-in-out infinite;
 }
 
-.scout-thinking-dots > span:nth-child(2) {
+.buildone-thinking-dots > span:nth-child(2) {
   animation-delay: 0.18s;
 }
 
-.scout-thinking-dots > span:nth-child(3) {
+.buildone-thinking-dots > span:nth-child(3) {
   animation-delay: 0.36s;
 }
 
-.scout-thinking-label {
+.buildone-thinking-label {
   font-style: italic;
 }
 
-@keyframes scout-dot-pulse {
+@keyframes buildone-dot-pulse {
   0%, 80%, 100% {
     opacity: 0.25;
     transform: scale(0.8);
@@ -2036,13 +2054,13 @@ button[type="submit"]:disabled {
 }
 
 /* User message — right-aligned bubble */
-.scout-user-row {
+.buildone-user-row {
   display: flex;
   justify-content: flex-end;
   margin-top: 6px;
 }
 
-.scout-user-bubble {
+.buildone-user-bubble {
   max-width: 86%;
   background: var(--color-primary);
   color: var(--color-on-primary);
@@ -2055,25 +2073,25 @@ button[type="submit"]:disabled {
 }
 
 /* Agent response block */
-.scout-agent-block {
+.buildone-agent-block {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
 }
 
-.scout-lane {
+.buildone-lane {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
 }
 
-.scout-lane-sub {
+.buildone-lane-sub {
   margin-left: var(--space-lg);
   padding-left: var(--space-md);
   border-left: 2px solid var(--color-border);
 }
 
-.scout-lane-header {
+.buildone-lane-header {
   font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   text-transform: lowercase;
@@ -2081,24 +2099,24 @@ button[type="submit"]:disabled {
   margin-bottom: 2px;
 }
 
-.scout-lane-agent {
+.buildone-lane-agent {
   font-family: var(--font-mono);
   color: var(--color-text);
 }
 
-.scout-turn {
+.buildone-turn {
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   padding: 10px var(--space-md);
 }
 
-.scout-turn-live {
+.buildone-turn-live {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 1px var(--color-focus-ring);
 }
 
-.scout-turn-header {
+.buildone-turn-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -2107,66 +2125,66 @@ button[type="submit"]:disabled {
   margin-bottom: var(--space-sm);
 }
 
-.scout-turn-number {
+.buildone-turn-number {
   font-weight: 600;
 }
 
-.scout-turn-model {
+.buildone-turn-model {
   font-family: var(--font-mono);
 }
 
-.scout-turn-text {
+.buildone-turn-text {
   line-height: 1.55;
   margin-top: var(--space-sm);
   font-size: var(--font-size-footnote);
 }
 
-/* ── Markdown rendering inside .scout-turn-text ─────────────────────── */
+/* ── Markdown rendering inside .buildone-turn-text ─────────────────────── */
 
-.scout-turn-text > *:first-child { margin-top: 0; }
-.scout-turn-text > *:last-child { margin-bottom: 0; }
+.buildone-turn-text > *:first-child { margin-top: 0; }
+.buildone-turn-text > *:last-child { margin-bottom: 0; }
 
-.scout-turn-text p {
+.buildone-turn-text p {
   margin: 6px 0;
 }
 
-.scout-turn-text h1,
-.scout-turn-text h2,
-.scout-turn-text h3,
-.scout-turn-text h4 {
+.buildone-turn-text h1,
+.buildone-turn-text h2,
+.buildone-turn-text h3,
+.buildone-turn-text h4 {
   margin: 10px 0 var(--space-xs);
   font-weight: 600;
   line-height: 1.3;
 }
 
-.scout-turn-text h1 { font-size: var(--font-size-callout); }
-.scout-turn-text h2 { font-size: var(--font-size-body); }
-.scout-turn-text h3 { font-size: var(--font-size-footnote); }
-.scout-turn-text h4 { font-size: var(--font-size-footnote); }
+.buildone-turn-text h1 { font-size: var(--font-size-callout); }
+.buildone-turn-text h2 { font-size: var(--font-size-body); }
+.buildone-turn-text h3 { font-size: var(--font-size-footnote); }
+.buildone-turn-text h4 { font-size: var(--font-size-footnote); }
 
-.scout-turn-text strong {
+.buildone-turn-text strong {
   font-weight: 600;
 }
 
-.scout-turn-text em {
+.buildone-turn-text em {
   font-style: italic;
 }
 
-.scout-turn-text ul,
-.scout-turn-text ol {
+.buildone-turn-text ul,
+.buildone-turn-text ol {
   padding-left: var(--space-xl);
   margin: 6px 0;
 }
 
-.scout-turn-text li {
+.buildone-turn-text li {
   margin: 2px 0;
 }
 
-.scout-turn-text li > p {
+.buildone-turn-text li > p {
   margin: 2px 0;
 }
 
-.scout-turn-text code {
+.buildone-turn-text code {
   font-family: var(--font-mono);
   font-size: var(--font-size-caption);
   background: var(--color-bg);
@@ -2175,7 +2193,7 @@ button[type="submit"]:disabled {
   padding: 1px 5px;
 }
 
-.scout-turn-text pre {
+.buildone-turn-text pre {
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -2186,64 +2204,64 @@ button[type="submit"]:disabled {
   line-height: 1.45;
 }
 
-.scout-turn-text pre code {
+.buildone-turn-text pre code {
   background: transparent;
   border: none;
   padding: 0;
   font-size: inherit;
 }
 
-.scout-turn-text blockquote {
+.buildone-turn-text blockquote {
   margin: var(--space-sm) 0;
   padding: 0 var(--space-md);
   color: var(--color-text-muted);
   border-left: 3px solid var(--color-border);
 }
 
-.scout-turn-text a {
+.buildone-turn-text a {
   color: var(--color-primary);
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
 }
 
-.scout-turn-text a:hover {
+.buildone-turn-text a:hover {
   color: var(--color-primary-hover);
 }
 
-.scout-turn-text hr {
+.buildone-turn-text hr {
   border: 0;
   border-top: 1px solid var(--color-border);
   margin: 10px 0;
 }
 
-.scout-turn-text table {
+.buildone-turn-text table {
   border-collapse: collapse;
   width: 100%;
   margin: var(--space-sm) 0;
   font-size: var(--font-size-footnote);
 }
 
-.scout-turn-text th,
-.scout-turn-text td {
+.buildone-turn-text th,
+.buildone-turn-text td {
   border: 1px solid var(--color-border);
   padding: var(--space-xs) var(--space-sm);
   text-align: left;
   vertical-align: top;
 }
 
-.scout-turn-text th {
+.buildone-turn-text th {
   background: var(--color-bg);
   font-weight: 600;
 }
 
-.scout-turn-text tr:nth-child(even) td {
+.buildone-turn-text tr:nth-child(even) td {
   background: var(--color-surface-tint);
 }
 
 /* ── Approval card ────────────────────────────────────────────────────── */
 
-.scout-approval {
+.buildone-approval {
   margin: var(--space-sm) 0;
   border: 1px solid var(--color-border);
   border-left: 4px solid var(--color-warning);
@@ -2251,23 +2269,23 @@ button[type="submit"]:disabled {
   background: var(--color-warning-bg);
 }
 
-.scout-approval-approved {
+.buildone-approval-approved {
   border-left-color: var(--color-success);
   background: var(--color-success-bg);
 }
 
-.scout-approval-rejected {
+.buildone-approval-rejected {
   border-left-color: var(--color-error);
   background: var(--color-danger-bg);
 }
 
-.scout-approval-timed_out {
+.buildone-approval-timed_out {
   border-left-color: var(--color-text-subtle);
   background: var(--color-surface-tint);
   opacity: 0.85;
 }
 
-.scout-approval-header {
+.buildone-approval-header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -2279,26 +2297,26 @@ button[type="submit"]:disabled {
   color: var(--color-text-muted);
 }
 
-.scout-approval-approved .scout-approval-status { color: var(--color-success); font-weight: 600; }
-.scout-approval-pending .scout-approval-status { color: var(--color-warning); font-weight: 600; }
-.scout-approval-rejected .scout-approval-status { color: var(--color-error); font-weight: 600; }
-.scout-approval-timed_out .scout-approval-status { color: var(--color-text-subtle); }
+.buildone-approval-approved .buildone-approval-status { color: var(--color-success); font-weight: 600; }
+.buildone-approval-pending .buildone-approval-status { color: var(--color-warning); font-weight: 600; }
+.buildone-approval-rejected .buildone-approval-status { color: var(--color-error); font-weight: 600; }
+.buildone-approval-timed_out .buildone-approval-status { color: var(--color-text-subtle); }
 
-.scout-approval-tool {
+.buildone-approval-tool {
   font-family: var(--font-mono);
   text-transform: none;
   letter-spacing: 0;
   font-size: var(--font-size-caption);
 }
 
-.scout-approval-summary {
+.buildone-approval-summary {
   padding: 0 var(--space-md) var(--space-sm);
   font-size: var(--font-size-footnote);
   font-weight: 600;
   color: var(--color-text);
 }
 
-.scout-approval-fields {
+.buildone-approval-fields {
   margin: 0;
   padding: 0 var(--space-md) var(--space-sm);
   display: grid;
@@ -2307,11 +2325,11 @@ button[type="submit"]:disabled {
   font-size: var(--font-size-footnote);
 }
 
-.scout-approval-field {
+.buildone-approval-field {
   display: contents;
 }
 
-.scout-approval-fields dt {
+.buildone-approval-fields dt {
   color: var(--color-text-muted);
   font-size: var(--font-size-caption);
   text-transform: uppercase;
@@ -2319,50 +2337,50 @@ button[type="submit"]:disabled {
   padding-top: 2px;
 }
 
-.scout-approval-fields dd {
+.buildone-approval-fields dd {
   margin: 0;
   word-break: break-word;
   font-family: var(--font-mono);
   font-size: var(--font-size-caption);
 }
 
-.scout-approval-empty {
+.buildone-approval-empty {
   padding: var(--space-xs) var(--space-md) var(--space-sm);
   color: var(--color-text-muted);
   font-style: italic;
   font-size: var(--font-size-caption);
 }
 
-.scout-approval-form {
+.buildone-approval-form {
   padding: var(--space-xs) var(--space-md) var(--space-sm);
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
 }
 
-.scout-approval-form-row {
+.buildone-approval-form-row {
   display: flex;
   flex-direction: column;
   gap: 3px;
   font-size: var(--font-size-footnote);
 }
 
-.scout-approval-form-label {
+.buildone-approval-form-label {
   font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
-.scout-approval-form-label-changed::after {
+.buildone-approval-form-label-changed::after {
   content: " · edited";
   color: var(--color-warning);
   font-weight: 600;
 }
 
-.scout-approval-form-row input[type="text"],
-.scout-approval-form-row input[type="number"],
-.scout-approval-form-textarea {
+.buildone-approval-form-row input[type="text"],
+.buildone-approval-form-row input[type="number"],
+.buildone-approval-form-textarea {
   width: 100%;
   padding: 6px 10px;
   border: 1px solid var(--color-border);
@@ -2374,38 +2392,38 @@ button[type="submit"]:disabled {
   resize: vertical;
 }
 
-.scout-approval-form-row input[type="checkbox"] {
+.buildone-approval-form-row input[type="checkbox"] {
   width: auto;
   margin-right: 6px;
 }
 
-.scout-approval-form-help {
+.buildone-approval-form-help {
   font-size: var(--font-size-caption);
   color: var(--color-text-muted);
 }
 
-.scout-approval-actions {
+.buildone-approval-actions {
   display: flex;
   gap: 6px;
   padding: 0 var(--space-md) 10px;
   align-items: center;
 }
 
-.scout-approval-actions-spacer {
+.buildone-approval-actions-spacer {
   flex: 1;
 }
 
-.scout-approval-actions button {
+.buildone-approval-actions button {
   width: auto;
 }
 
-.scout-approval-error {
+.buildone-approval-error {
   padding: 6px var(--space-md);
   color: var(--color-error);
   font-size: var(--font-size-caption);
 }
 
-.scout-approval-diff-note {
+.buildone-approval-diff-note {
   padding: 0 var(--space-md) 10px;
   font-size: var(--font-size-caption);
   color: var(--color-text-muted);
@@ -2415,7 +2433,7 @@ button[type="submit"]:disabled {
 
 /* ── Record cards ─────────────────────────────────────────────────────── */
 
-.scout-record {
+.buildone-record {
   margin: var(--space-sm) 0 2px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -2423,7 +2441,7 @@ button[type="submit"]:disabled {
   overflow: hidden;
 }
 
-.scout-record-header {
+.buildone-record-header {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
@@ -2433,24 +2451,24 @@ button[type="submit"]:disabled {
   border-bottom: 1px solid var(--color-border);
 }
 
-a.scout-record-header-link {
+a.buildone-record-header-link {
   text-decoration: none;
   color: inherit;
   transition: background 0.15s;
   cursor: pointer;
 }
 
-a.scout-record-header-link:hover {
+a.buildone-record-header-link:hover {
   background: var(--color-info-bg);
 }
 
-a.scout-record-header-link:hover .scout-record-name {
+a.buildone-record-header-link:hover .buildone-record-name {
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
 }
 
-.scout-record-entity {
+.buildone-record-entity {
   font-size: var(--font-size-caption);
   font-weight: 600;
   text-transform: uppercase;
@@ -2458,20 +2476,20 @@ a.scout-record-header-link:hover .scout-record-name {
   color: var(--color-text-muted);
 }
 
-.scout-record-number {
+.buildone-record-number {
   font-family: var(--font-mono);
   font-size: var(--font-size-footnote);
   font-weight: 600;
   color: var(--color-primary);
 }
 
-.scout-record-name {
+.buildone-record-name {
   font-size: var(--font-size-footnote);
   font-weight: 600;
   color: var(--color-text);
 }
 
-.scout-record-fields {
+.buildone-record-fields {
   margin: 0;
   padding: var(--space-sm) var(--space-md);
   display: grid;
@@ -2480,7 +2498,7 @@ a.scout-record-header-link:hover .scout-record-name {
   font-size: var(--font-size-footnote);
 }
 
-.scout-record-fields dt {
+.buildone-record-fields dt {
   color: var(--color-text-muted);
   font-size: var(--font-size-caption);
   text-transform: uppercase;
@@ -2488,13 +2506,13 @@ a.scout-record-header-link:hover .scout-record-name {
   padding-top: 2px;
 }
 
-.scout-record-fields dd {
+.buildone-record-fields dd {
   margin: 0;
   min-width: 0;
   word-break: break-word;
 }
 
-.scout-record-fields code {
+.buildone-record-fields code {
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xs);
@@ -2504,7 +2522,7 @@ a.scout-record-header-link:hover .scout-record-name {
 }
 
 /* Parent reference pill */
-.scout-record-pill {
+.buildone-record-pill {
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
@@ -2515,37 +2533,37 @@ a.scout-record-header-link:hover .scout-record-name {
   font-size: var(--font-size-caption);
 }
 
-.scout-record-pill-entity {
+.buildone-record-pill-entity {
   font-size: var(--font-size-caption);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--color-text-muted);
 }
 
-.scout-record-pill-number {
+.buildone-record-pill-number {
   font-family: var(--font-mono);
   font-weight: 600;
   color: var(--color-primary);
 }
 
-.scout-record-pill-name {
+.buildone-record-pill-name {
   color: var(--color-text);
 }
 
 /* Copyable identifier */
-.scout-record-copyable {
+.buildone-record-copyable {
   position: relative;
   cursor: pointer;
   transition: background 0.15s;
 }
 
-.scout-record-copyable:hover,
-.scout-record-copyable:focus {
+.buildone-record-copyable:hover,
+.buildone-record-copyable:focus {
   background: var(--color-info-bg);
   outline: none;
 }
 
-.scout-record-copied {
+.buildone-record-copied {
   position: absolute;
   top: -2px;
   right: -2px;
@@ -2559,18 +2577,18 @@ a.scout-record-header-link:hover .scout-record-name {
   white-space: nowrap;
 }
 
-.scout-record-copyable:hover .scout-record-copied,
-.scout-record-copyable:focus .scout-record-copied {
+.buildone-record-copyable:hover .buildone-record-copied,
+.buildone-record-copyable:focus .buildone-record-copied {
   opacity: 1;
 }
 
-.scout-turn-waiting {
+.buildone-turn-waiting {
   color: var(--color-text-muted);
   font-style: italic;
   padding: var(--space-xs) 0;
 }
 
-.scout-tool-calls {
+.buildone-tool-calls {
   list-style: none;
   display: flex;
   flex-direction: column;
@@ -2579,25 +2597,25 @@ a.scout-record-header-link:hover .scout-record-name {
   margin: 0 0 var(--space-sm) 0;
 }
 
-.scout-tool-call {
+.buildone-tool-call {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-surface-tint);
 }
 
-.scout-tool-call-ok {
+.buildone-tool-call-ok {
   border-left: 3px solid var(--color-success);
 }
 
-.scout-tool-call-error {
+.buildone-tool-call-error {
   border-left: 3px solid var(--color-error);
 }
 
-.scout-tool-call-pending {
+.buildone-tool-call-pending {
   border-left: 3px solid var(--color-primary);
 }
 
-.scout-tool-call-toggle {
+.buildone-tool-call-toggle {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
@@ -2611,41 +2629,41 @@ a.scout-record-header-link:hover .scout-record-name {
   color: var(--color-text);
 }
 
-.scout-tool-call-toggle:hover {
+.buildone-tool-call-toggle:hover {
   background: var(--color-info-bg);
 }
 
-.scout-tool-call-status {
+.buildone-tool-call-status {
   width: 14px;
   font-family: var(--font-mono);
   color: var(--color-text-muted);
 }
 
-.scout-tool-call-ok .scout-tool-call-status { color: var(--color-success); }
-.scout-tool-call-error .scout-tool-call-status { color: var(--color-error); }
-.scout-tool-call-pending .scout-tool-call-status { color: var(--color-primary); }
+.buildone-tool-call-ok .buildone-tool-call-status { color: var(--color-success); }
+.buildone-tool-call-error .buildone-tool-call-status { color: var(--color-error); }
+.buildone-tool-call-pending .buildone-tool-call-status { color: var(--color-primary); }
 
-.scout-tool-call-name {
+.buildone-tool-call-name {
   font-family: var(--font-mono);
   font-size: var(--font-size-footnote);
   flex: 1;
 }
 
-.scout-tool-call-chevron {
+.buildone-tool-call-chevron {
   color: var(--color-text-muted);
   font-size: var(--font-size-caption);
 }
 
-.scout-tool-call-detail {
+.buildone-tool-call-detail {
   padding: 0 10px 10px var(--space-2xl);
   font-size: var(--font-size-caption);
 }
 
-.scout-tool-call-section + .scout-tool-call-section {
+.buildone-tool-call-section + .buildone-tool-call-section {
   margin-top: var(--space-sm);
 }
 
-.scout-tool-call-label {
+.buildone-tool-call-label {
   font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   text-transform: uppercase;
@@ -2653,7 +2671,7 @@ a.scout-record-header-link:hover .scout-record-name {
   margin-bottom: 2px;
 }
 
-.scout-tool-call-detail pre {
+.buildone-tool-call-detail pre {
   margin: 0;
   padding: var(--space-sm) 10px;
   background: var(--color-surface);
@@ -2668,7 +2686,7 @@ a.scout-record-header-link:hover .scout-record-name {
   overflow-y: auto;
 }
 
-.scout-error {
+.buildone-error {
   background: var(--color-danger-bg);
   border: 1px solid var(--color-error);
   border-left: 3px solid var(--color-error);
@@ -2678,20 +2696,20 @@ a.scout-record-header-link:hover .scout-record-name {
   font-size: var(--font-size-footnote);
 }
 
-.scout-cancelled {
+.buildone-cancelled {
   color: var(--color-text-muted);
   font-style: italic;
   padding: var(--space-xs) 0;
 }
 
-.scout-usage {
+.buildone-usage {
   color: var(--color-text-muted);
   font-size: var(--font-size-caption);
   font-family: var(--font-mono);
   padding: var(--space-xs) 0;
 }
 
-.scout-prompt {
+.buildone-prompt {
   width: 100%;
   padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--color-border);
@@ -2707,13 +2725,13 @@ a.scout-record-header-link:hover .scout-record-name {
   max-height: 200px;
 }
 
-.scout-prompt:focus {
+.buildone-prompt:focus {
   outline: none;
   border-color: var(--color-primary);
   box-shadow: 0 0 0 2px var(--color-focus-ring);
 }
 
-.scout-prompt:disabled {
+.buildone-prompt:disabled {
   background: var(--color-surface-3);
   color: var(--color-text-muted);
 }
@@ -2827,6 +2845,187 @@ a.scout-record-header-link:hover .scout-record-name {
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
+}
+
+/* =============================================================================
+   TimeEntry list — tablet/laptop/desktop toolbar + table
+   =============================================================================
+   Goal (2026-07-01): fewer clicks and less scrolling to scan time entries by
+   date, status, and worker. Stacks on mobile portrait (430w column), gains
+   sticky behavior + horizontal chip rows at ≥ 768w.
+
+   Toolbar layout:
+     .te-toolbar
+       .te-filters       ← existing .cl-filters group (search/dates/user/proj)
+       .te-quickbar      ← two horizontal chip rows: date presets + status
+
+   At tablet+, .te-toolbar sticks to the top of #content so scanning long
+   pages doesn't hide the filters. Table thead sticks below it (offset by
+   the toolbar's approximate height). Values chosen so a 3-row toolbar
+   (filters wrapping to two rows + quickbar) still leaves the first
+   entry visible.
+============================================================================= */
+
+.te-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  background: var(--color-bg);
+}
+
+.te-filters {
+  margin-bottom: 0;
+}
+
+.te-quickbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.te-quickbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+/* Generic chip used by both date presets and status filter. Matches the
+   pill radius already used elsewhere in the surface (--radius-pill). */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  white-space: nowrap;
+}
+.chip:hover {
+  background: var(--color-surface-tint);
+}
+.chip-active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+.chip-active:hover {
+  background: var(--color-primary-hover);
+}
+.chip-ghost {
+  color: var(--color-text-muted);
+  border-style: dashed;
+  background: transparent;
+}
+.chip-ghost:hover {
+  color: var(--color-text);
+}
+
+/* Status chips inherit the badge palette when active so an "Approved" chip
+   reads green, "Rejected" reads red, etc. — visual continuity with the
+   status column in the table. When inactive they're neutral pills. */
+.status-chip.chip-active.draft,
+.status-chip.chip-active.in-review,
+.status-chip.chip-active.approved,
+.status-chip.chip-active.declined,
+.status-chip.chip-active.finalized {
+  color: var(--color-on-primary);
+}
+.status-chip.chip-active.draft {
+  background: var(--color-text-muted);
+  border-color: var(--color-text-muted);
+}
+.status-chip.chip-active.in-review {
+  background: var(--color-warning-fg);
+  border-color: var(--color-warning-fg);
+}
+.status-chip.chip-active.approved {
+  background: var(--color-success-fg);
+  border-color: var(--color-success-fg);
+}
+.status-chip.chip-active.declined {
+  background: var(--color-danger-fg);
+  border-color: var(--color-danger-fg);
+}
+.status-chip.chip-active.finalized {
+  background: var(--color-info-fg);
+  border-color: var(--color-info-fg);
+}
+
+/* Sticky toolbar at tablet width and up. Mobile keeps the scrolling
+   layout because the shell is only 430px wide and a fixed toolbar would
+   eat too much vertical space.
+
+   Sticky column headers were tried and dropped: `position: sticky` on
+   `<th>` inside a table with the scroll ancestor being #content produced
+   headers that floated in the middle of the table depending on scroll
+   position. The toolbar stickiness alone is enough to keep the filters
+   and status/date chips in reach while scanning long lists. */
+@media (min-width: 768px) {
+  .te-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    padding-top: var(--space-sm);
+    box-shadow: 0 4px 6px -6px rgba(0, 0, 0, 0.15);
+  }
+}
+
+/* Date-group sub-header row inside the table. Non-clickable, visual only. */
+.te-group-header td {
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 6px var(--space-lg);
+  border-bottom: 1px solid var(--color-border);
+}
+.te-group-header:hover td {
+  background: var(--color-surface-2);
+}
+.te-group-header-count {
+  color: var(--color-text-subtle);
+  margin-left: 6px;
+  font-weight: var(--font-weight-regular);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Per-row Submit action — draft entries only. Right-aligned narrow column
+   so the button is close to the row's Status pill without disrupting the
+   scan-flow of the four data columns. */
+.te-col-actions {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+/* In-table variant of TodayScreen's .submit-button. Matches the same
+   outlined-pill visual language (primary color border + fill on hover)
+   but sized down for inline row use and left auto-sized to hug its text. */
+.submit-button.submit-button-row {
+  width: auto;
+  max-width: none;
+  margin: 0;
+  min-height: 0;
+  padding: 5px 12px;
+  gap: 6px;
+  font-size: var(--font-size-footnote);
+  border-width: 1px;
+  white-space: nowrap;
 }
 
 .cl-empty-state {

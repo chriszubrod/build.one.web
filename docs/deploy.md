@@ -132,7 +132,7 @@ Vite won't bundle them. To re-incorporate a page:
 3. If it should appear in the sidebar, add a `NavLink` to `src/layout/Sidebar.tsx`
 4. Rebuild + redeploy
 
-The Scout agent tray under `src/agents/**` follows the same pattern.
+The Build.One agent tray under `src/agents/**` follows the same pattern.
 
 ## Useful one-liners
 

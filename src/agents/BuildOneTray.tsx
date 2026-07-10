@@ -1,8 +1,8 @@
 /**
- * ScoutTray — the Scout chat UI rendered as a right-side drawer.
+ * BuildOneTray — the Build.One chat UI rendered as a right-side drawer.
  *
  * Conversation-aware: renders alternating user bubbles and agent response
- * groups (each group holds the scout's turns for that message). A "New
+ * groups (each group holds the Build.One's turns for that message). A "New
  * Conversation" button in the tray header clears the thread.
  */
 import {
@@ -27,7 +27,7 @@ import type {
 } from "./types";
 
 
-interface ScoutTrayProps {
+interface BuildOneTrayProps {
   open: boolean;
   onClose: () => void;
 }
@@ -36,8 +36,8 @@ interface ScoutTrayProps {
 const PROMPT_MAX_HEIGHT = 200;
 
 
-export default function ScoutTray({ open, onClose }: ScoutTrayProps) {
-  const run = useAgentRun("scout");
+export default function BuildOneTray({ open, onClose }: BuildOneTrayProps) {
+  const run = useAgentRun("buildone");
   const [prompt, setPrompt] = useState("");
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -90,13 +90,13 @@ export default function ScoutTray({ open, onClose }: ScoutTrayProps) {
 
   return (
     <aside
-      className={`scout-tray${open ? " scout-tray-open" : ""}`}
+      className={`buildone-tray${open ? " buildone-tray-open" : ""}`}
       aria-hidden={!open}
     >
-      <div className="scout-tray-inner">
-        <header className="scout-tray-header">
-          <h2 className="scout-tray-title">Scout</h2>
-          <div className="scout-tray-header-actions">
+      <div className="buildone-tray-inner">
+        <header className="buildone-tray-header">
+          <h2 className="buildone-tray-title">Build.One</h2>
+          <div className="buildone-tray-header-actions">
             {!running && (hasConversation || run.recent.length > 0) && (
               <HistoryMenu
                 recent={run.recent}
@@ -107,18 +107,18 @@ export default function ScoutTray({ open, onClose }: ScoutTrayProps) {
             )}
             <button
               type="button"
-              className="scout-tray-close"
+              className="buildone-tray-close"
               onClick={onClose}
-              aria-label="Close Scout"
+              aria-label="Close Build.One"
             >
               ×
             </button>
           </div>
         </header>
 
-        <div className="scout-tray-body">
+        <div className="buildone-tray-body">
           {!hasConversation && !running && (
-            <p className="scout-empty">
+            <p className="buildone-empty">
               Ask about your data. Current scope: sub-cost-codes.
             </p>
           )}
@@ -128,25 +128,25 @@ export default function ScoutTray({ open, onClose }: ScoutTrayProps) {
           {running && isAwaitingFirstEvent(run.entries) && (
             <ThinkingIndicator
               label={
-                hasSessionId(run.entries) ? "Connecting to scout…" : "Starting session…"
+                hasSessionId(run.entries) ? "Connecting to Build.One…" : "Starting session…"
               }
             />
           )}
           <div ref={bottomRef} />
         </div>
 
-        <form onSubmit={handleSubmit} className="scout-tray-form">
+        <form onSubmit={handleSubmit} className="buildone-tray-form">
           <textarea
             ref={inputRef}
-            className="scout-prompt"
-            placeholder={running ? "Scout is working…" : "Ask scout…"}
+            className="buildone-prompt"
+            placeholder={running ? "Build.One is working…" : "Ask Build.One…"}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={running}
             rows={1}
           />
-          <div className="scout-tray-form-actions">
+          <div className="buildone-tray-form-actions">
             {running && (
               <button
                 type="button"
@@ -202,10 +202,10 @@ function HistoryMenu({
   }, [open]);
 
   return (
-    <div className="scout-history" ref={ref}>
+    <div className="buildone-history" ref={ref}>
       <button
         type="button"
-        className="scout-history-toggle"
+        className="buildone-history-toggle"
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -213,10 +213,10 @@ function HistoryMenu({
         History ▾
       </button>
       {open && (
-        <div className="scout-history-panel" role="menu">
+        <div className="buildone-history-panel" role="menu">
           <button
             type="button"
-            className="scout-history-new"
+            className="buildone-history-new"
             onClick={() => {
               onNew();
               setOpen(false);
@@ -228,22 +228,22 @@ function HistoryMenu({
           </button>
           {recent.length > 0 && (
             <>
-              <div className="scout-history-sep" />
-              <div className="scout-history-label">Recent</div>
-              <ul className="scout-history-list">
+              <div className="buildone-history-sep" />
+              <div className="buildone-history-label">Recent</div>
+              <ul className="buildone-history-list">
                 {recent.map((c) => (
                   <li key={c.id}>
                     <button
                       type="button"
-                      className="scout-history-item"
+                      className="buildone-history-item"
                       onClick={() => {
                         onLoad(c.id);
                         setOpen(false);
                       }}
                       role="menuitem"
                     >
-                      <div className="scout-history-title">{c.title}</div>
-                      <div className="scout-history-meta">
+                      <div className="buildone-history-title">{c.title}</div>
+                      <div className="buildone-history-meta">
                         {relativeTime(c.archivedAt)}
                       </div>
                     </button>
@@ -316,8 +316,8 @@ function EntryBubble({
 
 function UserBubble({ text }: { text: string }) {
   return (
-    <div className="scout-user-row">
-      <div className="scout-user-bubble">{text}</div>
+    <div className="buildone-user-row">
+      <div className="buildone-user-bubble">{text}</div>
     </div>
   );
 }
@@ -329,19 +329,19 @@ function AgentBlock({
   entry: Extract<ConversationEntry, { kind: "agent" }>;
 }) {
   return (
-    <div className="scout-agent-block">
+    <div className="buildone-agent-block">
       {entry.lanes.map((lane) => {
         const isPrimary = lane.sourceSessionPublicId === null;
         if (lane.turns.length === 0) return null;
         return (
           <div
             key={lane.sourceSessionPublicId ?? "__primary__"}
-            className={`scout-lane${isPrimary ? "" : " scout-lane-sub"}`}
+            className={`buildone-lane${isPrimary ? "" : " buildone-lane-sub"}`}
           >
             {!isPrimary && (
-              <div className="scout-lane-header">
+              <div className="buildone-lane-header">
                 ↳ delegated to{" "}
-                <span className="scout-lane-agent">
+                <span className="buildone-lane-agent">
                   {lane.sourceAgentName ?? "sub-agent"}
                 </span>
               </div>
@@ -356,16 +356,16 @@ function AgentBlock({
         );
       })}
       {entry.state === "error" && entry.error && (
-        <div className="scout-error">
+        <div className="buildone-error">
           <strong>Error:</strong> {entry.error.message}
           {entry.error.code ? ` (${entry.error.code})` : ""}
         </div>
       )}
       {entry.state === "cancelled" && (
-        <div className="scout-cancelled">Run cancelled.</div>
+        <div className="buildone-cancelled">Run cancelled.</div>
       )}
       {entry.state === "done" && entry.usage && (
-        <div className="scout-usage">
+        <div className="buildone-usage">
           in {entry.usage.input_tokens} · out {entry.usage.output_tokens}
           {(entry.usage.cache_read_input_tokens ?? 0) > 0 && (
             <> · cached {entry.usage.cache_read_input_tokens}</>
@@ -389,13 +389,13 @@ function AgentBlock({
 
 function ThinkingIndicator({ label }: { label: string }) {
   return (
-    <div className="scout-thinking" role="status" aria-live="polite">
-      <span className="scout-thinking-dots" aria-hidden="true">
+    <div className="buildone-thinking" role="status" aria-live="polite">
+      <span className="buildone-thinking-dots" aria-hidden="true">
         <span />
         <span />
         <span />
       </span>
-      <span className="scout-thinking-label">{label}</span>
+      <span className="buildone-thinking-label">{label}</span>
     </div>
   );
 }
@@ -403,14 +403,14 @@ function ThinkingIndicator({ label }: { label: string }) {
 
 function TurnBubble({ turn }: { turn: Turn }) {
   return (
-    <div className={`scout-turn${turn.complete ? "" : " scout-turn-live"}`}>
-      <div className="scout-turn-header">
-        <span className="scout-turn-number">Turn {turn.turn}</span>
-        <span className="scout-turn-model">{turn.model}</span>
+    <div className={`buildone-turn${turn.complete ? "" : " buildone-turn-live"}`}>
+      <div className="buildone-turn-header">
+        <span className="buildone-turn-number">Turn {turn.turn}</span>
+        <span className="buildone-turn-model">{turn.model}</span>
       </div>
 
       {turn.toolCalls.length > 0 && (
-        <ul className="scout-tool-calls">
+        <ul className="buildone-tool-calls">
           {turn.toolCalls.map((tc) => (
             <li key={tc.id}>
               <ToolCallRow call={tc} />
@@ -422,7 +422,7 @@ function TurnBubble({ turn }: { turn: Turn }) {
       {turn.text && <TurnText text={turn.text} />}
 
       {!turn.complete && !turn.text && turn.toolCalls.length === 0 && (
-        <div className="scout-turn-waiting">Thinking…</div>
+        <div className="buildone-turn-waiting">Thinking…</div>
       )}
     </div>
   );
@@ -432,7 +432,7 @@ function TurnBubble({ turn }: { turn: Turn }) {
 function TurnText({ text }: { text: string }) {
   const { cleanedText, record } = extractRecord(text);
   return (
-    <div className="scout-turn-text">
+    <div className="buildone-turn-text">
       {cleanedText && (
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{cleanedText}</ReactMarkdown>
       )}
@@ -453,25 +453,25 @@ function ToolCallRow({ call }: { call: ToolCall }) {
     : "ok";
 
   return (
-    <div className={`scout-tool-call scout-tool-call-${statusClass}`}>
+    <div className={`buildone-tool-call buildone-tool-call-${statusClass}`}>
       <button
         type="button"
-        className="scout-tool-call-toggle"
+        className="buildone-tool-call-toggle"
         onClick={() => setExpanded((e) => !e)}
       >
-        <span className="scout-tool-call-status">{statusIcon}</span>
-        <span className="scout-tool-call-name">{call.name}</span>
-        <span className="scout-tool-call-chevron">{expanded ? "▾" : "▸"}</span>
+        <span className="buildone-tool-call-status">{statusIcon}</span>
+        <span className="buildone-tool-call-name">{call.name}</span>
+        <span className="buildone-tool-call-chevron">{expanded ? "▾" : "▸"}</span>
       </button>
       {expanded && (
-        <div className="scout-tool-call-detail">
-          <div className="scout-tool-call-section">
-            <div className="scout-tool-call-label">input</div>
+        <div className="buildone-tool-call-detail">
+          <div className="buildone-tool-call-section">
+            <div className="buildone-tool-call-label">input</div>
             <pre>{JSON.stringify(call.input, null, 2)}</pre>
           </div>
           {call.complete && (
-            <div className="scout-tool-call-section">
-              <div className="scout-tool-call-label">
+            <div className="buildone-tool-call-section">
+              <div className="buildone-tool-call-label">
                 {call.isError ? "error" : "output"}
               </div>
               <pre>{renderOutput(call.output)}</pre>
