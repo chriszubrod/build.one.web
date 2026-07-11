@@ -40,6 +40,10 @@ interface HeaderForm {
 }
 
 interface LogRow {
+  // Stable client-side id — used to address a row across async saves/deletes
+  // so a concurrent mutation that reorders the array can't corrupt the wrong
+  // row (index-addressing is unsafe once an await is involved).
+  uid: string;
   // Server identity (null = unsaved new row)
   id: number | null;
   public_id: string | null;
@@ -119,8 +123,14 @@ function localToApi(v: string): string | null {
   return `${m[1]} ${m[2]}:${m[4] ?? "00"}`;
 }
 
+// Monotonic client-side id source for LogRow.uid. Module-scoped so ids stay
+// unique across re-renders; deterministic (no crypto dependency) for tests.
+let logUidSeq = 0;
+const nextLogUid = () => `log-${(logUidSeq += 1)}`;
+
 function logFromServer(log: TimeLog): LogRow {
   return {
+    uid: nextLogUid(),
     id: log.id,
     public_id: log.public_id,
     row_version: log.row_version,
@@ -140,6 +150,7 @@ function logFromServer(log: TimeLog): LogRow {
 
 function emptyLog(workDate: string): LogRow {
   return {
+    uid: nextLogUid(),
     id: null,
     public_id: null,
     row_version: null,
@@ -227,6 +238,18 @@ export default function TimeEntryView() {
 
   // Guard against pending auto-save firing after a destructive action
   const isSavingRef = useRef(false);
+  // Header edit guards:
+  // - headerDirtyRef: the user has header edits not yet confirmed by the
+  //   server, so the hydrate effect must not clobber them with a stale
+  //   autosave response.
+  // - headerSaveFailedRef: the last header autosave failed, so Submit must
+  //   not proceed with a lost/stale header.
+  // - formRef: always-current form snapshot (refs never go stale across an
+  //   await, unlike the state captured in a closure).
+  const headerDirtyRef = useRef(false);
+  const headerSaveFailedRef = useRef(false);
+  const formRef = useRef<HeaderForm | null>(null);
+  formRef.current = form;
 
   // Self-heal the list cache: when this View fetches an entry, push the
   // user-visible fields into every cached list page so a stale row (e.g.,
@@ -286,11 +309,19 @@ export default function TimeEntryView() {
   useEffect(() => {
     if (!entry) return;
     const worker = users.find((u) => u.id === entry.user_id);
-    setForm({
-      row_version: entry.row_version,
-      user_public_id: worker?.public_id ?? "",
-      work_date: entry.work_date ?? "",
-      note: entry.note ?? "",
+    setForm((prev) => {
+      // If the user is mid-edit, preserve their in-progress header input and
+      // only refresh row_version (autoSaveHeader keeps it current too) — a
+      // stale autosave response patching the cache must NOT rewind the fields.
+      if (prev && headerDirtyRef.current) {
+        return { ...prev, row_version: entry.row_version };
+      }
+      return {
+        row_version: entry.row_version,
+        user_public_id: worker?.public_id ?? "",
+        work_date: entry.work_date ?? "",
+        note: entry.note ?? "",
+      };
     });
     setLogs((prev) => {
       const incoming = (entry.time_logs ?? []).map(logFromServer);
@@ -313,21 +344,42 @@ export default function TimeEntryView() {
   // === Header auto-save (draft only) ===
   const autoSaveHeader = useCallback(async () => {
     if (!form || !publicId || isSavingRef.current) return;
+    // Snapshot exactly what we're about to persist so we can tell, on success,
+    // whether the user has typed anything newer while the PUT was in flight.
+    const sent = {
+      user_public_id: form.user_public_id,
+      work_date: form.work_date,
+      note: form.note,
+    };
     isSavingRef.current = true;
     setHeaderError("");
     try {
       const updated = await put<TimeEntry>(`/api/v1/time-entries/${publicId}`, {
         row_version: form.row_version,
-        user_public_id: form.user_public_id || undefined,
-        work_date: form.work_date,
-        note: form.note || null,
+        user_public_id: sent.user_public_id || undefined,
+        work_date: sent.work_date,
+        note: sent.note || null,
       });
+      headerSaveFailedRef.current = false;
+      // Clear the dirty guard only if the current form still matches what we
+      // sent — if the user kept typing, the newer edit stays dirty (and thus
+      // protected from clobber) until its own autosave lands.
+      const cur = formRef.current;
+      if (
+        cur &&
+        cur.user_public_id === sent.user_public_id &&
+        cur.work_date === sent.work_date &&
+        cur.note === sent.note
+      ) {
+        headerDirtyRef.current = false;
+      }
       setForm((prev) => (prev ? { ...prev, row_version: updated.row_version } : prev));
       // Patch the entry cache so the row_version we hold matches what's in cache
       queryClient.setQueryData<TimeEntry | undefined>(["time-entry", publicId], (prev) =>
         prev ? { ...prev, row_version: updated.row_version, work_date: updated.work_date, note: updated.note, user_id: updated.user_id } : prev,
       );
     } catch (err) {
+      headerSaveFailedRef.current = true;
       setHeaderError(err instanceof Error ? err.message : "Auto-save failed");
     } finally {
       isSavingRef.current = false;
@@ -358,6 +410,7 @@ export default function TimeEntryView() {
 
   // === Handlers ===
   function onHeaderChange(name: string, value: string) {
+    headerDirtyRef.current = true;
     setForm((prev) => (prev ? { ...prev, [name]: value } : prev));
   }
 
@@ -374,17 +427,21 @@ export default function TimeEntryView() {
   async function saveLog(index: number) {
     const row = logs[index];
     if (!row) return;
+    // Address this row by its stable uid, not the array index — a concurrent
+    // save/delete of another row can reorder the array while we await, and an
+    // index-addressed write-back would then land on the wrong row.
+    const uid = row.uid;
     const clockInApi = localToApi(row.clock_in);
     if (!clockInApi) {
       setLogs((prev) =>
-        prev.map((r, i) => (i === index ? { ...r, error: "Clock in is required." } : r)),
+        prev.map((r) => (r.uid === uid ? { ...r, error: "Clock in is required." } : r)),
       );
       return;
     }
     const clockOutApi = row.clock_out ? localToApi(row.clock_out) : null;
     if (row.clock_out && !clockOutApi) {
       setLogs((prev) =>
-        prev.map((r, i) => (i === index ? { ...r, error: "Clock out time is invalid." } : r)),
+        prev.map((r) => (r.uid === uid ? { ...r, error: "Clock out time is invalid." } : r)),
       );
       return;
     }
@@ -397,8 +454,8 @@ export default function TimeEntryView() {
     const clockInDate = clockInApi.slice(0, 10);
     if (workDate && clockInDate !== workDate) {
       setLogs((prev) =>
-        prev.map((r, i) =>
-          i === index
+        prev.map((r) =>
+          r.uid === uid
             ? {
                 ...r,
                 error: `Clock In date (${clockInDate}) doesn't match this entry's Work Date (${workDate}). Update the Work Date above or the Clock In time so they match.`,
@@ -416,7 +473,7 @@ export default function TimeEntryView() {
       note: row.note || null,
     };
     setLogs((prev) =>
-      prev.map((r, i) => (i === index ? { ...r, saving: true, error: "" } : r)),
+      prev.map((r) => (r.uid === uid ? { ...r, saving: true, error: "" } : r)),
     );
     try {
       if (row.public_id) {
@@ -425,8 +482,8 @@ export default function TimeEntryView() {
           row_version: row.row_version!,
         });
         setLogs((prev) =>
-          prev.map((r, i) =>
-            i === index
+          prev.map((r) =>
+            r.uid === uid
               ? {
                   ...r,
                   saving: false,
@@ -442,8 +499,8 @@ export default function TimeEntryView() {
       } else {
         const created = await post<TimeLog>(`/api/v1/time-entries/${publicId}/logs`, payload);
         setLogs((prev) =>
-          prev.map((r, i) =>
-            i === index
+          prev.map((r) =>
+            r.uid === uid
               ? {
                   ...r,
                   saving: false,
@@ -463,7 +520,7 @@ export default function TimeEntryView() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to save";
       setLogs((prev) =>
-        prev.map((r, i) => (i === index ? { ...r, saving: false, error: msg } : r)),
+        prev.map((r) => (r.uid === uid ? { ...r, saving: false, error: msg } : r)),
       );
     }
   }
@@ -471,23 +528,25 @@ export default function TimeEntryView() {
   async function deleteLog(index: number) {
     const row = logs[index];
     if (!row) return;
+    // Address by stable uid, not array index (safe across the delete's await).
+    const uid = row.uid;
     if (!row.public_id) {
       // Unsaved row — just drop it
-      setLogs((prev) => prev.filter((_, i) => i !== index));
+      setLogs((prev) => prev.filter((r) => r.uid !== uid));
       return;
     }
     if (!window.confirm("Delete this time log? This cannot be undone.")) return;
     setLogs((prev) =>
-      prev.map((r, i) => (i === index ? { ...r, saving: true, error: "" } : r)),
+      prev.map((r) => (r.uid === uid ? { ...r, saving: true, error: "" } : r)),
     );
     try {
       await del(`/api/v1/time-logs/${row.public_id}`);
-      setLogs((prev) => prev.filter((_, i) => i !== index));
+      setLogs((prev) => prev.filter((r) => r.uid !== uid));
       toast("Time log deleted.", "success");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to delete";
       setLogs((prev) =>
-        prev.map((r, i) => (i === index ? { ...r, saving: false, error: msg } : r)),
+        prev.map((r) => (r.uid === uid ? { ...r, saving: false, error: msg } : r)),
       );
     }
   }
@@ -499,6 +558,10 @@ export default function TimeEntryView() {
   }
 
   async function handleSubmit() {
+    if (logs.some((r) => r.saving)) {
+      toast("Wait for time-log changes to finish saving before submitting.", "error");
+      return;
+    }
     const unsavedRows = logs.filter((r) => r.dirty || r.public_id == null);
     if (unsavedRows.length > 0) {
       toast("Save or remove all log rows before submitting.", "error");
@@ -511,6 +574,21 @@ export default function TimeEntryView() {
     setPageBusy("submit");
     try {
       await flushAutoSave();
+      // Never submit unless the header is confirmed saved. flushAutoSave()
+      // no-ops if a debounced save is already in flight, so checking the
+      // failure ref alone isn't enough — headerDirtyRef stays true until a
+      // save actually lands (and a failed save never clears it), so it also
+      // covers the in-flight-save-fails-after-submit race. handleSubmit's own
+      // flush persists pending edits whenever no save is mid-flight, so this
+      // only blocks during the brief in-flight window (retry succeeds).
+      if (headerSaveFailedRef.current) {
+        toast("Your latest change didn't save. Fix it and try again.", "error");
+        return;
+      }
+      if (headerDirtyRef.current) {
+        toast("Still saving your changes — try Submit again in a moment.", "error");
+        return;
+      }
       await post(`/api/v1/time-entries/${publicId}/submit`, {});
       toast("Time entry submitted for review.", "success");
       await refreshAfterStatusChange();
@@ -522,6 +600,10 @@ export default function TimeEntryView() {
   }
 
   async function handleDelete() {
+    if (logs.some((r) => r.saving)) {
+      toast("Wait for time-log changes to finish saving before deleting.", "error");
+      return;
+    }
     if (!window.confirm("Delete this time entry and all its logs? This cannot be undone.")) return;
     // Guard against pending auto-save firing after the row is gone
     isSavingRef.current = true;
@@ -975,7 +1057,7 @@ export default function TimeEntryView() {
             type="button"
             className="btn btn-primary"
             onClick={handleSubmit}
-            disabled={pageBusy !== null}
+            disabled={pageBusy !== null || logs.some((r) => r.saving)}
           >
             {pageBusy === "submit" ? "Submitting…" : "Submit for Review"}
           </button>
@@ -983,7 +1065,7 @@ export default function TimeEntryView() {
             type="button"
             className="btn btn-danger"
             onClick={handleDelete}
-            disabled={pageBusy !== null}
+            disabled={pageBusy !== null || logs.some((r) => r.saving)}
           >
             {pageBusy === "delete" ? "Deleting…" : "Delete Entry"}
           </button>
