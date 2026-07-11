@@ -108,11 +108,12 @@ export function BudgetViewContent({ publicId }: BudgetViewContentProps) {
 
   if (budgetQ.isLoading || varianceQ.isLoading)
     return <div className="page-loading">Loading…</div>;
-  if (budgetQ.error)
+  const loadError = budgetQ.error ?? varianceQ.error;
+  if (loadError)
     return (
       <div className="page-error">
-        {budgetQ.error instanceof Error
-          ? budgetQ.error.message
+        {loadError instanceof Error
+          ? loadError.message
           : "Failed to load budget."}
       </div>
     );

@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { getOne } from "../../api/client";
-import { fetchBudgetByProject, budgetKeys } from "../../api/budget";
+import { fetchBudgetByProject, budgetKeys, BUDGETS_MODULE } from "../../api/budget";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import NavHeader from "../../components/ui/NavHeader";
 import SectionCard from "../../components/ui/SectionCard";
 import ListRow from "../../components/ui/ListRow";
@@ -34,6 +35,18 @@ export default function ProjectDetailScreen() {
   const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const { data: me } = useCurrentUser();
+
+  const canReadBudget =
+    !!me?.is_admin ||
+    !!me?.modules?.find((m) => m.name === BUDGETS_MODULE)?.can_read;
+  const visibleTabs = canReadBudget
+    ? TABS
+    : TABS.filter((tab) => tab.id !== "budget");
+
+  useEffect(() => {
+    if (!visibleTabs.some((t) => t.id === activeTab)) setActiveTab("overview");
+  }, [activeTab, canReadBudget]);
 
   const projectQ = useQuery<Project>({
     queryKey: ["project", publicId],
@@ -78,7 +91,7 @@ export default function ProjectDetailScreen() {
       />
 
       <nav className="project-tabs" role="tablist">
-        {TABS.map((tab) => (
+        {visibleTabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
@@ -94,7 +107,7 @@ export default function ProjectDetailScreen() {
 
       <div className="project-tab-body">
         {activeTab === "overview" && <OverviewTab project={project} />}
-        {activeTab === "budget" && <BudgetTab projectPublicId={publicId} />}
+        {activeTab === "budget" && canReadBudget && <BudgetTab projectPublicId={publicId} />}
         {activeTab === "bills" && (
           <PlaceholderTab
             label="Bills"

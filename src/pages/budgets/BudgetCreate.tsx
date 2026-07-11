@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLookups } from "../../hooks/useLookups";
 import { useToast } from "../../components/Toast";
@@ -8,11 +8,14 @@ import type { LookupProject } from "../../types/api";
 
 export default function BudgetCreate() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data: lookups, loading } = useLookups("projects");
 
-  const [projectPublicId, setProjectPublicId] = useState("");
+  const [projectPublicId, setProjectPublicId] = useState(
+    () => searchParams.get("project_public_id") ?? "",
+  );
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");

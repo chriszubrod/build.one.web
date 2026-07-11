@@ -8,7 +8,7 @@
  * budget-specific glue. Money is always a string on the wire — never coerce
  * a stored figure through float.
  */
-import { getOne, getList, post, put, del } from "./client";
+import { getOne, getList, post, put, del, ApiError } from "./client";
 import type {
   Budget,
   BudgetListRow,
@@ -51,10 +51,11 @@ export async function fetchBudgetByProject(
     return await getOne<Budget>(
       `/api/v1/get/budget/by-project/${projectPublicId}`,
     );
-  } catch {
+  } catch (err) {
     // 404 = no budget for project; surface as null so the tab can prompt
     // the user to create one.
-    return null;
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
   }
 }
 
