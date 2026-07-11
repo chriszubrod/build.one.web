@@ -24,6 +24,32 @@ v1 (admin-only, iOS section) shipped 2026-06-20. **Standing rule:** every featur
 
 ---
 
+## TimeEntry view — auto-save / concurrency follow-ups (deferred)
+
+Surfaced by the Codex Pass-1 review of the TimeEntryView concurrency hardening
+(`f1f75c0`, 2026-07-11). The 4 P1 data-loss bugs from that review are **fixed +
+shipped**; these are the lower-severity residuals left for later.
+
+- [ ] **`useAutoSave` drop-without-reschedule (P2, pre-existing, shared hook).**
+  `src/hooks/useAutoSave.ts`: both the debounced timer and `flush()` no-op when a
+  save is already in flight (`if (isSavingRef.current) return`), with no retry /
+  reschedule. An edit made *during* an in-flight save can sit unpersisted until the
+  next change. Affects every auto-save surface — TimeEntry header, **Bill**, and
+  **Expense** (the last two also `flush()` before Complete). `f1f75c0` makes
+  TimeEntry *submit* safe regardless (blocks on `headerDirtyRef`), but the hook
+  itself still needs a "reschedule the pending save after the in-flight one
+  resolves" fix. **Re-verify Bill + Expense Complete flows when this lands.**
+- [ ] **Entry-delete vs in-flight log-save race (P3).** `f1f75c0` disables Delete
+  Entry + guards `handleDelete` while any log row is `saving`, closing the main
+  window. Residual: the guard is a point-in-time snapshot, so a delete initiated in
+  the same tick a log save starts is still theoretically racy. Low severity — revisit
+  only if it manifests.
+
+(BudgetLayout / BudgetSidebar nav-retirement is already tracked under **Phase 1B**
+below.)
+
+---
+
 ## Nav strategy — Phase 1+ (from 2026-06-17 navigation evaluation)
 
 Pattern locked: **Bottom Tab Bar + Hamburger Drawer** with a curated per-role primary-slot resolver. Phase 0 shipped this session (chassis only — no user-visible nav change except the tablet sidebar flip). For the full evaluation see the workflow output at `/private/tmp/claude-501/-Users-chris-Applications-build-one/7b4ffd2a-28ac-4754-9941-d5889b92a8cd/tasks/w0sh0c392.output`.
