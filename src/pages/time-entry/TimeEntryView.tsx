@@ -250,6 +250,24 @@ export default function TimeEntryView() {
   const headerSaveFailedRef = useRef(false);
   const formRef = useRef<HeaderForm | null>(null);
   formRef.current = form;
+  // Authoritative current row_version, updated SYNCHRONOUSLY on each successful
+  // header auto-save. The coalesced reschedule in useAutoSave can run before
+  // React commits the setForm(row_version) below, so reading form.row_version
+  // there would send a stale token -> optimistic-concurrency failure. Reading
+  // this ref keeps chained saves current. Field values still come from the
+  // closure (each edit re-renders and refreshes saveFnRef).
+  const rowVersionRef = useRef<string | null>(null);
+
+  // Once React commits any row_version change — a local save's setForm OR an
+  // authoritative server hydration (the effect that syncs form from `entry`) —
+  // clear the ref so the next save reads the committed, authoritative
+  // form.row_version. The ref only needs to bridge the pre-commit window of the
+  // coalesced auto-save follow-up (and the pre-commit reads in the save chain);
+  // outside it, form.row_version is authoritative and may be newer than the ref
+  // after an external refetch.
+  useEffect(() => {
+    rowVersionRef.current = null;
+  }, [form?.row_version]);
 
   // Self-heal the list cache: when this View fetches an entry, push the
   // user-visible fields into every cached list page so a stale row (e.g.,
@@ -355,11 +373,12 @@ export default function TimeEntryView() {
     setHeaderError("");
     try {
       const updated = await put<TimeEntry>(`/api/v1/time-entries/${publicId}`, {
-        row_version: form.row_version,
+        row_version: rowVersionRef.current ?? form.row_version,
         user_public_id: sent.user_public_id || undefined,
         work_date: sent.work_date,
         note: sent.note || null,
       });
+      rowVersionRef.current = updated.row_version;
       headerSaveFailedRef.current = false;
       // Clear the dirty guard only if the current form still matches what we
       // sent — if the user kept typing, the newer edit stays dirty (and thus
@@ -574,13 +593,11 @@ export default function TimeEntryView() {
     setPageBusy("submit");
     try {
       await flushAutoSave();
-      // Never submit unless the header is confirmed saved. flushAutoSave()
-      // no-ops if a debounced save is already in flight, so checking the
-      // failure ref alone isn't enough — headerDirtyRef stays true until a
-      // save actually lands (and a failed save never clears it), so it also
-      // covers the in-flight-save-fails-after-submit race. handleSubmit's own
-      // flush persists pending edits whenever no save is mid-flight, so this
-      // only blocks during the brief in-flight window (retry succeeds).
+      // flushAutoSave() now awaits any in-flight save AND its coalesced
+      // follow-up, so on success the latest header state is persisted before we
+      // submit. The guards below stay as defense-in-depth: headerSaveFailedRef
+      // catches a save that threw (flush rejects are also caught by this try),
+      // and headerDirtyRef catches the edge where a newer edit is still settling.
       if (headerSaveFailedRef.current) {
         toast("Your latest change didn't save. Fix it and try again.", "error");
         return;

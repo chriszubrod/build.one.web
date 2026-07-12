@@ -30,15 +30,34 @@ Surfaced by the Codex Pass-1 review of the TimeEntryView concurrency hardening
 (`f1f75c0`, 2026-07-11). The 4 P1 data-loss bugs from that review are **fixed +
 shipped**; these are the lower-severity residuals left for later.
 
-- [ ] **`useAutoSave` drop-without-reschedule (P2, pre-existing, shared hook).**
-  `src/hooks/useAutoSave.ts`: both the debounced timer and `flush()` no-op when a
-  save is already in flight (`if (isSavingRef.current) return`), with no retry /
-  reschedule. An edit made *during* an in-flight save can sit unpersisted until the
-  next change. Affects every auto-save surface — TimeEntry header, **Bill**, and
-  **Expense** (the last two also `flush()` before Complete). `f1f75c0` makes
-  TimeEntry *submit* safe regardless (blocks on `headerDirtyRef`), but the hook
-  itself still needs a "reschedule the pending save after the in-flight one
-  resolves" fix. **Re-verify Bill + Expense Complete flows when this lands.**
+- [x] **`useAutoSave` drop-without-reschedule (P2, pre-existing, shared hook). FIXED
+  2026-07-12.** `src/hooks/useAutoSave.ts` now serializes saves via a single-in-flight
+  runner: a request made while a save is in flight sets a pending flag and a single
+  coalesced follow-up runs the latest `saveFn` after the in-flight save resolves
+  (loops until nothing pending); `flush()` resolves only after the latest state is
+  persisted (awaits in-flight + follow-up); reentrancy-safe (in-flight promise
+  published to `inFlightRef` synchronously before `saveFn` runs). Codex round-1 caught
+  that the reschedule alone still sent a **stale `row_version`** for row_version-coupled
+  callers (follow-up runs before React commits the prior save's `setForm`, and
+  `UpdateExpenseById` rejects a stale token → silently-lost edit). Full fix: **Expense**
+  (`autoSaveHeader` + `saveAll`) and **TimeEntry** (`autoSaveHeader`) now source
+  `row_version` from a `rowVersionRef` updated synchronously on save success, with a
+  `useEffect(() => { ref.current = null }, [form?.row_version])` clear so external
+  hydrations stay authoritative. Codex PASS after 2 fix rounds (P1/P2/P3 closed;
+  Expense Complete path + f1f75c0 guards intact). 6 vitest specs on the hook
+  (reschedule / flush-await / no-overlap / mount-skip / reentrancy / ref-visibility).
+  **Note:** `BillEdit.tsx` does NOT use `useAutoSave` (manual `saveAll` on Complete) —
+  not a caller today; it becomes one when Bills unparks. Coverage boundary: the caller
+  `rowVersionRef` edits have no component-level unit test (repo has no
+  `@testing-library/react` harness) — covered by tsc (TimeEntry only; `pages/expenses`
+  is excluded from `tsconfig.app.json`), build, Codex re-review, and the hook's
+  ref-visibility spec.
+- [ ] **Extract `useSyncedToken(form?.row_version)` when Bills gets auto-save (Pass-2
+  altitude follow-up, 2026-07-12).** The `rowVersionRef` + clear-effect + `?? committed`
+  read pattern is duplicated in ExpenseEdit + TimeEntryView. At 2 callers it's left
+  inline (rule-of-three); extract a tiny `useSyncedToken` hook (`{ read, set }` +
+  the clear-effect) as the **first step** of wiring Bills onto `useAutoSave`, so the
+  silent-failure-critical clear-effect is never hand-copied into a 3rd caller.
 - [ ] **Entry-delete vs in-flight log-save race (P3).** `f1f75c0` disables Delete
   Entry + guards `handleDelete` while any log row is `saving`, closing the main
   window. Residual: the guard is a point-in-time snapshot, so a delete initiated in
