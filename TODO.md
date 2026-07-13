@@ -214,7 +214,7 @@ Full multi-repo audit memory: `~/.claude/projects/-Users-chris-Applications-buil
 - [ ] **`BillEdit.tsx:69-71` formRef captured null before initialization** — fast user can tap Save before form initializes; `saveAll()` silently bails (`if (!latestForm) return false`). Fix: disable Save button until form is loaded; OR throw a visible error if `saveAll()` is called with null form.
 
 ### Medium
-- [ ] **`useCompletionPolling` ignores all errors — 401/500 spins for 3 minutes silently.** [src/hooks/useCompletionPolling.ts:32-58](src/hooks/useCompletionPolling.ts). Distinguish 404 (not ready) from 401/403/500 (real error) and stop polling on the latter with a clear error state.
+- [x] **`useCompletionPolling` ignores all errors — 401/500 spins for 3 minutes silently.** [src/hooks/useCompletionPolling.ts](src/hooks/useCompletionPolling.ts). ✅ FIXED 2026-07-12 (U-005): catch now branches on the structured `ApiError.status` — 404 keeps polling, any other HTTP status stops with a clear error surfacing `err.detail`, network/no-status stays transient. Also added a per-start generation guard so overlapping/stale polls can't clobber a terminal state (found in review). 10 vitest specs (`useCompletionPolling.test.ts`) cover 404/401/500/200/transient/timeout/overlap×2/stale-restart.
 - [ ] **ESLint flagged: `setState` synchronously inside `useEffect` — real cascading-render bug.** [src/hooks/usePaginatedList.ts:190](src/hooks/usePaginatedList.ts) and [src/hooks/useViewAttachmentObjectUrl.ts:19](src/hooks/useViewAttachmentObjectUrl.ts).
 - [ ] **`FolderPicker.tsx:76` `useEffect` missing dep `browseFolderItems`** — stale closure on re-render. Either include the dep or memoize the callback.
 - [ ] **File upload validates MIME type only, not size.** [src/pages/bills/BillCreate.tsx:34-44](src/pages/bills/BillCreate.tsx). Big uploads time out with a vague network error. Add a `file.size` check (e.g. 50 MB) with a clear inline error.
@@ -225,6 +225,7 @@ Full multi-repo audit memory: `~/.claude/projects/-Users-chris-Applications-buil
 - [ ] **InlineContacts delete has no `saving` guard / inline error persistence** — rapid clicks trigger duplicate deletes; transient error message can be lost.
 
 ### Low
+- [ ] **Extract a shared `renderHook` test harness.** `useCompletionPolling.test.ts` and `useAutoSave.test.ts` each define an identical `createRoot`+`TestComponent` hook-render harness (+ `deferred`/`drain` helpers). Hoist to a `src/hooks/__testutils__` (or similar) so new hook specs reuse it. Deferred from U-005.
 - [ ] InlineContacts edit row: no Escape-key handler to cancel edit. Minor UX.
 - [ ] **215 `@typescript-eslint/no-explicit-any` errors** across `src/pages/*` — not bugs themselves but a risk amplifier; real type-mismatches survive type-check. Sweep over time.
 
