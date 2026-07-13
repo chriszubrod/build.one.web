@@ -5,6 +5,7 @@ import { useIdNameMap } from "../../hooks/useIdNameMap";
 import { uploadFile, getOne, rawRequest } from "../../api/client";
 import Pagination from "../../components/Pagination";
 import PageHeader from "../../components/PageHeader";
+import MoneyCell from "../../components/MoneyCell";
 import type { Bill, Vendor } from "../../types/api";
 
 interface FolderSummary {
@@ -12,12 +13,6 @@ interface FolderSummary {
   folder_name?: string;
   folder_web_url?: string;
   file_count?: number;
-}
-
-function fmtMoney(v: string | null): string {
-  if (!v) return "";
-  const n = Number(v);
-  return isNaN(n) ? String(v) : n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
 function fmtDate(v: string | null): string {
@@ -403,18 +398,19 @@ export default function BillList() {
       <table className="data-table">
         <thead>
           <tr>
-            {[
+            {([
               { key: "_vendor", label: "Vendor" },
               { key: "bill_number", label: "Bill #" },
               { key: "_date", label: "Date" },
               { key: "_project", label: "Project" },
-              { key: "_amount", label: "Amount" },
+              { key: "_amount", label: "Amount", align: "right" },
               { key: "is_draft", label: "Draft" },
               { key: "review_status", label: "Review" },
-            ].map((col) => (
+            ] as { key: string; label: string; align?: "right" }[]).map((col) => (
               <th
                 key={col.key}
                 className="sortable-th"
+                style={col.align === "right" ? { textAlign: "right" } : undefined}
                 onClick={() => handleSort(col.key)}
               >
                 {col.label}
@@ -436,7 +432,9 @@ export default function BillList() {
               <td>{bill.bill_number}</td>
               <td>{fmtDate(bill.bill_date)}</td>
               <td>{bill._project}</td>
-              <td>{fmtMoney(bill.total_amount)}</td>
+              <td style={{ textAlign: "right" }}>
+                <MoneyCell value={bill.total_amount} />
+              </td>
               <td>
                 <span className={`status-badge ${bill.is_draft ? "draft" : "finalized"}`}>
                   {bill.is_draft ? "Draft" : "Finalized"}

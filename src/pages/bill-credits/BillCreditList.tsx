@@ -1,14 +1,9 @@
 import { useEntityList } from "../../hooks/useEntity";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
 import DataTable, { type Column } from "../../components/DataTable";
+import { moneyColumn } from "../../components/MoneyCell";
 import PageHeader from "../../components/PageHeader";
 import type { BillCredit, Vendor } from "../../types/api";
-
-function fmtMoney(v: string | null): string {
-  if (!v) return "";
-  const n = Number(v);
-  return isNaN(n) ? String(v) : n.toLocaleString("en-US", { style: "currency", currency: "USD" });
-}
 
 export default function BillCreditList() {
   const { items, loading, error } = useEntityList<BillCredit>("/api/v1/get/bill-credits");
@@ -18,7 +13,7 @@ export default function BillCreditList() {
     { key: "credit_number", label: "Credit #" },
     { key: "vendor_id", label: "Vendor", render: (v) => vendorMap.get(v as number) ?? String(v) },
     { key: "credit_date", label: "Date" },
-    { key: "total_amount", label: "Amount", render: (v) => fmtMoney(v as string | null) },
+    moneyColumn<BillCredit>("total_amount"),
     {
       key: "is_draft",
       label: "Status",

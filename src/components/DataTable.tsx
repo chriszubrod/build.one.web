@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 export interface Column<T> {
   key: keyof T & string;
   label: string;
+  align?: "left" | "right";
   render?: (value: T[keyof T], item: T) => React.ReactNode;
   sortable?: boolean;
 }
@@ -98,6 +99,7 @@ export default function DataTable<T extends { public_id: string }>({
               <th
                 key={col.key}
                 className={col.sortable !== false ? "sortable-th" : undefined}
+                style={col.align === "right" ? { textAlign: "right" } : undefined}
                 onClick={() => col.sortable !== false && handleSort(col.key)}
               >
                 {col.label}
@@ -116,7 +118,10 @@ export default function DataTable<T extends { public_id: string }>({
               onClick={() => navigate(`${basePath}/${item.public_id}`)}
             >
               {columns.map((col) => (
-                <td key={col.key}>
+                <td
+                  key={col.key}
+                  style={col.align === "right" ? { textAlign: "right" } : undefined}
+                >
                   {col.render
                     ? col.render(item[col.key], item)
                     : String(item[col.key] ?? "")}

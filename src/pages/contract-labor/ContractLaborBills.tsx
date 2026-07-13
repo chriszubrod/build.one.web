@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { getList, post, ApiError } from "../../api/client";
+import MoneyCell from "../../components/MoneyCell";
 import { useToast } from "../../components/Toast";
 
 interface DaySummary {
@@ -330,8 +331,8 @@ export default function ContractLaborBills() {
                       <tr>
                         <th>Date</th>
                         <th>Billed Hours</th>
-                        <th>Cost (before markup)</th>
-                        <th>Price (after markup)</th>
+                        <th style={{ textAlign: "right" }}>Cost (before markup)</th>
+                        <th style={{ textAlign: "right" }}>Price (after markup)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -339,8 +340,12 @@ export default function ContractLaborBills() {
                         <tr key={d.date}>
                           <td>{d.date}</td>
                           <td>{d.billed_hours.toFixed(2)}</td>
-                          <td>{fmtMoney(d.cost_before_markup)}</td>
-                          <td>{fmtMoney(d.price_after_markup)}</td>
+                          <td style={{ textAlign: "right" }}>
+                            <MoneyCell value={d.cost_before_markup} />
+                          </td>
+                          <td style={{ textAlign: "right" }}>
+                            <MoneyCell value={d.price_after_markup} />
+                          </td>
                         </tr>
                       ))}
                     </tbody>

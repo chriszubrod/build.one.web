@@ -1,14 +1,9 @@
 import { useEntityList } from "../../hooks/useEntity";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
 import DataTable, { type Column } from "../../components/DataTable";
+import { moneyColumn } from "../../components/MoneyCell";
 import PageHeader from "../../components/PageHeader";
 import type { Expense, Vendor } from "../../types/api";
-
-function fmtMoney(v: string | null): string {
-  if (!v) return "";
-  const n = Number(v);
-  return isNaN(n) ? String(v) : n.toLocaleString("en-US", { style: "currency", currency: "USD" });
-}
 
 export default function ExpenseList() {
   const { items, loading, error } = useEntityList<Expense>("/api/v1/get/expenses");
@@ -18,7 +13,7 @@ export default function ExpenseList() {
     { key: "reference_number", label: "Reference #" },
     { key: "vendor_id", label: "Vendor", render: (v) => vendorMap.get(v as number) ?? String(v) },
     { key: "expense_date", label: "Date" },
-    { key: "total_amount", label: "Amount", render: (v) => fmtMoney(v as string | null) },
+    moneyColumn<Expense>("total_amount"),
     {
       key: "is_credit",
       label: "Credit",

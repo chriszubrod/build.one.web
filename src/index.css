@@ -849,6 +849,15 @@ body {
   font-size: var(--font-size-footnote);
 }
 
+.money-cell {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.money-cell-gutter {
+  visibility: hidden;
+}
+
 .data-table tbody tr:hover {
   background: var(--color-surface-tint);
 }
