@@ -97,11 +97,16 @@ export default function InlineContacts({ parentEntity, parentId, readOnly = fals
 
   const handleDelete = async (contact: Contact) => {
     if (!confirm("Delete this contact?")) return;
+    if (saving) return;
+    setSaving(true);
+    setError("");
     try {
       await del(`/api/v1/delete/contact/${contact.public_id}`);
       setContacts((prev) => prev.filter((c) => c.public_id !== contact.public_id));
     } catch (err: any) {
       setError(err.message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -169,8 +174,8 @@ export default function InlineContacts({ parentEntity, parentId, readOnly = fals
                   {!readOnly && (
                     <td>
                       <div style={{ display: "flex", gap: 4 }}>
-                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => startEdit(c)}>Edit</button>
-                        <button type="button" className="btn btn-danger btn-sm" onClick={() => handleDelete(c)}>Del</button>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => startEdit(c)} disabled={saving}>Edit</button>
+                        <button type="button" className="btn btn-danger btn-sm" onClick={() => handleDelete(c)} disabled={saving}>Del</button>
                       </div>
                     </td>
                   )}
