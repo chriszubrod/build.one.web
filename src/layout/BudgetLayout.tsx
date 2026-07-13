@@ -1,4 +1,5 @@
 import { Outlet } from "react-router-dom";
+import { RouteErrorBoundary } from "../components/ErrorBoundary";
 import BudgetSidebar from "./BudgetSidebar";
 import Header from "./Header";
 import "../pages/budgets/budget.css";
@@ -17,7 +18,9 @@ export default function BudgetLayout() {
       <div className="app-main">
         <Header />
         <main className="app-content" id="content">
-          <Outlet />
+          <RouteErrorBoundary>
+            <Outlet />
+          </RouteErrorBoundary>
         </main>
       </div>
     </div>

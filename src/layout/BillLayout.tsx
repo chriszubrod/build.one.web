@@ -1,4 +1,5 @@
 import { Outlet } from "react-router-dom";
+import { RouteErrorBoundary } from "../components/ErrorBoundary";
 import BillSidebar from "./BillSidebar";
 import Header from "./Header";
 
@@ -14,7 +15,9 @@ export default function BillLayout() {
       <div className="app-main">
         <Header />
         <main className="app-content" id="content">
-          <Outlet />
+          <RouteErrorBoundary>
+            <Outlet />
+          </RouteErrorBoundary>
         </main>
       </div>
     </div>

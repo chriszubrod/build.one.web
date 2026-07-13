@@ -7,6 +7,7 @@ import PWAUpdatePrompt from "./components/PWAUpdatePrompt";
 import OfflineBanner from "./components/OfflineBanner";
 import InvalidateOnReconnect from "./components/InvalidateOnReconnect";
 import ProtectedRoute from "./auth/ProtectedRoute";
+import ErrorBoundary from "./components/ErrorBoundary";
 import LoginPage from "./auth/LoginPage";
 import AppLayout from "./layout/AppLayout";
 import LandingRedirect from "./layout/LandingRedirect";
@@ -62,87 +63,94 @@ const docsFallback = (
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <ToastProvider>
-          <ToastBridge />
-          <PWAUpdatePrompt />
-          <OfflineBanner />
-          <InvalidateOnReconnect />
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
+    // Outermost backstop: the page-level RouteErrorBoundary in each layout
+    // shell is primary (React fires the nearest boundary first, so a page
+    // crash keeps the chrome). This catches only what those structurally
+    // can't reach — a render error in LoginPage (outside every layout) or in
+    // the top-level providers — so no crash can blank the whole React root.
+    <ErrorBoundary>
+      <BrowserRouter>
+        <AuthProvider>
+          <ToastProvider>
+            <ToastBridge />
+            <PWAUpdatePrompt />
+            <OfflineBanner />
+            <InvalidateOnReconnect />
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
 
-            <Route element={<ProtectedRoute />}>
-              <Route element={<AppLayout />}>
-                <Route path="/" element={<LandingRedirect />} />
+              <Route element={<ProtectedRoute />}>
+                <Route element={<AppLayout />}>
+                  <Route path="/" element={<LandingRedirect />} />
 
-                <Route path="/time-entry/list" element={<TimeEntryListRoute />} />
-                <Route path="/time-entry/past/:date" element={<PastDayScreen />} />
-                <Route path="/time-entry/create" element={<TimeEntryCreate />} />
-                <Route path="/time-entry/log/new" element={<CreateLogScreen />} />
-                <Route path="/time-entry/:entryPublicId/log/:logPublicId" element={<EditEntryScreen />} />
-                <Route path="/time-entry/:id" element={<TimeEntryView />} />
+                  <Route path="/time-entry/list" element={<TimeEntryListRoute />} />
+                  <Route path="/time-entry/past/:date" element={<PastDayScreen />} />
+                  <Route path="/time-entry/create" element={<TimeEntryCreate />} />
+                  <Route path="/time-entry/log/new" element={<CreateLogScreen />} />
+                  <Route path="/time-entry/:entryPublicId/log/:logPublicId" element={<EditEntryScreen />} />
+                  <Route path="/time-entry/:id" element={<TimeEntryView />} />
 
-                <Route path="/labor/list" element={<LaborList />} />
-                <Route path="/labor/:public_id" element={<LaborReviewScreen />} />
+                  <Route path="/labor/list" element={<LaborList />} />
+                  <Route path="/labor/:public_id" element={<LaborReviewScreen />} />
 
-                <Route path="/project/list" element={<ProjectList />} />
-                <Route path="/project/:publicId" element={<ProjectDetailScreen />} />
+                  <Route path="/project/list" element={<ProjectList />} />
+                  <Route path="/project/:publicId" element={<ProjectDetailScreen />} />
 
-                <Route path="/profile" element={<ProfileView />} />
-                <Route path="/profile/details" element={<UserDetailScreen />} />
-                <Route path="/profile/details/:fieldKey" element={<TextFieldEditScreen />} />
-                <Route path="/profile/security" element={<SecurityScreen />} />
-                <Route path="/profile/appearance" element={<AppearanceScreen />} />
+                  <Route path="/profile" element={<ProfileView />} />
+                  <Route path="/profile/details" element={<UserDetailScreen />} />
+                  <Route path="/profile/details/:fieldKey" element={<TextFieldEditScreen />} />
+                  <Route path="/profile/security" element={<SecurityScreen />} />
+                  <Route path="/profile/appearance" element={<AppearanceScreen />} />
 
-                <Route path="/user/:id" element={<Navigate to="/profile" replace />} />
-                <Route path="/user/:id/edit" element={<Navigate to="/profile" replace />} />
+                  <Route path="/user/:id" element={<Navigate to="/profile" replace />} />
+                  <Route path="/user/:id/edit" element={<Navigate to="/profile" replace />} />
 
-                {/* Admin-only documentation surface (lazy-loaded). Page-level
-                    guard in DocsPage redirects non-admins; nav entry is
-                    requiresAdmin. */}
-                <Route
-                  path="/docs"
-                  element={
-                    <Suspense fallback={docsFallback}>
-                      <DocsPage />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="/docs/:section"
-                  element={
-                    <Suspense fallback={docsFallback}>
-                      <DocsPage />
-                    </Suspense>
-                  }
-                />
+                  {/* Admin-only documentation surface (lazy-loaded). Page-level
+                      guard in DocsPage redirects non-admins; nav entry is
+                      requiresAdmin. */}
+                  <Route
+                    path="/docs"
+                    element={
+                      <Suspense fallback={docsFallback}>
+                        <DocsPage />
+                      </Suspense>
+                    }
+                  />
+                  <Route
+                    path="/docs/:section"
+                    element={
+                      <Suspense fallback={docsFallback}>
+                        <DocsPage />
+                      </Suspense>
+                    }
+                  />
 
-                <Route path="*" element={<LandingRedirect />} />
+                  <Route path="*" element={<LandingRedirect />} />
+                </Route>
+
+                {/* Budget surface — desktop chrome, separate from the phone shell.
+                    Static /budget/* paths outrank AppLayout's "*" splat. */}
+                <Route element={<BudgetLayout />}>
+                  <Route path="/budget/list" element={<BudgetList />} />
+                  <Route path="/budget/create" element={<BudgetCreate />} />
+                  <Route path="/budget/:publicId" element={<BudgetView />} />
+                  <Route path="/budget/:publicId/edit" element={<BudgetEdit />} />
+                  <Route path="/budget/*" element={<Navigate to="/budget/list" replace />} />
+                </Route>
+
+                {/* Bill surface — desktop AP completion workflow. Same shape as Budget. */}
+                <Route element={<BillLayout />}>
+                  <Route path="/bill/list" element={<BillList />} />
+                  <Route path="/bill/create" element={<BillCreate />} />
+                  <Route path="/bill/:publicId" element={<BillView />} />
+                  <Route path="/bill/:publicId/edit" element={<BillEdit />} />
+                  <Route path="/bill/*" element={<Navigate to="/bill/list" replace />} />
+                </Route>
               </Route>
-
-              {/* Budget surface — desktop chrome, separate from the phone shell.
-                  Static /budget/* paths outrank AppLayout's "*" splat. */}
-              <Route element={<BudgetLayout />}>
-                <Route path="/budget/list" element={<BudgetList />} />
-                <Route path="/budget/create" element={<BudgetCreate />} />
-                <Route path="/budget/:publicId" element={<BudgetView />} />
-                <Route path="/budget/:publicId/edit" element={<BudgetEdit />} />
-                <Route path="/budget/*" element={<Navigate to="/budget/list" replace />} />
-              </Route>
-
-              {/* Bill surface — desktop AP completion workflow. Same shape as Budget. */}
-              <Route element={<BillLayout />}>
-                <Route path="/bill/list" element={<BillList />} />
-                <Route path="/bill/create" element={<BillCreate />} />
-                <Route path="/bill/:publicId" element={<BillView />} />
-                <Route path="/bill/:publicId/edit" element={<BillEdit />} />
-                <Route path="/bill/*" element={<Navigate to="/bill/list" replace />} />
-              </Route>
-            </Route>
-          </Routes>
-        </ToastProvider>
-      </AuthProvider>
-    </BrowserRouter>
+            </Routes>
+          </ToastProvider>
+        </AuthProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   );
 }

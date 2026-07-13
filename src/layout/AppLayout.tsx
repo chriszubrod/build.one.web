@@ -1,4 +1,5 @@
 import { Outlet } from "react-router-dom";
+import { RouteErrorBoundary } from "../components/ErrorBoundary";
 import AppSidebar from "./AppSidebar";
 import BottomTabBar from "./BottomTabBar";
 import RotateOverlay from "./RotateOverlay";
@@ -25,7 +26,9 @@ export default function AppLayout() {
             BudgetLayout already use). Pages that save/restore scroll position
             (e.g., TimeEntryList) target it via document.getElementById. */}
         <main id="content" className="app-shell-content">
-          <Outlet />
+          <RouteErrorBoundary>
+            <Outlet />
+          </RouteErrorBoundary>
         </main>
         <BottomTabBar />
       </div>
