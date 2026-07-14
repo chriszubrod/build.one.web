@@ -121,3 +121,89 @@
   font-size: var(--font-size-footnote);
   margin-bottom: var(--space-xl);
 }
+
+/* Change-order amendment ledger on the budget view. */
+.ledger-table td.num,
+.ledger-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ledger-disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ledger-disclosure-icon {
+  color: var(--color-text-muted);
+  font-size: 0.75em;
+  line-height: 1;
+}
+
+.ledger-pending {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.ledger-unknown {
+  color: var(--color-text-muted);
+}
+
+.ledger-approver-date {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+}
+
+.ledger-detail-row td {
+  background: var(--color-bg-subtle, var(--color-bg));
+}
+
+.ledger-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  font-size: var(--font-size-footnote);
+  padding: var(--space-sm) 0;
+}
+
+.ledger-detail-header,
+.ledger-detail-line {
+  display: grid;
+  grid-template-columns: minmax(8rem, 2fr) minmax(10rem, 3fr) repeat(5, minmax(4rem, 1fr));
+  gap: var(--space-sm);
+  align-items: baseline;
+}
+
+.ledger-detail-header {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  font-size: var(--font-size-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.ledger-detail-line .scc-num {
+  color: var(--color-text-muted);
+  margin-right: var(--space-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-detail-line .num,
+.ledger-detail-header .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ledger-detail-empty {
+  color: var(--color-text-muted);
+  font-style: italic;
+}

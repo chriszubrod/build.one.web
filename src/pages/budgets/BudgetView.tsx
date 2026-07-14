@@ -1,12 +1,16 @@
-import { Fragment, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueries, useQueryClient } from "@tanstack/react-query";
+import { useIdNameMap } from "../../hooks/useIdNameMap";
+import { useLookups } from "../../hooks/useLookups";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
+import MoneyCell from "../../components/MoneyCell";
 import {
   fetchBudget,
   fetchBudgetVariance,
   fetchBudgetRevisions,
+  fetchBudgetLineItems,
   updateBudget,
   createRevision,
   budgetKeys,
@@ -16,11 +20,23 @@ import {
   STATUS_LABELS,
   BUDGETS_MODULE,
 } from "../../api/budget";
+import { buildLedger, centsToAmount } from "./revisionLedger";
 import type {
   BudgetVarianceMoney,
   BudgetVarianceRow,
-  BudgetRevision,
+  BudgetLineItem,
+  LookupSubCostCode,
+  User,
 } from "../../types/api";
+
+function compactName(
+  firstname?: string | null,
+  lastname?: string | null,
+): string {
+  const f = (firstname ?? "").trim();
+  const l = (lastname ?? "").trim();
+  return [f, l].filter(Boolean).join(" ") || "User";
+}
 
 function fmtDate(d: string | null | undefined): string {
   if (!d) return "—";
@@ -100,11 +116,70 @@ export function BudgetViewContent({ publicId }: BudgetViewContentProps) {
     enabled: !!publicId,
   });
 
+  const revisions = revisionsQ.data ?? [];
+
+  // One fan-out query per revision (all in parallel). `combine` folds the
+  // per-revision line items + load/error status into stable-identity maps via
+  // react-query's replaceEqualDeep — so `ledger` (and the render) only recompute
+  // when line-item data actually changes, not on every unrelated re-render.
+  const { lineItemsByRevision, lineItemStatusByRevision } = useQueries({
+    queries: revisions.map((r) => ({
+      queryKey: budgetKeys.lineItems(r.public_id),
+      queryFn: () => fetchBudgetLineItems(r.public_id),
+      enabled: !!r.public_id,
+    })),
+    combine: (results) => {
+      const byRevision: Record<string, BudgetLineItem[] | undefined> = {};
+      const statusByRevision: Record<
+        string,
+        { loading: boolean; error: boolean }
+      > = {};
+      revisions.forEach((r, i) => {
+        byRevision[r.public_id] = results[i]?.data;
+        statusByRevision[r.public_id] = {
+          loading: results[i]?.isLoading ?? false,
+          error: results[i]?.isError ?? false,
+        };
+      });
+      return {
+        lineItemsByRevision: byRevision,
+        lineItemStatusByRevision: statusByRevision,
+      };
+    },
+  });
+
+  const userName = useIdNameMap<User>(
+    "/api/v1/get/users?page_size=500",
+    (u) => compactName(u.firstname, u.lastname),
+  );
+
+  const ledger = useMemo(
+    () => buildLedger(revisions, lineItemsByRevision),
+    [revisions, lineItemsByRevision],
+  );
+
+  const { data: lookups } = useLookups("sub_cost_codes");
+  const sccMap = useMemo(() => {
+    const m = new Map<number, LookupSubCostCode>();
+    (lookups?.sub_cost_codes ?? []).forEach((s) => m.set(s.id, s));
+    return m;
+  }, [lookups?.sub_cost_codes]);
+
   // Notes inline edit.
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesDraft, setNotesDraft] = useState("");
   const [savingNotes, setSavingNotes] = useState(false);
   const [creatingCo, setCreatingCo] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const toggleExpanded = (publicId: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(publicId)) next.delete(publicId);
+      else next.add(publicId);
+      return next;
+    });
+  };
 
   if (budgetQ.isLoading || varianceQ.isLoading)
     return <div className="page-loading">Loading…</div>;
@@ -120,7 +195,6 @@ export function BudgetViewContent({ publicId }: BudgetViewContentProps) {
 
   const budget = budgetQ.data!;
   const variance = varianceQ.data;
-  const revisions = revisionsQ.data ?? [];
 
   const saveNotes = async () => {
     setSavingNotes(true);
@@ -334,7 +408,7 @@ export function BudgetViewContent({ publicId }: BudgetViewContentProps) {
           )}
         </div>
 
-        <table className="data-table">
+        <table className="data-table ledger-table">
           <thead>
             <tr>
               <th>Rev</th>
@@ -342,34 +416,164 @@ export function BudgetViewContent({ publicId }: BudgetViewContentProps) {
               <th>Title</th>
               <th>Status</th>
               <th>Effective</th>
-              <th style={{ width: 120 }} />
+              <th className="num">Net Impact</th>
+              <th className="num">Running Total</th>
+              <th>Approver</th>
+              <th style={{ width: 120 }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {revisions.map((rev: BudgetRevision) => (
-              <tr key={rev.public_id}>
-                <td>{rev.revision_number}</td>
-                <td>{rev.type === "original" ? "Original" : "Change Order"}</td>
-                <td>{rev.title ?? "—"}</td>
-                <td>
-                  <span className={`status-badge ${statusBadgeClass(rev.status)}`}>
-                    {STATUS_LABELS[rev.status] ?? rev.status}
-                  </span>
-                </td>
-                <td>{fmtDate(rev.effective_date)}</td>
-                <td>
-                  <Link
-                    to={`/budget/${id}/edit?rev=${rev.public_id}`}
-                    className="btn btn-secondary btn-sm"
-                  >
-                    {rev.status === "draft" ? "Edit lines" : "View lines"}
-                  </Link>
-                </td>
-              </tr>
-            ))}
+            {ledger.map((entry) => {
+              const rev = entry.revision;
+              const isExpanded = expanded.has(rev.public_id);
+              const lines = lineItemsByRevision[rev.public_id];
+              const lineStatus = lineItemStatusByRevision[rev.public_id];
+              const unknownMark = (
+                <span className="ledger-unknown" title="Line items not loaded">
+                  …
+                </span>
+              );
+              const detailMsg = lineStatus?.loading
+                ? "Loading…"
+                : lineStatus?.error
+                  ? "Couldn't load line items."
+                  : !lines || lines.length === 0
+                    ? "No line items."
+                    : null;
+
+              return (
+                <Fragment key={rev.public_id}>
+                  <tr>
+                    <td>
+                      <button
+                        type="button"
+                        className="ledger-disclosure"
+                        aria-expanded={isExpanded}
+                        onClick={() => toggleExpanded(rev.public_id)}
+                      >
+                        <span className="ledger-disclosure-icon" aria-hidden="true">
+                          {isExpanded ? "▼" : "▶"}
+                        </span>
+                        #{rev.revision_number}
+                      </button>
+                    </td>
+                    <td>
+                      {rev.type === "original" ? "Original" : "Change Order"}
+                    </td>
+                    <td>{rev.title ?? "—"}</td>
+                    <td>
+                      <span
+                        className={`status-badge ${statusBadgeClass(rev.status)}`}
+                      >
+                        {STATUS_LABELS[rev.status] ?? rev.status}
+                      </span>
+                    </td>
+                    <td>{fmtDate(rev.effective_date)}</td>
+                    <td className="num">
+                      {entry.netImpactCents === null ? (
+                        unknownMark
+                      ) : (
+                        <MoneyCell
+                          value={centsToAmount(entry.netImpactCents)}
+                        />
+                      )}
+                    </td>
+                    <td className="num">
+                      {entry.runningTotalStatus === "pending" ? (
+                        <span className="ledger-pending">Pending</span>
+                      ) : entry.runningTotalStatus === "unknown" ? (
+                        unknownMark
+                      ) : (
+                        <MoneyCell
+                          value={centsToAmount(entry.runningTotalCents!)}
+                        />
+                      )}
+                    </td>
+                    <td>
+                      {rev.approved_by_user_id != null ? (
+                        <>
+                          <div>
+                            {userName.get(rev.approved_by_user_id) ?? "User"}
+                          </div>
+                          <div className="ledger-approver-date">
+                            {fmtDate(rev.approved_datetime)}
+                          </div>
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td>
+                      <Link
+                        to={`/budget/${id}/edit?rev=${rev.public_id}`}
+                        className="btn btn-secondary btn-sm"
+                      >
+                        {rev.status === "draft" ? "Edit lines" : "View lines"}
+                      </Link>
+                    </td>
+                  </tr>
+                  {isExpanded && (
+                    <tr className="ledger-detail-row">
+                      <td colSpan={9}>
+                        {detailMsg !== null ? (
+                          <div className="ledger-detail-empty">{detailMsg}</div>
+                        ) : (
+                          <div className="ledger-detail">
+                            <div className="ledger-detail-header">
+                              <span>Sub Cost Code</span>
+                              <span>Description</span>
+                              <span className="num">Qty</span>
+                              <span className="num">Rate</span>
+                              <span className="num">Amount</span>
+                              <span className="num">Markup</span>
+                              <span className="num">Price</span>
+                            </div>
+                            {lines?.map((li) => (
+                              <div
+                                className="ledger-detail-line"
+                                key={li.public_id}
+                              >
+                                <span>
+                                  {li.sub_cost_code_id != null ? (
+                                    <>
+                                      <span className="scc-num">
+                                        {
+                                          sccMap.get(li.sub_cost_code_id)
+                                            ?.number
+                                        }
+                                      </span>
+                                      {sccMap.get(li.sub_cost_code_id)?.name ??
+                                        "Uncategorized"}
+                                    </>
+                                  ) : (
+                                    "Uncategorized"
+                                  )}
+                                </span>
+                                <span>{li.description ?? "—"}</span>
+                                <span className="num">{li.quantity ?? "—"}</span>
+                                <span className="num">
+                                  {li.rate != null ? fmtMoney(li.rate) : "—"}
+                                </span>
+                                <span className="num">
+                                  {li.amount != null ? fmtMoney(li.amount) : "—"}
+                                </span>
+                                <span className="num">{li.markup ?? "—"}</span>
+                                <span className="num">
+                                  {li.price != null ? fmtMoney(li.price) : "—"}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
             {revisions.length === 0 && (
               <tr>
-                <td colSpan={6} className="empty-state">
+                <td colSpan={9} className="empty-state">
                   No revisions.
                 </td>
               </tr>
