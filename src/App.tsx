@@ -49,6 +49,8 @@ import BillCreate from "./pages/bills/BillCreate";
 import BillView from "./pages/bills/BillView";
 import BillEdit from "./pages/bills/BillEdit";
 
+import ExpenseCodingCockpit from "./pages/expense-coding/ExpenseCodingCockpit";
+
 // Parked for v0.1.0 — Option B trim (excluded via tsconfig.app.json,
 // not bundled by Vite since unreachable from this route tree). Restore
 // pages by re-adding their imports + routes here when ready.
@@ -95,6 +97,8 @@ export default function App() {
 
                   <Route path="/project/list" element={<ProjectList />} />
                   <Route path="/project/:publicId" element={<ProjectDetailScreen />} />
+
+                  <Route path="/expense-coding" element={<ExpenseCodingCockpit />} />
 
                   <Route path="/profile" element={<ProfileView />} />
                   <Route path="/profile/details" element={<UserDetailScreen />} />

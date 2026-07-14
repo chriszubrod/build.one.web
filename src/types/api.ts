@@ -1102,3 +1102,61 @@ export interface BudgetVariancePayload {
   cost_codes: BudgetVarianceCostCode[];
   totals: BudgetVarianceMoney;
 }
+
+/** Expense coding queue row — GET /api/v1/expense-coding/queue (U-005) */
+export interface ExpenseCodingQueueRow {
+  qbo_purchase_public_id: string | null;
+  qbo_purchase_qbo_id: string | null;
+  sync_token: string | null;
+  realm_id: string | null;
+  vendor_qbo_id: string | null;
+  vendor_name: string | null;
+  credit: boolean | null;
+  total_amt: string | number | null;
+  txn_date: string | null;
+  doc_number: string | null;
+  private_note: string | null;
+  qbo_purchase_line_id: number;
+  qbo_line_id: string | null;
+  line_num: number | null;
+  line_amount: string | number | null;
+  line_description: string | null;
+  coding_item_public_id: string | null;
+  coding_status: string | null;
+  suggested_project_id: number | null;
+  suggested_sub_cost_code_id: number | null;
+  suggested_description: string | null;
+  suggestion_source: string | null;
+  suggestion_reason: string | null;
+  suggestion_confidence: number | null;
+  confirmed_project_id: number | null;
+  confirmed_sub_cost_code_id: number | null;
+  confirmed_description: string | null;
+  flag_reason: string | null;
+  vendor_id: number | null;
+  claimed_by_user_id: number | null;
+  claimed_at: string | null;
+}
+
+/** Expense coding metrics — GET /api/v1/expense-coding/metrics (U-005) */
+export interface ExpenseCodingMetrics {
+  total_target_lines: number;
+  pending_count: number;
+  suggested_count: number;
+  flagged_count: number;
+  confirmed_count: number;
+  enqueued_count: number;
+  written_count: number;
+  changed_in_qbo_count: number;
+  error_count: number;
+  accepted_count: number;
+  overridden_count: number;
+}
+
+/** POST /api/v1/expense-coding/suggest response counts */
+export interface ExpenseCodingSuggestResult {
+  processed: number;
+  suggested: number;
+  flagged: number;
+  remaining: number;
+}

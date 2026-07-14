@@ -1228,6 +1228,268 @@ button[type="submit"]:disabled {
   color: var(--color-info-fg);
 }
 
+/* Expense coding cockpit (U-005) */
+.expense-coding-subtitle {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+  margin-right: var(--space-md);
+}
+
+.expense-coding-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  align-items: stretch;
+  margin-bottom: var(--space-lg);
+  padding: var(--space-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.expense-coding-metric {
+  display: flex;
+  flex-direction: column;
+  min-width: 4.5rem;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+}
+
+.expense-coding-metric--highlight {
+  background: var(--color-warning-bg);
+}
+
+.expense-coding-metric-label {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.expense-coding-metric-value {
+  font-size: var(--font-size-body);
+  font-weight: 600;
+}
+
+.expense-coding-metrics-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-left: auto;
+  align-items: center;
+}
+
+.expense-coding-metrics-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.expense-coding-empty {
+  padding: var(--space-xl);
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.expense-coding-queue {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.expense-coding-row {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.expense-coding-row-summary {
+  width: 100%;
+  text-align: left;
+  padding: var(--space-md);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.expense-coding-row-top {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.expense-coding-row-date {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.expense-coding-row-vendor {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.expense-coding-row-amount {
+  font-variant-numeric: tabular-nums;
+}
+
+.expense-coding-row-chevron {
+  transition: transform 0.15s ease;
+  color: var(--color-text-muted);
+}
+
+.expense-coding-row-chevron--open {
+  transform: rotate(180deg);
+}
+
+.expense-coding-row-memo {
+  margin: var(--space-sm) 0 0;
+  font-size: var(--font-size-body);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.expense-coding-row-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+  align-items: center;
+}
+
+.expense-coding-credit-chip {
+  display: inline-block;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  background: var(--color-info-bg);
+  color: var(--color-info-fg);
+}
+
+.status-badge.coding-pending {
+  background: var(--color-warning-bg);
+  color: var(--color-warning-fg);
+}
+
+.status-badge.coding-suggested {
+  background: var(--color-info-bg);
+  color: var(--color-info-fg);
+}
+
+.status-badge.coding-flagged {
+  background: var(--color-danger-bg, #fde8e8);
+  color: var(--color-danger-fg, #9b1c1c);
+  box-shadow: 0 0 0 1px var(--color-danger-fg, #9b1c1c);
+}
+
+.status-badge.coding-confirmed {
+  background: var(--color-success-bg);
+  color: var(--color-success-fg);
+}
+
+.status-badge.coding-enqueued {
+  background: var(--color-info-bg);
+  color: var(--color-info-fg);
+}
+
+.status-badge.coding-written {
+  background: var(--color-success-bg);
+  color: var(--color-success-fg);
+}
+
+.status-badge.coding-changed {
+  background: var(--color-warning-bg);
+  color: var(--color-warning-fg);
+  box-shadow: 0 0 0 1px var(--color-warning-fg);
+}
+
+.status-badge.coding-error {
+  background: var(--color-danger-bg, #fde8e8);
+  color: var(--color-danger-fg, #9b1c1c);
+}
+
+.expense-coding-row-editor {
+  padding: 0 var(--space-md) var(--space-md);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+/* Editor form controls — mirror the app's inline-edit control style
+   (.inline-li-input) so the Project / Sub-cost-code / Description inputs
+   match the rest of the UI. Scoped to the cockpit to avoid global classes. */
+.expense-coding-row-editor .form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.expense-coding-row-editor .form-label {
+  font-size: var(--font-size-caption);
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.expense-coding-row-editor .form-select,
+.expense-coding-row-editor .form-input {
+  width: 100%;
+  padding: 5px var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  font-size: var(--font-size-footnote);
+  background: var(--color-surface);
+  outline: none;
+}
+
+.expense-coding-row-editor .form-select:focus,
+.expense-coding-row-editor .form-input:focus {
+  border-color: var(--color-primary);
+}
+
+.expense-coding-readonly-note {
+  margin: var(--space-md) 0 0;
+  font-size: var(--font-size-caption);
+  color: var(--color-warning-fg);
+}
+
+.expense-coding-suggestion-helper {
+  margin: 0;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.expense-coding-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+@media (min-width: 768px) {
+  .expense-coding-row-editor {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-md);
+  }
+
+  .expense-coding-row-editor .form-field:nth-child(3),
+  .expense-coding-row-editor .expense-coding-suggestion-helper,
+  .expense-coding-row-editor .expense-coding-readonly-note,
+  .expense-coding-row-editor .expense-coding-row-actions {
+    grid-column: 1 / -1;
+  }
+}
+
 /* Line item cards */
 .li-cards-section {
   margin-top: var(--space-xl);

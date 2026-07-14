@@ -233,6 +233,7 @@ describe("entriesInSection", () => {
     expect(entriesInSection("financials", me).map((e) => e.id)).toEqual([
       "projects",
       "bills",
+      "expense-coding",
     ]);
   });
 
