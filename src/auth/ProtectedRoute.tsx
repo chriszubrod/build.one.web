@@ -1,4 +1,5 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { useAuth } from "./AuthContext";
 
 /**
  * Guards every authenticated route. When the caller has no token, we bounce
@@ -11,10 +12,10 @@ import { Navigate, Outlet, useLocation } from "react-router-dom";
  * `safeRedirect()` before navigating, but two layers is better than one.
  */
 export default function ProtectedRoute() {
-  const token = localStorage.getItem("access_token");
+  const { isAuthenticated } = useAuth();
   const location = useLocation();
 
-  if (!token) {
+  if (!isAuthenticated) {
     const next = location.pathname + location.search + location.hash;
     const target =
       next && next !== "/"

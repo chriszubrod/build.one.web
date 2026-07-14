@@ -41,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
   const queryClient = useQueryClient();
 
-  const isAuthenticated = !!localStorage.getItem("access_token");
+  const isAuthenticated = username !== null;
 
   const login = useCallback(async (user: string, password: string, redirectTo: string = "/") => {
     // Clear any prior user's persisted cache BEFORE writing the new token,
