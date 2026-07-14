@@ -121,6 +121,11 @@ export default function InlineContacts({ parentEntity, parentId, readOnly = fals
     setEditForm(emptyForm);
   };
 
+  const handleEditKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, contact: Contact) => {
+    if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+    else if (e.key === 'Enter') { if (saving) return; e.preventDefault(); handleUpdate(contact); }
+  };
+
   if (loading) return <div className="text-muted" style={{ marginTop: 24, fontSize: 13 }}>Loading contacts...</div>;
 
   return (
@@ -152,11 +157,11 @@ export default function InlineContacts({ parentEntity, parentId, readOnly = fals
             {contacts.map((c) =>
               editingId === c.public_id ? (
                 <tr key={c.public_id}>
-                  <td><input className="inline-li-input" value={editForm.email} onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))} /></td>
-                  <td><input className="inline-li-input" value={editForm.office_phone} onChange={(e) => setEditForm((f) => ({ ...f, office_phone: e.target.value }))} /></td>
-                  <td><input className="inline-li-input" value={editForm.mobile_phone} onChange={(e) => setEditForm((f) => ({ ...f, mobile_phone: e.target.value }))} /></td>
-                  <td><input className="inline-li-input" value={editForm.fax} onChange={(e) => setEditForm((f) => ({ ...f, fax: e.target.value }))} /></td>
-                  <td><input className="inline-li-input" value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} /></td>
+                  <td><input className="inline-li-input" value={editForm.email} onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))} onKeyDown={(e) => handleEditKeyDown(e, c)} /></td>
+                  <td><input className="inline-li-input" value={editForm.office_phone} onChange={(e) => setEditForm((f) => ({ ...f, office_phone: e.target.value }))} onKeyDown={(e) => handleEditKeyDown(e, c)} /></td>
+                  <td><input className="inline-li-input" value={editForm.mobile_phone} onChange={(e) => setEditForm((f) => ({ ...f, mobile_phone: e.target.value }))} onKeyDown={(e) => handleEditKeyDown(e, c)} /></td>
+                  <td><input className="inline-li-input" value={editForm.fax} onChange={(e) => setEditForm((f) => ({ ...f, fax: e.target.value }))} onKeyDown={(e) => handleEditKeyDown(e, c)} /></td>
+                  <td><input className="inline-li-input" value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} onKeyDown={(e) => handleEditKeyDown(e, c)} /></td>
                   <td>
                     <div style={{ display: "flex", gap: 4 }}>
                       <button type="button" className="btn btn-primary btn-sm" onClick={() => handleUpdate(c)} disabled={saving}>Save</button>
