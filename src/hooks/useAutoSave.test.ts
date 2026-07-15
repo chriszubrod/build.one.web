@@ -1,65 +1,31 @@
 import { describe, it, expect, vi } from "vitest";
-import { act, createElement } from "react";
-import { createRoot } from "react-dom/client";
+import { act } from "react";
 import { useAutoSave } from "./useAutoSave";
-
-// React 19 requires this global for act() to run without warnings.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-type Deferred = { promise: Promise<void>; resolve: () => void };
-function deferred(): Deferred {
-  let resolve!: () => void;
-  const promise = new Promise<void>((r) => {
-    resolve = r;
-  });
-  return { promise, resolve };
-}
-
-// Drain queued promise microtasks (the do/while continuations). Microtasks are
-// NOT faked by vi.useFakeTimers(), so real awaits advance the save loop.
-async function drain(): Promise<void> {
-  for (let i = 0; i < 6; i++) await Promise.resolve();
-}
+import { deferred, drain, renderHook, type Deferred } from "./__testutils__/renderHook";
 
 type SaveFn = () => Promise<void>;
 type AutoSaveReturn = ReturnType<typeof useAutoSave>;
 
-// Minimal renderHook harness — no @testing-library/react dependency.
+// Wraps the shared renderHook harness with useAutoSave's editable saveFn/deps +
+// object-shaped rerender.
 function renderAutoSave(
   initialSaveFn: SaveFn,
   initialDeps: unknown[],
   delay = 300,
   enabled = true,
 ) {
-  const container = document.createElement("div");
-  const root = createRoot(container);
-  const result = { current: undefined as unknown as AutoSaveReturn };
   let saveFn = initialSaveFn;
   let deps = initialDeps;
-
-  function TestComponent() {
-    result.current = useAutoSave(saveFn, deps, delay, enabled);
-    return null;
-  }
-
-  act(() => {
-    root.render(createElement(TestComponent));
-  });
+  const h = renderHook(() => useAutoSave(saveFn, deps, delay, enabled));
 
   return {
-    result,
+    result: h.result,
     rerender: (next: { saveFn?: SaveFn; deps?: unknown[] }) => {
       if (next.saveFn) saveFn = next.saveFn;
       if (next.deps) deps = next.deps;
-      act(() => {
-        root.render(createElement(TestComponent));
-      });
+      h.rerender();
     },
-    unmount: () => {
-      act(() => {
-        root.unmount();
-      });
-    },
+    unmount: h.unmount,
   };
 }
 

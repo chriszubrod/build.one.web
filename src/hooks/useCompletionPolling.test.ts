@@ -1,60 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, createElement } from "react";
-import { createRoot } from "react-dom/client";
+import { act } from "react";
 import { getOne, ApiError, OfflineError } from "../api/client";
 import { useCompletionPolling } from "./useCompletionPolling";
+import { renderHook as renderHookHarness, deferred, drain } from "./__testutils__/renderHook";
 
 vi.mock("../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api/client")>();
   return { ...actual, getOne: vi.fn() };
 });
 
-type Deferred<T> = { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void };
-function deferred<T>(): Deferred<T> {
-  let resolve!: (v: T) => void;
-  let reject!: (e: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-async function drain() {
-  for (let i = 0; i < 6; i++) await Promise.resolve();
-}
-
 // Shape returned by the completion-result endpoint (mirrors the hook's CompletionResult).
 type PollResult = { status_code: number; message: string };
 
-// React 19 requires this global for act() to run without warnings.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
 const RESULT_PATH = "/api/v1/get/expense/1/completion-result";
 
-type CompletionPollingReturn = ReturnType<typeof useCompletionPolling>;
-
+// Render the polling hook through the shared createRoot/act harness.
 function renderHook() {
-  const container = document.createElement("div");
-  const root = createRoot(container);
-  const result = { current: undefined as unknown as CompletionPollingReturn };
-
-  function TestComponent() {
-    result.current = useCompletionPolling(RESULT_PATH);
-    return null;
-  }
-
-  act(() => {
-    root.render(createElement(TestComponent));
-  });
-
-  return {
-    result,
-    unmount: () => {
-      act(() => {
-        root.unmount();
-      });
-    },
-  };
+  return renderHookHarness(() => useCompletionPolling(RESULT_PATH));
 }
 
 describe("useCompletionPolling", () => {
