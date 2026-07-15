@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { rawRequest, post } from "../api/client";
 import { subscribeToProfileEvents } from "./profileEventsClient";
 import { clearAllUserScopedStorage } from "./cacheCleanup";
+import { shouldReloadOnStorage } from "./authStorageSync";
 import type { AuthResponse } from "../types/api";
 
 interface AuthState {
@@ -170,21 +171,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsubscribe;
   }, [isAuthenticated, queryClient]);
 
-  // Cross-tab auth sync: the `storage` event fires ONLY in OTHER tabs (never
-  // the tab that wrote localStorage). When another tab logs in, logs out, or
-  // login-as-different-user, we must hard-reload — NOT call setUsername —
-  // so boot-time per-user React-Query persister keying in main.tsx
-  // (bo.rq.v1.<uid>) runs again. A naive setUsername would swap identity
-  // without re-keying and reintroduce the multi-user cache-bleed contract
-  // violation (src/auth/cacheCleanup.ts). Current-tab login/signup/logout are
-  // unaffected: they don't emit storage in their own tab and already
-  // hard-reload.
+  // Cross-tab auth sync: hard-reload on a real IDENTITY transition (login /
+  // logout / login-as-different-user) so boot-time per-user React-Query
+  // persister keying in main.tsx (bo.rq.v1.<uid>) re-runs — never a setUsername
+  // identity-swap-without-rekey. Decision + full rationale (incl. why a
+  // same-user token refresh must NOT reload) live in shouldReloadOnStorage().
+  // No self-loop: `storage` fires only in OTHER tabs, and current-tab
+  // login/signup/logout already hard-reload.
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.storageArea !== window.localStorage) return;
-      if (e.key !== "access_token" && e.key !== "username") return;
-      if (e.oldValue === e.newValue) return;
-      window.location.reload();
+      if (shouldReloadOnStorage(e)) window.location.reload();
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
