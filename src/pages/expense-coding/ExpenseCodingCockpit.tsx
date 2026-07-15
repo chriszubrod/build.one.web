@@ -208,7 +208,7 @@ export default function ExpenseCodingCockpit() {
 
   return (
     <div className="page expense-coding-page">
-      <PageHeader title="Expense Coding" count={rows.length}>
+      <PageHeader title="Expense" count={rows.length}>
         <span className="expense-coding-subtitle">58999 → SubCostCode</span>
       </PageHeader>
 

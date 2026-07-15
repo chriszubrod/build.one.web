@@ -87,7 +87,7 @@ export const MENU_ENTRIES: MenuEntry[] = [
   },
   {
     id: "expense-coding",
-    label: "Coding",
+    label: "Expense",
     icon: ClipboardCheck,
     route: "/expense-coding",
     module: Modules.EXPENSES,
