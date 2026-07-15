@@ -1375,6 +1375,40 @@ button[type="submit"]:disabled {
   color: var(--color-info-fg);
 }
 
+/* Suggestion-confidence badge — tier surfaced in the always-visible row header
+   so high-confidence (ready to confirm) reads distinctly from low-confidence
+   (needs scrutiny) and no-score (needs cardholder follow-up) rows. Modifier
+   suffix matches the ConfidenceTier value in expenseCodingLogic.ts. */
+.expense-coding-confidence-badge {
+  display: inline-block;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.expense-coding-confidence-badge--high {
+  background: var(--color-success-bg);
+  color: var(--color-success-fg);
+}
+
+.expense-coding-confidence-badge--medium {
+  background: var(--color-info-bg);
+  color: var(--color-info-fg);
+}
+
+.expense-coding-confidence-badge--low {
+  background: var(--color-warning-bg);
+  color: var(--color-warning-fg);
+}
+
+.expense-coding-confidence-badge--none {
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
 .status-badge.coding-pending {
   background: var(--color-warning-bg);
   color: var(--color-warning-fg);

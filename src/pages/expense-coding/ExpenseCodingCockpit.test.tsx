@@ -8,8 +8,11 @@ import {
   buildConfirmPayload,
   computeAutoClearedPct,
   computeWasOverridden,
+  confidenceTier,
   formatAutoClearedPct,
+  formatConfidencePct,
   initialSelectionFromRow,
+  sortQueueByConfidence,
 } from "./expenseCodingLogic";
 import type { ExpenseCodingMetrics, ExpenseCodingQueueRow } from "../../types/api";
 
@@ -154,6 +157,86 @@ describe("expenseCodingLogic", () => {
   });
 });
 
+describe("confidenceTier", () => {
+  it("tiers ratio-scale confidence at the documented boundaries", () => {
+    expect(confidenceTier(0.95)).toBe("high");
+    expect(confidenceTier(0.9)).toBe("high"); // >= 0.90 is High
+    expect(confidenceTier(0.8999)).toBe("medium");
+    expect(confidenceTier(0.6)).toBe("medium"); // >= 0.60 is Medium
+    expect(confidenceTier(0.5999)).toBe("low");
+    expect(confidenceTier(0.19)).toBe("low");
+    expect(confidenceTier(0)).toBe("low");
+  });
+
+  it("normalizes percent-scale confidence the same as ratio-scale", () => {
+    expect(confidenceTier(1)).toBe("high"); // exactly 1 is a ratio (100%)
+    expect(confidenceTier(95)).toBe("high");
+    expect(confidenceTier(60)).toBe("medium");
+    expect(confidenceTier(19)).toBe("low");
+  });
+
+  it("returns 'none' for null and non-finite confidence", () => {
+    expect(confidenceTier(null)).toBe("none");
+    expect(confidenceTier(Number.NaN)).toBe("none");
+    expect(confidenceTier(Number.POSITIVE_INFINITY)).toBe("none");
+  });
+});
+
+describe("formatConfidencePct", () => {
+  it("renders a rounded percent for ratio and percent scales, null otherwise", () => {
+    expect(formatConfidencePct(0.92)).toBe("92%");
+    expect(formatConfidencePct(0.195)).toBe("20%");
+    expect(formatConfidencePct(92)).toBe("92%");
+    expect(formatConfidencePct(1)).toBe("100%");
+    expect(formatConfidencePct(null)).toBeNull();
+    expect(formatConfidencePct(Number.NaN)).toBeNull();
+  });
+});
+
+describe("sortQueueByConfidence", () => {
+  const rowWith = (confidence: number | null, id: number) =>
+    sampleRow({ suggestion_confidence: confidence, qbo_purchase_line_id: id });
+
+  it("orders highest confidence first", () => {
+    const sorted = sortQueueByConfidence([
+      rowWith(0.19, 1),
+      rowWith(0.95, 2),
+      rowWith(0.6, 3),
+    ]);
+    expect(sorted.map((r) => r.qbo_purchase_line_id)).toEqual([2, 3, 1]);
+  });
+
+  it("sinks null/no-suggestion rows to the bottom as a distinct group", () => {
+    const sorted = sortQueueByConfidence([
+      rowWith(0.5, 1),
+      rowWith(null, 2),
+      rowWith(0.9, 3),
+      rowWith(null, 4),
+    ]);
+    expect(sorted.map((r) => r.qbo_purchase_line_id)).toEqual([3, 1, 2, 4]);
+    expect(sorted[sorted.length - 1].suggestion_confidence).toBeNull();
+  });
+
+  it("is stable: equal confidence and the null group keep server order", () => {
+    const sorted = sortQueueByConfidence([
+      rowWith(0.5, 1),
+      rowWith(0.5, 2),
+      rowWith(0.5, 3),
+      rowWith(null, 4),
+      rowWith(null, 5),
+    ]);
+    expect(sorted.map((r) => r.qbo_purchase_line_id)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it("does not mutate the input array", () => {
+    const input = [rowWith(0.1, 1), rowWith(0.9, 2)];
+    const before = input.map((r) => r.qbo_purchase_line_id);
+    const sorted = sortQueueByConfidence(input);
+    expect(input.map((r) => r.qbo_purchase_line_id)).toEqual(before);
+    expect(sorted).not.toBe(input);
+  });
+});
+
 describe("ExpenseCodingCockpit", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -209,5 +292,23 @@ describe("ExpenseCodingCockpit", () => {
     expect(container.textContent).toContain("Suggested");
     expect(container.textContent).toContain("Auto-cleared");
     expect(container.textContent).toContain("80.0%");
+  });
+
+  it("renders a confidence badge in the row header", async () => {
+    renderCockpit();
+    await act(async () => {
+      await vi.waitFor(
+        () => {
+          expect(container.textContent).toContain("Home Depot");
+        },
+        { timeout: 2000 },
+      );
+    });
+
+    // sampleRow() has suggestion_confidence 0.92 → High tier, 92%.
+    const badge = container.querySelector(".expense-coding-confidence-badge--high");
+    expect(badge).not.toBeNull();
+    expect(badge?.textContent).toContain("High");
+    expect(badge?.textContent).toContain("92%");
   });
 });

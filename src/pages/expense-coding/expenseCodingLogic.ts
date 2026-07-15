@@ -88,7 +88,10 @@ export function formatSuggestionHelper(
   if (!reason && confidence == null) return null;
   let conf: string | null = null;
   if (typeof confidence === "number") {
-    // A ratio (<=1) scales to a percent; a value already in percent passes through.
+    // Percent-native and rounded directly — do NOT route through the badge's
+    // ratio normalization (confidenceRatio). A /100→*100 round-trip flips the
+    // rounding of half-integer percents (e.g. 14.5 → "14%" instead of "15%"),
+    // and this path is unguarded for non-finite (NaN → "NaN%") by design.
     const pct = confidence <= 1 ? confidence * 100 : confidence;
     conf = `${Math.round(pct)}%`;
   } else if (confidence != null) {
@@ -96,6 +99,80 @@ export function formatSuggestionHelper(
   }
   if (reason && conf) return `${reason} · ${conf}`;
   return reason ?? conf;
+}
+
+/**
+ * Confidence tiering + confidence-first ordering for the coding queue.
+ *
+ * Keyed STRICTLY on the existing queue-row field `suggestion_confidence`
+ * (number | null) so this stays a one-file re-point if the endpoint reshapes.
+ * A null/non-finite confidence has no score to tier ("none") — that is a
+ * statement about the confidence field only, not about whether a suggestion
+ * reason exists.
+ *
+ * The tier string doubles as the CSS modifier suffix
+ * (`.expense-coding-confidence-badge--<tier>` in index.css), so these values are
+ * load-bearing: rename a tier here and you must rename the class too. No
+ * translation map is needed the way `CODING_STATUS_CLASSES` needs one, because
+ * the tier already IS the suffix (status names, by contrast, differ from their
+ * class names).
+ */
+export type ConfidenceTier = "high" | "medium" | "low" | "none";
+
+export const CONFIDENCE_TIER_LABELS: Record<ConfidenceTier, string> = {
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+  none: "No score",
+};
+
+/**
+ * The single ratio normalizer for the tier/pct/sort family: a value <=1 is
+ * already a ratio, a value >1 is an already-percent figure, null/non-finite has
+ * no score. Kept ratio-native and deliberately NOT merged with
+ * `formatSuggestionHelper` (which is percent-native): a shared /100→*100
+ * round-trip would flip the rounding of half-integer percents there.
+ */
+function confidenceRatio(conf: number | null): number | null {
+  if (conf == null || !Number.isFinite(conf)) return null;
+  return conf <= 1 ? conf : conf / 100;
+}
+
+export function confidenceTier(conf: number | null): ConfidenceTier {
+  const ratio = confidenceRatio(conf);
+  if (ratio == null) return "none";
+  if (ratio >= 0.9) return "high";
+  if (ratio >= 0.6) return "medium";
+  return "low";
+}
+
+export function formatConfidencePct(conf: number | null): string | null {
+  const ratio = confidenceRatio(conf);
+  if (ratio == null) return null;
+  return `${Math.round(ratio * 100)}%`;
+}
+
+/**
+ * Confidence-first ordering for the coding queue.
+ *
+ * Highest suggestion_confidence first; rows with null/non-finite confidence
+ * (no score → need cardholder follow-up) sink to the bottom as a distinct group.
+ * Returns a NEW array — never mutates the input, which is the React Query cache
+ * payload (mutating it would corrupt the per-user cache). Array.prototype.sort
+ * is stable (ES2019+; the app targets es2023), so equal-confidence rows and the
+ * null group keep their original server order.
+ */
+export function sortQueueByConfidence(
+  rows: ExpenseCodingQueueRow[],
+): ExpenseCodingQueueRow[] {
+  return [...rows].sort((a, b) => {
+    const ca = confidenceRatio(a.suggestion_confidence);
+    const cb = confidenceRatio(b.suggestion_confidence);
+    if (ca == null && cb == null) return 0; // both no-score: keep server order
+    if (ca == null) return 1; // a (no score) sinks below b
+    if (cb == null) return -1; // b (no score) sinks below a
+    return cb - ca; // higher confidence first (equal → 0 keeps order)
+  });
 }
 
 export interface ConfirmPayload {

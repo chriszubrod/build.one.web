@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { ChevronDown, RefreshCw, Sparkles } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, getList, getOne, post } from "../../api/client";
@@ -18,10 +18,14 @@ import {
   codingStatusClass,
   codingStatusLabel,
   computeWasOverridden,
+  confidenceTier,
+  CONFIDENCE_TIER_LABELS,
   formatAutoClearedPct,
+  formatConfidencePct,
   formatSuggestionHelper,
   initialSelectionFromRow,
   rowKey,
+  sortQueueByConfidence,
   type RowCodingSelection,
 } from "./expenseCodingLogic";
 
@@ -68,7 +72,15 @@ export default function ExpenseCodingCockpit() {
     queryFn: () => getOne<ExpenseCodingMetrics>("/api/v1/expense-coding/metrics"),
   });
 
-  const rows = queueQuery.data?.data ?? [];
+  // Sort by suggestion confidence (highest first; null/no-suggestion sinks to a
+  // distinct bottom group) so high-confidence rows surface for quick confirm.
+  // sortQueueByConfidence returns a NEW array — the React Query cache payload is
+  // never mutated. Memoized on the query data so unrelated re-renders (typing in
+  // an expanded row, expand/collapse) don't re-sort.
+  const rows = useMemo(
+    () => sortQueueByConfidence(queueQuery.data?.data ?? []),
+    [queueQuery.data?.data],
+  );
   const metrics = metricsQuery.data;
 
   const refreshAll = useCallback(() => {
@@ -325,6 +337,8 @@ function QueueRowCard({
 
   const helperText = formatSuggestionHelper(row.suggestion_reason, row.suggestion_confidence);
   const memo = row.private_note?.trim() || row.line_description?.trim() || "—";
+  const confTier = confidenceTier(row.suggestion_confidence);
+  const confPct = formatConfidencePct(row.suggestion_confidence);
 
   return (
     <li className={`expense-coding-row${expanded ? " expense-coding-row--expanded" : ""}`}>
@@ -344,6 +358,12 @@ function QueueRowCard({
         <p className="expense-coding-row-memo">{memo}</p>
         <div className="expense-coding-row-badges">
           {row.credit && <span className="expense-coding-credit-chip">Credit</span>}
+          <span
+            className={`expense-coding-confidence-badge expense-coding-confidence-badge--${confTier}`}
+          >
+            {CONFIDENCE_TIER_LABELS[confTier]}
+            {confPct ? ` · ${confPct}` : ""}
+          </span>
           <span className={`status-badge ${codingStatusClass(row.coding_status)}`}>
             {codingStatusLabel(row.coding_status)}
           </span>
