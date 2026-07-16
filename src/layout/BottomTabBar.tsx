@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { MoreHorizontal } from "lucide-react";
 import { useCurrentUser } from "../hooks/useCurrentUser";
@@ -18,6 +18,7 @@ import MoreDrawer from "./MoreDrawer";
  */
 export default function BottomTabBar() {
   const { data: me } = useCurrentUser();
+  const moreSheetId = useId();
   const [open, setOpen] = useState(false);
   const { pathname } = useLocation();
   const slots = primarySlotsForUser(me);
@@ -51,6 +52,7 @@ export default function BottomTabBar() {
             type="button"
             className={`app-tabbar-tab${moreActive ? " app-tabbar-tab-active" : ""}`}
             aria-haspopup="dialog"
+            aria-controls={open ? moreSheetId : undefined}
             aria-expanded={open}
             onClick={() => setOpen((prev) => !prev)}
           >
@@ -61,7 +63,7 @@ export default function BottomTabBar() {
       </nav>
       {sections.length > 0 && (
         /* Must stay outside .app-tabbar — that pill's transform captures fixed-position sheets. */
-        <MoreDrawer open={open} onDismiss={() => setOpen(false)} />
+        <MoreDrawer id={moreSheetId} open={open} onDismiss={() => setOpen(false)} />
       )}
     </>
   );

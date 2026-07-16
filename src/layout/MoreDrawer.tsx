@@ -7,6 +7,7 @@ import { secondarySectionsForUser } from "./menuConfig";
 interface MoreDrawerProps {
   open: boolean;
   onDismiss: () => void;
+  id: string;
 }
 
 /**
@@ -18,12 +19,12 @@ interface MoreDrawerProps {
  * Wired into BottomTabBar — the More tab opens this sheet when
  * `secondarySectionsForUser` returns at least one section.
  */
-export default function MoreDrawer({ open, onDismiss }: MoreDrawerProps) {
+export default function MoreDrawer({ open, onDismiss, id }: MoreDrawerProps) {
   const { data: me } = useCurrentUser();
   const sections = secondarySectionsForUser(me);
 
   return (
-    <Sheet open={open} onDismiss={onDismiss}>
+    <Sheet open={open} onDismiss={onDismiss} id={id}>
       <SheetHeader title="More" onCancel={onDismiss} />
       <div className="sheet-body more-drawer-body">
         {sections.length === 0 ? (

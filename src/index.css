@@ -4596,6 +4596,10 @@ a.buildone-record-header-link:hover .buildone-record-name {
   animation: sheet-rise 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+.sheet-card:focus {
+  outline: none;
+}
+
 .sheet-body {
   flex: 1;
   overflow-y: auto;

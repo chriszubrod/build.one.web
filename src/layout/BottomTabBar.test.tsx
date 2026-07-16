@@ -125,6 +125,28 @@ describe("BottomTabBar", () => {
     expect(document.querySelector(".app-tabbar button")).toBeNull();
   });
 
+  it("More button aria-controls is absent when closed and resolves when open", () => {
+    mockUseCurrentUser.mockReturnValue({
+      data: makeUser({ is_admin: true, modules: [] }),
+    });
+    renderTabBar();
+
+    const btn = moreButton();
+    expect(btn).not.toBeNull();
+    expect(btn!.hasAttribute("aria-controls")).toBe(false);
+
+    act(() => {
+      btn!.click();
+    });
+
+    const controlsId = btn!.getAttribute("aria-controls");
+    expect(controlsId).not.toBeNull();
+
+    const dialog = document.getElementById(controlsId!);
+    expect(dialog).not.toBeNull();
+    expect(dialog!.getAttribute("role")).toBe("dialog");
+  });
+
   it("system admin opening More exposes Vendors and Customers links", () => {
     mockUseCurrentUser.mockReturnValue({
       data: makeUser({ is_admin: true, modules: [] }),
