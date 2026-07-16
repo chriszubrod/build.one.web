@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useEntityItem, deleteEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, deleteEntity, entityItemKey, entityListKey } from "../../hooks/useEntity";
 import { useToast } from "../../components/Toast";
 import DetailView from "../../components/DetailView";
 import { entityCrumbs } from "../../components/Breadcrumb";
@@ -8,11 +9,12 @@ import InlineContacts from "../../components/InlineContacts";
 import type { Vendor } from "../../types/api";
 
 export default function VendorView() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { item, loading, error } = useEntityItem<Vendor>(`/api/v1/get/vendor/${id}`);
+  const { item, loading, error } = useEntityItem<Vendor>(`/api/v1/get/vendor/${publicId}`);
   const [deleting, setDeleting] = useState(false);
+  const queryClient = useQueryClient();
 
   if (loading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
@@ -22,7 +24,9 @@ export default function VendorView() {
     if (!confirm("Delete this vendor?")) return;
     setDeleting(true);
     try {
-      await deleteEntity(`/api/v1/delete/vendor/${id}`);
+      await deleteEntity(`/api/v1/delete/vendor/${publicId}`);
+      queryClient.removeQueries({ queryKey: entityItemKey(`/api/v1/get/vendor/${publicId}`) });
+      queryClient.invalidateQueries({ queryKey: entityListKey("/api/v1/get/vendors") });
       toast("Vendor deleted.");
       navigate("/vendor/list");
     } catch (err: any) {
@@ -34,7 +38,7 @@ export default function VendorView() {
   return (
     <DetailView
       title={item.name}
-      editPath={`/vendor/${id}/edit`}
+      editPath={`/vendor/${publicId}/edit`}
       breadcrumbs={entityCrumbs("Vendors", "/vendor/list", item.name)}
       onDelete={handleDelete}
       deleting={deleting}

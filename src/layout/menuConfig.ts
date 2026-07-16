@@ -1,4 +1,4 @@
-import { BookOpen, Briefcase, ClipboardCheck, Clock, FileText, HardHat, User } from "lucide-react";
+import { BookOpen, Briefcase, ClipboardCheck, Clock, FileText, HardHat, Store, User } from "lucide-react";
 import type { ComponentType } from "react";
 import { Modules, type ModuleName } from "../shared/modules";
 import type { CurrentUser } from "../types/api";
@@ -94,6 +94,16 @@ export const MENU_ENTRIES: MenuEntry[] = [
     permission: "can_read",
     section: "financials",
     priority: 45,
+  },
+  {
+    id: "vendors",
+    label: "Vendors",
+    icon: Store,
+    route: "/vendor/list",
+    module: Modules.VENDORS,
+    permission: "can_read",
+    section: "contacts",
+    priority: 50,
   },
   {
     id: "profile",

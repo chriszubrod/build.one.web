@@ -50,6 +50,10 @@ import BillView from "./pages/bills/BillView";
 import BillEdit from "./pages/bills/BillEdit";
 
 import ExpenseCodingCockpit from "./pages/expense-coding/ExpenseCodingCockpit";
+import VendorList from "./pages/vendors/VendorList";
+import VendorView from "./pages/vendors/VendorView";
+import VendorEdit from "./pages/vendors/VendorEdit";
+import VendorCreate from "./pages/vendors/VendorCreate";
 
 // Parked for v0.1.0 — Option B trim (excluded via tsconfig.app.json,
 // not bundled by Vite since unreachable from this route tree). Restore
@@ -99,6 +103,11 @@ export default function App() {
                   <Route path="/project/:publicId" element={<ProjectDetailScreen />} />
 
                   <Route path="/expense-coding" element={<ExpenseCodingCockpit />} />
+
+                  <Route path="/vendor/list" element={<VendorList />} />
+                  <Route path="/vendor/create" element={<VendorCreate />} />
+                  <Route path="/vendor/:publicId" element={<VendorView />} />
+                  <Route path="/vendor/:publicId/edit" element={<VendorEdit />} />
 
                   <Route path="/profile" element={<ProfileView />} />
                   <Route path="/profile/details" element={<UserDetailScreen />} />

@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useEntityItem, updateEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, updateEntity, entityItemKey, entityListKey } from "../../hooks/useEntity";
 import { useLookups } from "../../hooks/useLookups";
 import FormField from "../../components/FormField";
 import SelectField from "../../components/SelectField";
@@ -8,13 +9,14 @@ import InlineContacts from "../../components/InlineContacts";
 import type { Vendor } from "../../types/api";
 
 export default function VendorEdit() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
-  const { item, loading, error } = useEntityItem<Vendor>(`/api/v1/get/vendor/${id}`);
+  const { item, loading, error } = useEntityItem<Vendor>(`/api/v1/get/vendor/${publicId}`);
   const { data: lookups } = useLookups("vendor_types");
   const [form, setForm] = useState<Record<string, any> | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const queryClient = useQueryClient();
 
   // Initialize form from loaded item
   if (item && !form) {
@@ -44,7 +46,7 @@ export default function VendorEdit() {
     setSaving(true);
     setSaveError("");
     try {
-      await updateEntity(`/api/v1/update/vendor/${id}`, {
+      await updateEntity(`/api/v1/update/vendor/${publicId}`, {
         row_version: form.row_version,
         name: form.name,
         abbreviation: form.abbreviation || null,
@@ -55,7 +57,9 @@ export default function VendorEdit() {
         hourly_rate: form.hourly_rate || null,
         markup: form.markup || null,
       });
-      navigate(`/vendor/${id}`);
+      await queryClient.invalidateQueries({ queryKey: entityItemKey(`/api/v1/get/vendor/${publicId}`) });
+      queryClient.invalidateQueries({ queryKey: entityListKey("/api/v1/get/vendors") });
+      navigate(`/vendor/${publicId}`);
     } catch (err: any) {
       setSaveError(err.message);
       setSaving(false);
@@ -145,7 +149,7 @@ export default function VendorEdit() {
           <button
             type="button"
             className="btn btn-secondary"
-            onClick={() => navigate(`/vendor/${id}`)}
+            onClick={() => navigate(`/vendor/${publicId}`)}
           >
             Cancel
           </button>

@@ -1,6 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import { getList, getOne, post, put, del, ApiError } from "../api/client";
 
+/**
+ * Query-key builders — the single source of truth for the key shape these
+ * hooks register under. Mutating flows (create/update/delete) import these to
+ * invalidate the exact same cache entries instead of hand-writing the
+ * ["list", path] / ["item", path] tuples, so the scheme lives in one place and
+ * can change here without silently orphaning invalidations at call sites.
+ */
+export const entityListKey = (listPath: string) => ["list", listPath] as const;
+export const entityItemKey = (itemPath: string) => ["item", itemPath] as const;
+
 interface UseEntityListResult<T> {
   items: T[];
   loading: boolean;
@@ -28,7 +38,7 @@ function retryIgnoringClientErrors(failureCount: number, error: unknown): boolea
  */
 export function useEntityList<T>(listPath: string): UseEntityListResult<T> {
   const { data, isLoading, error, refetch } = useQuery<{ data: T[]; count: number }>({
-    queryKey: ["list", listPath],
+    queryKey: entityListKey(listPath),
     queryFn: async () => {
       try {
         return await getList<T>(listPath);
@@ -56,7 +66,7 @@ export function useEntityList<T>(listPath: string): UseEntityListResult<T> {
  */
 export function useEntityItem<T>(itemPath: string): UseEntityItemResult<T> {
   const { data, isLoading, error, refetch } = useQuery<T>({
-    queryKey: ["item", itemPath],
+    queryKey: entityItemKey(itemPath),
     queryFn: () => getOne<T>(itemPath),
     retry: retryIgnoringClientErrors,
   });

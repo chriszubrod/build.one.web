@@ -219,6 +219,21 @@ describe("canSeeEntry — RBAC gating", () => {
     // `!me → module === null` shortcut, so an admin entry never leaks pre-auth.
     expect(canSeeEntry(findMenuEntry("docs")!, undefined)).toBe(false);
   });
+
+  it("Vendors entry visible to a user with Vendors can_read", () => {
+    const me = makeUser({ role: "AP Specialist", modules: [makeModule("Vendors", { can_read: true })] });
+    expect(canSeeEntry(findMenuEntry("vendors")!, me)).toBe(true);
+  });
+
+  it("Vendors entry hidden from a non-admin without the Vendors module", () => {
+    const me = makeUser({ role: "Field Crew", modules: [] });
+    expect(canSeeEntry(findMenuEntry("vendors")!, me)).toBe(false);
+  });
+
+  it("Vendors entry visible to system admin via bypass", () => {
+    const me = makeUser({ is_admin: true, modules: [] });
+    expect(canSeeEntry(findMenuEntry("vendors")!, me)).toBe(true);
+  });
 });
 
 describe("entriesInSection", () => {
@@ -237,10 +252,14 @@ describe("entriesInSection", () => {
     ]);
   });
 
-  it("Returns empty array for sections without entries yet (contacts / admin)", () => {
+  it("Returns empty array for sections without entries yet (admin)", () => {
     const me = makeUser({ is_admin: true });
-    expect(entriesInSection("contacts", me)).toEqual([]);
     expect(entriesInSection("admin", me)).toEqual([]);
+  });
+
+  it("Returns Vendors under contacts (Phase 1B)", () => {
+    const me = makeUser({ is_admin: true });
+    expect(entriesInSection("contacts", me).map((e) => e.id)).toEqual(["vendors"]);
   });
 
   it("Account section contains Profile", () => {
