@@ -31,7 +31,6 @@
     "src/pages/companies/**",
     "src/pages/contract-labor/**",
     "src/pages/cost-codes/**",
-    "src/pages/customers/**",
     "src/pages/email-messages/**",
     "src/pages/employee-labor/**",
     "src/pages/employees/**",

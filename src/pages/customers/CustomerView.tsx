@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useEntityItem, deleteEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, deleteEntity, entityItemKey, entityListKey } from "../../hooks/useEntity";
 import { useToast } from "../../components/Toast";
 import DetailView from "../../components/DetailView";
 import { entityCrumbs } from "../../components/Breadcrumb";
@@ -8,11 +9,12 @@ import InlineContacts from "../../components/InlineContacts";
 import type { Customer } from "../../types/api";
 
 export default function CustomerView() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { item, loading, error } = useEntityItem<Customer>(`/api/v1/get/customer/${id}`);
+  const { item, loading, error } = useEntityItem<Customer>(`/api/v1/get/customer/${publicId}`);
   const [deleting, setDeleting] = useState(false);
+  const queryClient = useQueryClient();
 
   if (loading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
@@ -22,7 +24,9 @@ export default function CustomerView() {
     if (!confirm("Delete this customer?")) return;
     setDeleting(true);
     try {
-      await deleteEntity(`/api/v1/delete/customer/${id}`);
+      await deleteEntity(`/api/v1/delete/customer/${publicId}`);
+      queryClient.removeQueries({ queryKey: entityItemKey(`/api/v1/get/customer/${publicId}`) });
+      queryClient.invalidateQueries({ queryKey: entityListKey("/api/v1/get/customers") });
       toast("Customer deleted.");
       navigate("/customer/list");
     } catch (err: any) {
@@ -34,7 +38,7 @@ export default function CustomerView() {
   return (
     <DetailView
       title={item.name}
-      editPath={`/customer/${id}/edit`}
+      editPath={`/customer/${publicId}/edit`}
       breadcrumbs={entityCrumbs("Customers", "/customer/list", item.name)}
       onDelete={handleDelete}
       deleting={deleting}

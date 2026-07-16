@@ -54,6 +54,10 @@ import VendorList from "./pages/vendors/VendorList";
 import VendorView from "./pages/vendors/VendorView";
 import VendorEdit from "./pages/vendors/VendorEdit";
 import VendorCreate from "./pages/vendors/VendorCreate";
+import CustomerList from "./pages/customers/CustomerList";
+import CustomerView from "./pages/customers/CustomerView";
+import CustomerEdit from "./pages/customers/CustomerEdit";
+import CustomerCreate from "./pages/customers/CustomerCreate";
 
 // Parked for v0.1.0 — Option B trim (excluded via tsconfig.app.json,
 // not bundled by Vite since unreachable from this route tree). Restore
@@ -108,6 +112,11 @@ export default function App() {
                   <Route path="/vendor/create" element={<VendorCreate />} />
                   <Route path="/vendor/:publicId" element={<VendorView />} />
                   <Route path="/vendor/:publicId/edit" element={<VendorEdit />} />
+
+                  <Route path="/customer/list" element={<CustomerList />} />
+                  <Route path="/customer/create" element={<CustomerCreate />} />
+                  <Route path="/customer/:publicId" element={<CustomerView />} />
+                  <Route path="/customer/:publicId/edit" element={<CustomerEdit />} />
 
                   <Route path="/profile" element={<ProfileView />} />
                   <Route path="/profile/details" element={<UserDetailScreen />} />

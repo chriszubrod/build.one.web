@@ -234,6 +234,21 @@ describe("canSeeEntry — RBAC gating", () => {
     const me = makeUser({ is_admin: true, modules: [] });
     expect(canSeeEntry(findMenuEntry("vendors")!, me)).toBe(true);
   });
+
+  it("Customers entry visible to a user with Customers can_read", () => {
+    const me = makeUser({ role: "AR Specialist", modules: [makeModule("Customers", { can_read: true })] });
+    expect(canSeeEntry(findMenuEntry("customers")!, me)).toBe(true);
+  });
+
+  it("Customers entry hidden from a non-admin without the Customers module", () => {
+    const me = makeUser({ role: "Field Crew", modules: [] });
+    expect(canSeeEntry(findMenuEntry("customers")!, me)).toBe(false);
+  });
+
+  it("Customers entry visible to system admin via bypass", () => {
+    const me = makeUser({ is_admin: true, modules: [] });
+    expect(canSeeEntry(findMenuEntry("customers")!, me)).toBe(true);
+  });
 });
 
 describe("entriesInSection", () => {
@@ -257,9 +272,9 @@ describe("entriesInSection", () => {
     expect(entriesInSection("admin", me)).toEqual([]);
   });
 
-  it("Returns Vendors under contacts (Phase 1B)", () => {
+  it("Returns Vendors and Customers under contacts (Phase 1B)", () => {
     const me = makeUser({ is_admin: true });
-    expect(entriesInSection("contacts", me).map((e) => e.id)).toEqual(["vendors"]);
+    expect(entriesInSection("contacts", me).map((e) => e.id)).toEqual(["vendors", "customers"]);
   });
 
   it("Account section contains Profile", () => {

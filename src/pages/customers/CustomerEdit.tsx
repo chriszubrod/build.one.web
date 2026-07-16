@@ -1,17 +1,19 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useEntityItem, updateEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, updateEntity, entityItemKey, entityListKey } from "../../hooks/useEntity";
 import FormField from "../../components/FormField";
 import InlineContacts from "../../components/InlineContacts";
 import type { Customer } from "../../types/api";
 
 export default function CustomerEdit() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
-  const { item, loading, error } = useEntityItem<Customer>(`/api/v1/get/customer/${id}`);
+  const { item, loading, error } = useEntityItem<Customer>(`/api/v1/get/customer/${publicId}`);
   const [form, setForm] = useState<Record<string, any> | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const queryClient = useQueryClient();
 
   if (item && !form) {
     setForm({ name: item.name, email: item.email, phone: item.phone, row_version: item.row_version });
@@ -28,13 +30,15 @@ export default function CustomerEdit() {
     setSaving(true);
     setSaveError("");
     try {
-      await updateEntity(`/api/v1/update/customer/${id}`, {
+      await updateEntity(`/api/v1/update/customer/${publicId}`, {
         row_version: form.row_version,
         name: form.name,
         email: form.email,
         phone: form.phone,
       });
-      navigate(`/customer/${id}`);
+      await queryClient.invalidateQueries({ queryKey: entityItemKey(`/api/v1/get/customer/${publicId}`) });
+      queryClient.invalidateQueries({ queryKey: entityListKey("/api/v1/get/customers") });
+      navigate(`/customer/${publicId}`);
     } catch (err: any) {
       setSaveError(err.message);
       setSaving(false);
@@ -51,7 +55,7 @@ export default function CustomerEdit() {
         <FormField label="Phone" name="phone" value={form.phone} onChange={onChange} type="tel" required />
         <div className="form-actions">
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving..." : "Save"}</button>
-          <button type="button" className="btn btn-secondary" onClick={() => navigate(`/customer/${id}`)}>Cancel</button>
+          <button type="button" className="btn btn-secondary" onClick={() => navigate(`/customer/${publicId}`)}>Cancel</button>
         </div>
       </form>
       {item && (
