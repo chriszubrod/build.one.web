@@ -1,10 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
+  MENU_ENTRIES,
   primarySlotsForUser,
+  secondarySectionsForUser,
+  SECONDARY_SECTION_SPECS,
   entriesInSection,
   canSeeEntry,
   findMenuEntry,
 } from "./menuConfig";
+import { Modules } from "../shared/modules";
 import type { CurrentUser, CurrentUserModule } from "../types/api";
 
 /**
@@ -50,6 +54,14 @@ function makeUser(opts: {
     modules: opts.modules ?? [],
     accessible_project_ids: [],
   };
+}
+
+function expectNoDoubleListing(me: CurrentUser) {
+  const primaryIds = new Set(primarySlotsForUser(me).map((e) => e.id));
+  const overlap = secondarySectionsForUser(me)
+    .flatMap((s) => s.entries.map((e) => e.id))
+    .filter((id) => primaryIds.has(id));
+  expect(overlap).toEqual([]);
 }
 
 describe("primarySlotsForUser — curated per-role mapping", () => {
@@ -287,5 +299,76 @@ describe("entriesInSection", () => {
     expect(entriesInSection("reference", admin).map((e) => e.id)).toEqual(["docs"]);
     const nonAdmin = makeUser({ role: "Field Crew" });
     expect(entriesInSection("reference", nonAdmin)).toEqual([]);
+  });
+});
+
+describe("secondarySectionsForUser", () => {
+  it("Field Crew with only Time Tracking can_read returns [] (no More button)", () => {
+    const me = makeUser({
+      role: "Field Crew",
+      modules: [makeModule(Modules.TIME_TRACKING, { can_read: true })],
+    });
+    expect(secondarySectionsForUser(me)).toEqual([]);
+  });
+
+  it("system admin returns a contacts section with vendors and customers", () => {
+    const me = makeUser({ is_admin: true, modules: [] });
+    const contacts = secondarySectionsForUser(me).find((s) => s.section === "contacts");
+    expect(contacts).toBeDefined();
+    expect(contacts!.entries.map((e) => e.id)).toEqual(["vendors", "customers"]);
+  });
+
+  it("system admin result never contains profile or projects in any section", () => {
+    const me = makeUser({ is_admin: true, modules: [] });
+    const allIds = secondarySectionsForUser(me).flatMap((s) => s.entries.map((e) => e.id));
+    expect(allIds).not.toContain("profile");
+    expect(allIds).not.toContain("projects");
+  });
+
+  it("no primary slot id appears in secondary sections (system admin)", () => {
+    expectNoDoubleListing(makeUser({ is_admin: true, modules: [] }));
+  });
+
+  it("no primary slot id appears in secondary sections (Project Manager)", () => {
+    expectNoDoubleListing(
+      makeUser({
+        role: "Project Manager",
+        modules: [
+          makeModule(Modules.TIME_TRACKING, { can_read: true }),
+          makeModule(Modules.CONTRACT_LABOR, { can_read: true }),
+          makeModule(Modules.PROJECTS, { can_read: true }),
+        ],
+      }),
+    );
+  });
+
+  // Tripwire for the exact bug U-046 fixed: contacts was missing from both
+  // surfaces' hand-maintained lists, so a section in MENU_ENTRIES but absent
+  // from SECONDARY_SECTION_SPECS renders on no surface.
+  it("every non-primary MENU_ENTRIES section is listed in SECONDARY_SECTION_SPECS", () => {
+    const specSections = new Set(SECONDARY_SECTION_SPECS.map((s) => s.section));
+    const nonPrimarySections = new Set(
+      MENU_ENTRIES.filter((e) => e.section !== "primary").map((e) => e.section),
+    );
+    for (const section of nonPrimarySections) {
+      expect(specSections.has(section)).toBe(true);
+    }
+  });
+
+  it("undefined me returns []", () => {
+    expect(secondarySectionsForUser(undefined)).toEqual([]);
+  });
+
+  it("omits empty sections (admin section absent for non-admin)", () => {
+    const me = makeUser({
+      role: "Field Crew",
+      modules: [makeModule(Modules.VENDORS, { can_read: true })],
+    });
+    const sections = secondarySectionsForUser(me);
+    expect(sections.find((s) => s.section === "admin")).toBeUndefined();
+    expect(sections.find((s) => s.section === "reference")).toBeUndefined();
+    expect(sections.find((s) => s.section === "contacts")?.entries.map((e) => e.id)).toEqual([
+      "vendors",
+    ]);
   });
 });

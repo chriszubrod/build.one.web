@@ -3,25 +3,9 @@ import type { ReactNode } from "react";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import {
   primarySlotsForUser,
-  entriesInSection,
+  secondarySectionsForUser,
   type MenuEntry,
-  type NavSection,
 } from "./menuConfig";
-
-/**
- * Desktop / tablet sidebar. Renders the curated primary slots
- * (`primarySlotsForUser`) followed by any non-primary sections that have
- * visible entries — e.g. the admin-only Reference → Docs. This keeps admin
- * tools off the field-worker bottom pill while still surfacing them on desktop.
- *
- * CSS shows this sidebar at the tablet+ breakpoint (`min-width: 768px`).
- * BottomTabBar fills the phone column below.
- */
-const SECONDARY_SECTIONS: { section: NavSection; label: string }[] = [
-  { section: "financials", label: "Financials" },
-  { section: "reference", label: "Reference" },
-  { section: "admin", label: "Admin" },
-];
 
 function sidebarLink(entry: MenuEntry): ReactNode {
   const Icon = entry.icon;
@@ -39,13 +23,19 @@ function sidebarLink(entry: MenuEntry): ReactNode {
   );
 }
 
+/**
+ * Desktop / tablet sidebar. Renders the curated primary slots
+ * (`primarySlotsForUser`) followed by any non-primary sections that have
+ * visible entries — e.g. the admin-only Reference → Docs. This keeps admin
+ * tools off the field-worker bottom pill while still surfacing them on desktop.
+ *
+ * CSS shows this sidebar at the tablet+ breakpoint (`min-width: 768px`).
+ * BottomTabBar fills the phone column below.
+ */
 export default function AppSidebar() {
   const { data: me } = useCurrentUser();
   const slots = primarySlotsForUser(me);
-  const secondary = SECONDARY_SECTIONS.map((s) => ({
-    ...s,
-    entries: entriesInSection(s.section, me),
-  })).filter((s) => s.entries.length > 0);
+  const secondary = secondarySectionsForUser(me);
 
   return (
     <aside className="app-sidebar" role="navigation" aria-label="Primary">

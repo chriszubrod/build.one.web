@@ -102,10 +102,31 @@ endpoint doesn't fit the envelope pattern (`{data: ...}`), use
 ## Navigation architecture
 
 Single source of truth: `src/layout/menuConfig.ts`. Both `BottomTabBar`
-(mobile/tablet) and `AppSidebar` (desktop) render from
-`primarySlotsForUser(me)`. The `MoreDrawer` (bottom sheet) consumes
-`entriesInSection(section, me)` for everything that overflows the 5-slot
-bottom pill cap. Module name constants live in `src/shared/modules.ts`
+(mobile/tablet) and `AppSidebar` (desktop) render `primarySlotsForUser(me)`
+for the primary tier, then `secondarySectionsForUser(me)` for everything
+else (U-046, 2026-07-16).
+
+`secondarySectionsForUser` is the single source of truth for "what is NOT
+on the primary nav for this user": it composes `entriesInSection` (RBAC
+gating) over `SECONDARY_SECTION_SPECS`, drops any entry already occupying
+a primary slot (so Profile/Projects never double-list), and omits empty
+sections. **Both** surfaces must consume it — do not hand-maintain a
+per-surface section list. That is exactly the bug U-046 fixed: BottomTabBar
+and AppSidebar each kept their own list and both omitted `contacts`, so
+Vendors/Customers were URL-only on every breakpoint. A test tripwire in
+`menuConfig.test.ts` now fails if a `MENU_ENTRIES` section is missing from
+the spec list.
+
+`MoreDrawer` (bottom sheet) renders those sections on mobile; `BottomTabBar`
+shows its "More" slot only when the helper returns ≥1 section, so the
+trigger can never open an empty drawer. **`MoreDrawer` must stay mounted
+OUTSIDE `<nav className="app-tabbar">`** — that pill has
+`transform: translateX(-50%)`, and a transformed ancestor becomes the
+containing block for `position: fixed` descendants, which would clip the
+sheet to the pill instead of the viewport. `BottomTabBar.test.tsx` pins
+this as a DOM-tree assertion.
+
+Module name constants live in `src/shared/modules.ts`
 — mirror of `build.one.api/shared/rbac_constants.py`. Never use the raw
 module-name string literals (`"Contract Labor"`, etc.) in nav code;
 typos on a literal silently hide entries while typos on a constant fail
@@ -235,5 +256,7 @@ the per-unit pipeline** (umbrella `CLAUDE.md` + umbrella memory
 - Gating is **presentational only** — bundled content is intentionally
   non-sensitive (see the header comment in `src/pages/docs/DocsPage.tsx`).
 
-Follow-ups (API section, web/mcp/scheduler generators, mobile reachability via
-`MoreDrawer`, freshness CI/hook) are tracked in `TODO.md`.
+Follow-ups (API section, web/mcp/scheduler generators, freshness CI/hook) are
+tracked in `TODO.md`. Mobile reachability is **done** — U-046 wired `MoreDrawer`
+into `BottomTabBar`, so system admins reach `/docs` on a phone via
+More → Reference.

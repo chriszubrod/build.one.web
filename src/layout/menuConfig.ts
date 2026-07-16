@@ -226,7 +226,8 @@ export function primarySlotsForUser(me: CurrentUser | undefined | null): MenuEnt
 
 /**
  * All entries the user can see in a given section, ordered by priority.
- * Used by the More drawer (mobile) and the AppSidebar sections (desktop).
+ * RBAC-gated building block that `secondarySectionsForUser` composes into
+ * drawer and sidebar section lists.
  */
 export function entriesInSection(
   section: NavSection,
@@ -235,4 +236,46 @@ export function entriesInSection(
   return MENU_ENTRIES.filter((e) => e.section === section && canSeeEntry(e, me)).sort(
     (a, b) => a.priority - b.priority,
   );
+}
+
+export interface SecondarySection {
+  section: NavSection;
+  label: string;
+  entries: MenuEntry[];
+}
+
+/** Display order + labels for non-primary nav sections (drawer + sidebar). */
+export const SECONDARY_SECTION_SPECS: Omit<SecondarySection, "entries">[] = [
+  { section: "financials", label: "Financials" },
+  { section: "contacts", label: "Contacts" },
+  { section: "admin", label: "Admin" },
+  { section: "reference", label: "Reference" },
+  { section: "account", label: "Account" },
+];
+
+/**
+ * Single source of truth for "what is NOT on the primary nav for this user".
+ * Consumed by both MoreDrawer (mobile bottom sheet) and AppSidebar (desktop).
+ *
+ * Builds each non-primary section via `entriesInSection` (RBAC/module gating),
+ * then drops any entry already shown in `primarySlotsForUser` so profile,
+ * projects, etc. never double-list. Sections with zero surviving entries are
+ * omitted. Returns [] when `me` is null/undefined.
+ */
+export function secondarySectionsForUser(
+  me: CurrentUser | undefined | null,
+): SecondarySection[] {
+  if (!me) return [];
+  const primaryIds = new Set(primarySlotsForUser(me).map((e) => e.id));
+  return SECONDARY_SECTION_SPECS.map(({ section, label }) => ({
+    section,
+    label,
+    entries: entriesInSection(section, me).filter((e) => !primaryIds.has(e.id)),
+  })).filter((s) => s.entries.length > 0);
+}
+
+/** True when `pathname` is the entry's own route or a child of it (e.g. /vendor/list owns /vendor/456). */
+export function isEntryRouteActive(entry: MenuEntry, pathname: string): boolean {
+  const base = "/" + entry.route.split("/")[1];
+  return pathname === base || pathname.startsWith(base + "/");
 }

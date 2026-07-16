@@ -1,6 +1,9 @@
-import { NavLink } from "react-router-dom";
+import { useState } from "react";
+import { NavLink, useLocation } from "react-router-dom";
+import { MoreHorizontal } from "lucide-react";
 import { useCurrentUser } from "../hooks/useCurrentUser";
-import { primarySlotsForUser } from "./menuConfig";
+import { isEntryRouteActive, primarySlotsForUser, secondarySectionsForUser } from "./menuConfig";
+import MoreDrawer from "./MoreDrawer";
 
 /**
  * Mobile / tablet bottom nav. Renders from `primarySlotsForUser(me)`
@@ -15,25 +18,51 @@ import { primarySlotsForUser } from "./menuConfig";
  */
 export default function BottomTabBar() {
   const { data: me } = useCurrentUser();
+  const [open, setOpen] = useState(false);
+  const { pathname } = useLocation();
   const slots = primarySlotsForUser(me);
+  const sections = secondarySectionsForUser(me);
+
+  const drawerRouteActive = sections
+    .flatMap((sec) => sec.entries)
+    .some((entry) => isEntryRouteActive(entry, pathname));
+  const moreActive = open || drawerRouteActive;
 
   return (
-    <nav className="app-tabbar" role="tablist">
-      {slots.map((entry) => {
-        const Icon = entry.icon;
-        return (
-          <NavLink
-            key={entry.id}
-            to={entry.route}
-            className={({ isActive }) =>
-              `app-tabbar-tab${isActive ? " app-tabbar-tab-active" : ""}`
-            }
+    <>
+      <nav className="app-tabbar" role="tablist">
+        {slots.map((entry) => {
+          const Icon = entry.icon;
+          return (
+            <NavLink
+              key={entry.id}
+              to={entry.route}
+              className={({ isActive }) =>
+                `app-tabbar-tab${isActive ? " app-tabbar-tab-active" : ""}`
+              }
+            >
+              <Icon size={20} strokeWidth={2} />
+              <span className="app-tabbar-tab-label">{entry.label}</span>
+            </NavLink>
+          );
+        })}
+        {sections.length > 0 && (
+          <button
+            type="button"
+            className={`app-tabbar-tab${moreActive ? " app-tabbar-tab-active" : ""}`}
+            aria-haspopup="dialog"
+            aria-expanded={open}
+            onClick={() => setOpen((prev) => !prev)}
           >
-            <Icon size={20} strokeWidth={2} />
-            <span className="app-tabbar-tab-label">{entry.label}</span>
-          </NavLink>
-        );
-      })}
-    </nav>
+            <MoreHorizontal size={20} strokeWidth={2} />
+            <span className="app-tabbar-tab-label">More</span>
+          </button>
+        )}
+      </nav>
+      {sections.length > 0 && (
+        /* Must stay outside .app-tabbar — that pill's transform captures fixed-position sheets. */
+        <MoreDrawer open={open} onDismiss={() => setOpen(false)} />
+      )}
+    </>
   );
 }
