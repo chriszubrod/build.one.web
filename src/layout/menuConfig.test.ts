@@ -261,6 +261,21 @@ describe("canSeeEntry — RBAC gating", () => {
     const me = makeUser({ is_admin: true, modules: [] });
     expect(canSeeEntry(findMenuEntry("customers")!, me)).toBe(true);
   });
+
+  it("Budgets entry visible to a user with Budgets can_read", () => {
+    const me = makeUser({ role: "Project Manager", modules: [makeModule("Budgets", { can_read: true })] });
+    expect(canSeeEntry(findMenuEntry("budgets")!, me)).toBe(true);
+  });
+
+  it("Budgets entry hidden from a non-admin without the Budgets module", () => {
+    const me = makeUser({ role: "Field Crew", modules: [] });
+    expect(canSeeEntry(findMenuEntry("budgets")!, me)).toBe(false);
+  });
+
+  it("Budgets entry visible to system admin via bypass", () => {
+    const me = makeUser({ is_admin: true, modules: [] });
+    expect(canSeeEntry(findMenuEntry("budgets")!, me)).toBe(true);
+  });
 });
 
 describe("entriesInSection", () => {
@@ -270,10 +285,11 @@ describe("entriesInSection", () => {
     expect(primary).toEqual(["time", "labor"]); // priorities 10, 20
   });
 
-  it("Returns Projects and Bills under financials (Phase 1A + Bills entry)", () => {
+  it("Returns every financials entry ordered by priority", () => {
     const me = makeUser({ is_admin: true });
     expect(entriesInSection("financials", me).map((e) => e.id)).toEqual([
       "projects",
+      "budgets",
       "bills",
       "expense-coding",
     ]);
@@ -316,6 +332,26 @@ describe("secondarySectionsForUser", () => {
     const contacts = secondarySectionsForUser(me).find((s) => s.section === "contacts");
     expect(contacts).toBeDefined();
     expect(contacts!.entries.map((e) => e.id)).toEqual(["vendors", "customers"]);
+  });
+
+  // U-055's actual promise: Budgets was routed but had no menu entry, so it was
+  // reachable only by typing the URL. This pins the composed path both surfaces
+  // call (AppSidebar + MoreDrawer/BottomTabBar), for a NON-admin who holds the
+  // grant — the canSeeEntry tests above only cover the helper in isolation, and
+  // the entriesInSection ordering test uses an admin, who bypasses module gating.
+  it("Budgets is reachable via the financials section for a non-admin with the grant", () => {
+    const me = makeUser({
+      role: "Project Manager",
+      modules: [makeModule("Budgets", { can_read: true })],
+    });
+    const financials = secondarySectionsForUser(me).find((s) => s.section === "financials");
+    expect(financials?.entries.map((e) => e.id)).toEqual(["budgets"]);
+  });
+
+  it("Budgets is absent from every section for a non-admin without the grant", () => {
+    const me = makeUser({ role: "Project Manager", modules: [] });
+    const allIds = secondarySectionsForUser(me).flatMap((s) => s.entries.map((e) => e.id));
+    expect(allIds).not.toContain("budgets");
   });
 
   it("system admin result never contains profile or projects in any section", () => {
