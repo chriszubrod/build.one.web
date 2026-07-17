@@ -3,9 +3,11 @@ import type { ComponentType, ReactElement } from "react";
 import {
   createRoutesFromElements,
   matchRoutes,
+  Navigate,
   type RouteObject,
 } from "react-router-dom";
 import { appRouteTree } from "./routes";
+import { MENU_ENTRIES } from "./layout/menuConfig";
 import AppLayout from "./layout/AppLayout";
 import BillLayout from "./layout/BillLayout";
 
@@ -153,5 +155,86 @@ describe("appRouteTree — real route tree (U-066)", () => {
     expect(branch).not.toBeNull();
     expect(branchHasLayout(branch, BillLayout)).toBe(true);
     expect(branchHasLayout(branch, AppLayout)).toBe(false);
+  });
+});
+
+/**
+ * Drill-down sub-screens whose BASE route is the actual nav target — excluded
+ * from the nav-reachable set because users reach them from /profile or
+ * /time-entry/list, not from a standalone menu slot.
+ */
+const INTENTIONAL_NON_NAV_ROUTES = new Set<string>([
+  "/profile/details", // base: /profile
+  "/profile/security", // base: /profile
+  "/profile/appearance", // base: /profile
+  "/time-entry/log/new", // base: /time-entry/list
+]);
+
+// Structural rules below are future-proof: a NEW entity's /entity/:id and
+// /entity/create auto-exclude, but its /entity/list survives and must be
+// added to MENU_ENTRIES (or INTENTIONAL_NON_NAV_ROUTES if deliberate).
+function isNavExcluded(path: string): boolean {
+  if (path.includes(":")) return true;
+  if (path.includes("*")) return true;
+  if (path.split("/").at(-1) === "create") return true;
+  if (path === "/" || path === "/login") return true;
+  if (INTENTIONAL_NON_NAV_ROUTES.has(path)) return true;
+  return false;
+}
+
+function navReachableRoutes(): string[] {
+  return routePaths().filter((p) => !isNavExcluded(p));
+}
+
+describe("routed <-> nav reconciliation (U-077)", () => {
+  // Fails the day an entity ships routed but absent from menuConfig (exactly
+  // U-055) — fix is EITHER add the MENU_ENTRIES entry OR, if the route is
+  // intentionally not nav-reachable, add it to INTENTIONAL_NON_NAV_ROUTES
+  // with a reason.
+  it("every nav-reachable entity route has a MENU_ENTRIES entry (routed => nav)", () => {
+    const menuRoutes = new Set(MENU_ENTRIES.map((e) => e.route));
+    const missing = navReachableRoutes().filter((p) => !menuRoutes.has(p));
+    expect(missing).toEqual([]);
+  });
+
+  // Nav-reachable inventory pin — mirrors "exposes exactly the expected route
+  // paths" above. Fails on purpose when the derived nav-reachable set changes,
+  // so adding a new entity is a conscious update here. Also guards isNavExcluded
+  // from silently OVER-excluding a real landing route (a filter regression that
+  // Direction A cannot catch).
+  it("nav-reachable route set is exactly the expected entity landing routes", () => {
+    // Hand-sorted to match navReachableRoutes()'s already-sorted output (it
+    // derives from routePaths(), which sorts), same as the route-inventory pin.
+    expect(navReachableRoutes()).toEqual([
+      "/bill/list",
+      "/budget/list",
+      "/customer/list",
+      "/docs",
+      "/expense-coding",
+      "/labor/list",
+      "/profile",
+      "/project/list",
+      "/time-entry/list",
+      "/vendor/list",
+    ]);
+  });
+
+  // Catches a menu entry pointing at a renamed/removed route, a redirect stub
+  // (a 404/bounce nav link), or a route that is not an exact declared route
+  // path (e.g. a typo that coincidentally matches a :param or splat).
+  it("every MENU_ENTRIES route resolves to a real (non-redirect) leaf (nav => routed)", () => {
+    const declaredPaths = new Set(routePaths());
+    const dead = MENU_ENTRIES.filter((entry) => {
+      const branch = branchFor(entry.route);
+      const last = branch?.at(-1);
+      const elementType = (last?.route.element as ReactElement | undefined)?.type;
+      return (
+        !declaredPaths.has(entry.route) ||
+        branch === null ||
+        last?.route.path === "*" ||
+        elementType === Navigate
+      );
+    });
+    expect(dead).toEqual([]);
   });
 });
