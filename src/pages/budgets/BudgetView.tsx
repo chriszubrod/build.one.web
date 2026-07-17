@@ -28,6 +28,7 @@ import type {
   LookupSubCostCode,
   User,
 } from "../../types/api";
+import "./budget.css";
 
 function compactName(
   firstname?: string | null,

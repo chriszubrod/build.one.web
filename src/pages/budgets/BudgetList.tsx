@@ -12,6 +12,7 @@ import {
   BUDGETS_MODULE,
 } from "../../api/budget";
 import type { BudgetListRow } from "../../types/api";
+import "./budget.css";
 
 export default function BudgetList() {
   const navigate = useNavigate();

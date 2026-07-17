@@ -22,6 +22,7 @@ import {
   BUDGETS_MODULE,
 } from "../../api/budget";
 import type { LookupSubCostCode, BudgetRevision } from "../../types/api";
+import "./budget.css";
 
 interface LineRow {
   public_id?: string;

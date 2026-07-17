@@ -22,8 +22,8 @@ export default function AppLayout() {
       <div className="app-shell">
         <AppSidebar />
         {/* id="content" makes this element the canonical scroll container
-            for pages under AppLayout (matches the convention BillLayout +
-            BudgetLayout already use). Pages that save/restore scroll position
+            for pages under AppLayout (matches the convention BillLayout
+            already uses). Pages that save/restore scroll position
             (e.g., TimeEntryList) target it via document.getElementById. */}
         <main id="content" className="app-shell-content">
           <RouteErrorBoundary>

@@ -1,7 +1,9 @@
-/* Budget UI (Phase 3) — scoped styles, imported by BudgetLayout so they only
- * load on the /budget/* desktop surface. Builds on the global tokens + table
- * classes from index.css; only adds what the variance consolidation table and
- * budget pages need beyond the shared primitives. */
+/* Budget UI (Phase 3) — scoped budget styles, imported by the budget pages
+ * that use them (BudgetList/BudgetView/BudgetEdit). BudgetView's content is
+ * also embedded in ProjectDetailScreen's Budget tab, which is why the import
+ * lives with the pages rather than a layout. Builds on the global tokens +
+ * table classes from index.css; only adds what the variance consolidation
+ * table and budget pages need beyond the shared primitives. */
 
 /* Wider content surface for the consolidation table (overrides .page's 1200). */
 .budget-page {

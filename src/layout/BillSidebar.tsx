@@ -1,8 +1,8 @@
 import { NavLink } from "react-router-dom";
 
 /**
- * Bill-scoped desktop sidebar. Parallel to BudgetSidebar — AP's completion
- * workflow gets its own desktop chrome with a back-link to the field app.
+ * Bill-scoped desktop sidebar — AP's completion workflow gets its own
+ * desktop chrome with a back-link to the field app.
  */
 export default function BillSidebar() {
   return (

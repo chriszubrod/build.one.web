@@ -16,6 +16,9 @@ At the start of each session, read the API repo's SESSION_NOTES.md at `../build.
 
 ```
 src/
+├── App.tsx                 — Providers/shell only (ErrorBoundary, Router, Auth, Toast, PWA)
+├── routes.tsx              — The route tree as data (`appRouteTree`); imports no shell
+│                             components, so tests assert on it with zero mocks (routes.test.tsx)
 ├── api/client.ts           — Typed fetch wrapper (envelope unwrap, auth, errors)
 ├── auth/                   — AuthContext, LoginPage, ProtectedRoute
 ├── layout/                 — AppLayout, Sidebar, Header
@@ -71,7 +74,7 @@ These have auto-save, completion workflows, line items, attachments, inline emai
 For each entity migration:
 1. Add TypeScript types to `src/types/api.ts`
 2. Create page component(s) in `src/pages/{entity}/`
-3. Add route(s) to `src/App.tsx`
+3. Add route(s) to `src/routes.tsx` (the route tree; `App.tsx` is providers/shell only — U-066)
 4. Add sidebar link (automatic via modules lookup)
 5. Verify end-to-end with live API
 6. Check if any new API endpoints are needed (dropdowns, relationships)
@@ -230,7 +233,7 @@ Tier 2 additions:
 
 ## Documentation surface (/docs)
 
-Admin-only internal docs at `/docs` (routes in `App.tsx`, **lazy-loaded** via
+Admin-only internal docs at `/docs` (routes in `src/routes.tsx`, **lazy-loaded** via
 `React.lazy` so react-markdown stays out of the main bundle). Dual-gated:
 `menuConfig` entry `requiresAdmin: true` — surfaced through the **Reference**
 group in `AppSidebar` (NOT the primary bottom pill) — plus a page-level
