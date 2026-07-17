@@ -4413,6 +4413,34 @@ a.buildone-record-header-link:hover .buildone-record-name {
   cursor: not-allowed;
 }
 
+/* ProjectList — client-side name/abbreviation search */
+.project-search-bar {
+  margin-bottom: var(--space-md);
+}
+
+.project-search-input {
+  width: 100%;
+  padding: 10px var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-body);
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.project-search-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-focus-ring);
+}
+
+.project-search-input::placeholder {
+  color: var(--color-text-muted);
+}
+
 .labor-list-meta {
   display: flex;
   justify-content: space-between;
