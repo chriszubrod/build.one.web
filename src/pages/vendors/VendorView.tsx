@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEntityItem, deleteEntity, entityItemKey, entityListKey } from "../../hooks/useEntity";
+import { useEntityItem, deleteEntity, removeEntity } from "../../hooks/useEntity";
 import { useToast } from "../../components/Toast";
 import DetailView from "../../components/DetailView";
 import { entityCrumbs } from "../../components/Breadcrumb";
@@ -25,8 +25,7 @@ export default function VendorView() {
     setDeleting(true);
     try {
       await deleteEntity(`/api/v1/delete/vendor/${publicId}`);
-      queryClient.removeQueries({ queryKey: entityItemKey(`/api/v1/get/vendor/${publicId}`) });
-      queryClient.invalidateQueries({ queryKey: entityListKey("/api/v1/get/vendors") });
+      await removeEntity(queryClient, { listPath: "/api/v1/get/vendors", itemPath: `/api/v1/get/vendor/${publicId}` });
       toast("Vendor deleted.");
       navigate("/vendor/list");
     } catch (err: any) {

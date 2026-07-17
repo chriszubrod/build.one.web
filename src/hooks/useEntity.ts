@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type QueryClient } from "@tanstack/react-query";
 import { getList, getOne, post, put, del, ApiError } from "../api/client";
 
 /**
@@ -10,6 +10,36 @@ import { getList, getOne, post, put, del, ApiError } from "../api/client";
  */
 export const entityListKey = (listPath: string) => ["list", listPath] as const;
 export const entityItemKey = (itemPath: string) => ["item", itemPath] as const;
+
+/**
+ * Invalidate the React Query cache entries a create/update touched, using the
+ * SAME key shapes the read hooks register under (entityListKey/entityItemKey).
+ * Always invalidates the list; invalidates the item only when itemPath is given
+ * (create has no item yet). Returns the promise so callers can await settle.
+ */
+export async function invalidateEntity(
+  queryClient: QueryClient,
+  { listPath, itemPath }: { listPath: string; itemPath?: string },
+): Promise<void> {
+  const work = [queryClient.invalidateQueries({ queryKey: entityListKey(listPath) })];
+  if (itemPath) {
+    work.push(queryClient.invalidateQueries({ queryKey: entityItemKey(itemPath) }));
+  }
+  await Promise.all(work);
+}
+
+/**
+ * Cache reconciliation for a DELETE: the item no longer exists, so REMOVE its
+ * detail entry (never invalidate it — invalidation would refetch a deleted
+ * entity and 404), and invalidate the list so the row disappears.
+ */
+export async function removeEntity(
+  queryClient: QueryClient,
+  { listPath, itemPath }: { listPath: string; itemPath: string },
+): Promise<void> {
+  queryClient.removeQueries({ queryKey: entityItemKey(itemPath) });
+  await queryClient.invalidateQueries({ queryKey: entityListKey(listPath) });
+}
 
 interface UseEntityListResult<T> {
   items: T[];

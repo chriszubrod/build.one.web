@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { createEntity, entityListKey } from "../../hooks/useEntity";
+import { createEntity, invalidateEntity } from "../../hooks/useEntity";
 import { useLookups } from "../../hooks/useLookups";
 import FormField from "../../components/FormField";
 import SelectField from "../../components/SelectField";
@@ -43,7 +43,7 @@ export default function VendorCreate() {
         hourly_rate: form.hourly_rate || null,
         markup: form.markup || null,
       });
-      queryClient.invalidateQueries({ queryKey: entityListKey("/api/v1/get/vendors") });
+      await invalidateEntity(queryClient, { listPath: "/api/v1/get/vendors" });
       navigate(`/vendor/${created.public_id}`);
     } catch (err: any) {
       setSaveError(err.message);
