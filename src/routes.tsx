@@ -40,9 +40,8 @@ import BudgetCreate from "./pages/budgets/BudgetCreate";
 import BudgetView from "./pages/budgets/BudgetView";
 import BudgetEdit from "./pages/budgets/BudgetEdit";
 
-// Bill surface — desktop AP-completion workflow. The last surface still on its
-// own sibling chrome; Budgets moved to AppLayout in U-066, Bills is next.
-import BillLayout from "./layout/BillLayout";
+// Bill surface (Phase 3) — renders inside the responsive AppLayout,
+// office/AP audience (gated on the Bills module), like Budget in U-066.
 import BillList from "./pages/bills/BillList";
 import BillCreate from "./pages/bills/BillCreate";
 import BillView from "./pages/bills/BillView";
@@ -99,6 +98,12 @@ export const appRouteTree = (
         <Route path="/budget/:publicId/edit" element={<BudgetEdit />} />
         <Route path="/budget/*" element={<Navigate to="/budget/list" replace />} />
 
+        <Route path="/bill/list" element={<BillList />} />
+        <Route path="/bill/create" element={<BillCreate />} />
+        <Route path="/bill/:publicId" element={<BillView />} />
+        <Route path="/bill/:publicId/edit" element={<BillEdit />} />
+        <Route path="/bill/*" element={<Navigate to="/bill/list" replace />} />
+
         <Route path="/vendor/list" element={<VendorList />} />
         <Route path="/vendor/create" element={<VendorCreate />} />
         <Route path="/vendor/:publicId" element={<VendorView />} />
@@ -139,16 +144,6 @@ export const appRouteTree = (
         />
 
         <Route path="*" element={<LandingRedirect />} />
-      </Route>
-
-      {/* Bill surface — desktop AP completion workflow, still on its own
-          sibling chrome outside the responsive AppLayout. */}
-      <Route element={<BillLayout />}>
-        <Route path="/bill/list" element={<BillList />} />
-        <Route path="/bill/create" element={<BillCreate />} />
-        <Route path="/bill/:publicId" element={<BillView />} />
-        <Route path="/bill/:publicId/edit" element={<BillEdit />} />
-        <Route path="/bill/*" element={<Navigate to="/bill/list" replace />} />
       </Route>
     </Route>
   </>

@@ -21,7 +21,7 @@ src/
 │                             components, so tests assert on it with zero mocks (routes.test.tsx)
 ├── api/client.ts           — Typed fetch wrapper (envelope unwrap, auth, errors)
 ├── auth/                   — AuthContext, LoginPage, ProtectedRoute
-├── layout/                 — AppLayout, Sidebar, Header
+├── layout/                 — AppLayout (responsive shell), AppSidebar, BottomTabBar, menuConfig
 ├── pages/{entity}/         — One folder per entity (list, view, edit, create)
 ├── components/             — Shared UI (tables, form fields, dropdowns)
 ├── hooks/                  — Shared hooks (useLookups, useApi)

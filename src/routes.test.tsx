@@ -9,7 +9,6 @@ import {
 import { appRouteTree } from "./routes";
 import { MENU_ENTRIES } from "./layout/menuConfig";
 import AppLayout from "./layout/AppLayout";
-import BillLayout from "./layout/BillLayout";
 
 const routes = createRoutesFromElements(appRouteTree);
 
@@ -44,6 +43,13 @@ const budgetPaths = [
   "/budget/create",
   "/budget/abc123",
   "/budget/abc123/edit",
+] as const;
+
+const billPaths = [
+  "/bill/list",
+  "/bill/create",
+  "/bill/abc123",
+  "/bill/abc123/edit",
 ] as const;
 
 describe("appRouteTree — real route tree (U-066)", () => {
@@ -99,15 +105,11 @@ describe("appRouteTree — real route tree (U-066)", () => {
     ]);
   });
 
-  it.each(budgetPaths)(
-    "%s matches under AppLayout, not BillLayout",
-    (path) => {
-      const branch = branchFor(path);
-      expect(branch).not.toBeNull();
-      expect(branchHasLayout(branch, AppLayout)).toBe(true);
-      expect(branchHasLayout(branch, BillLayout)).toBe(false);
-    },
-  );
+  it.each(budgetPaths)("%s matches under AppLayout", (path) => {
+    const branch = branchFor(path);
+    expect(branch).not.toBeNull();
+    expect(branchHasLayout(branch, AppLayout)).toBe(true);
+  });
 
   it("/budget/abc123/edit resolves to the BudgetEdit page route, not the /budget/* splat", () => {
     const branch = branchFor("/budget/abc123/edit");
@@ -150,11 +152,47 @@ describe("appRouteTree — real route tree (U-066)", () => {
     });
   });
 
-  it("/bill/list is still under BillLayout, not AppLayout", () => {
-    const branch = branchFor("/bill/list");
+  it.each(billPaths)("%s matches under AppLayout", (path) => {
+    const branch = branchFor(path);
     expect(branch).not.toBeNull();
-    expect(branchHasLayout(branch, BillLayout)).toBe(true);
-    expect(branchHasLayout(branch, AppLayout)).toBe(false);
+    expect(branchHasLayout(branch, AppLayout)).toBe(true);
+  });
+
+  it("/bill/abc123/edit resolves to the BillEdit page route, not the /bill/* splat", () => {
+    const branch = branchFor("/bill/abc123/edit");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/bill/:publicId/edit");
+  });
+
+  it("/bill/abc123 resolves to the BillView page route", () => {
+    const branch = branchFor("/bill/abc123");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/bill/:publicId");
+  });
+
+  describe("/bill/* redirect catches unknown bill children", () => {
+    it("/bill last match is /bill/* (not AppLayout's * splat)", () => {
+      const branch = branchFor("/bill");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/bill/*");
+    });
+
+    it("/bill/nonsense last match is /bill/:publicId (not AppLayout's * splat)", () => {
+      const branch = branchFor("/bill/nonsense");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/bill/:publicId");
+    });
+
+    it("/bill/nonsense/extra last match is /bill/* (not AppLayout's * splat)", () => {
+      const branch = branchFor("/bill/nonsense/extra");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/bill/*");
+    });
   });
 });
 
