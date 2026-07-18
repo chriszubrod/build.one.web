@@ -3,6 +3,7 @@ import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { findSection } from "./docsSections";
 import DocsHome from "./DocsHome";
 import IOSDocs from "./sections/IOSDocs";
+import WebDocs from "./sections/WebDocs";
 import ComingSoon from "./sections/ComingSoon";
 
 /**
@@ -44,5 +45,6 @@ export default function DocsPage() {
 
   const onBack = () => navigate("/docs");
   if (active.id === "ios") return <IOSDocs onBack={onBack} />;
+  if (active.id === "web") return <WebDocs onBack={onBack} />;
   return <ComingSoon section={active} onBack={onBack} />;
 }

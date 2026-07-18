@@ -66,3 +66,42 @@ export interface IosManifest {
   privacy: IosPrivacy;
   counts: IosCounts;
 }
+
+export interface WebRoute {
+  path: string;
+  component: string;
+  kind: "page" | "redirect";
+  auth: "public" | "protected";
+  layout: "none" | "AppLayout";
+  nav_group: string | null;
+  nav_label: string | null;
+  module: string | null;
+  permission: string | null;
+  requires_admin: boolean;
+  redirect_to?: string;
+}
+
+export type WebFreshness = IosFreshness;
+
+export interface WebCounts {
+  routes: number;
+  nav_reachable: number;
+  protected: number;
+  public: number;
+  admin_only: number;
+  redirects: number;
+}
+
+export interface WebApp {
+  name: string;
+  framework: string;
+  landing: string;
+}
+
+export interface WebManifest {
+  repo: string;
+  freshness: WebFreshness;
+  app: WebApp;
+  counts: WebCounts;
+  routes: WebRoute[];
+}

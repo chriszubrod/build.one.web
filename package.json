@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "docs:sync:ios": "node scripts/sync-ios-docs.mjs"
+    "docs:sync:ios": "node scripts/sync-ios-docs.mjs",
+    "docs:sync:web": "node scripts/gen-web-docs-manifest.mjs",
+    "prebuild": "npm run docs:sync:web"
   },
   "dependencies": {
     "@tanstack/query-async-storage-persister": "^5.101.0",

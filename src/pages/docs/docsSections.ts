@@ -46,7 +46,7 @@ export const DOCS_SECTIONS: DocsSection[] = [
     label: "Web",
     repo: "build.one.web",
     role: "This React app — routes, navigation, components",
-    status: "soon",
+    status: "ready",
     badge: "derived",
     icon: Globe,
   },
