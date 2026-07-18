@@ -7,6 +7,7 @@ import {
   entriesInSection,
   canSeeEntry,
   findMenuEntry,
+  isEntryRouteActive,
 } from "./menuConfig";
 import { Modules } from "../shared/modules";
 import type { CurrentUser, CurrentUserModule } from "../types/api";
@@ -406,5 +407,39 @@ describe("secondarySectionsForUser", () => {
     expect(sections.find((s) => s.section === "contacts")?.entries.map((e) => e.id)).toEqual([
       "vendors",
     ]);
+  });
+});
+
+describe("isEntryRouteActive — base-matching", () => {
+  const time = findMenuEntry("time")!;
+
+  it("findMenuEntry('time') lights on detail, list, create, and past routes", () => {
+    expect(isEntryRouteActive(time, "/time-entry/123")).toBe(true);
+    expect(isEntryRouteActive(time, "/time-entry/list")).toBe(true);
+    expect(isEntryRouteActive(time, "/time-entry/create")).toBe(true);
+    expect(isEntryRouteActive(time, "/time-entry/past/2026-07-18")).toBe(true);
+  });
+
+  it("findMenuEntry('time') is false on unrelated routes", () => {
+    expect(isEntryRouteActive(time, "/labor/list")).toBe(false);
+    expect(isEntryRouteActive(time, "/")).toBe(false);
+  });
+
+  it("findMenuEntry('projects') is false on /projects (plural) — segment boundary", () => {
+    const projects = findMenuEntry("projects")!;
+    expect(isEntryRouteActive(projects, "/projects")).toBe(false);
+  });
+
+  it("findMenuEntry('vendors') matches vendor detail but not customer detail", () => {
+    const vendors = findMenuEntry("vendors")!;
+    expect(isEntryRouteActive(vendors, "/vendor/456")).toBe(true);
+    expect(isEntryRouteActive(vendors, "/customer/456")).toBe(false);
+  });
+});
+
+describe("MENU_ENTRIES base uniqueness", () => {
+  it("no two entries share the same first-segment base", () => {
+    const bases = MENU_ENTRIES.map((e) => "/" + e.route.split("/")[1]);
+    expect(new Set(bases).size).toBe(MENU_ENTRIES.length);
   });
 });

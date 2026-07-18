@@ -73,7 +73,7 @@ describe("BottomTabBar", () => {
     document.body.removeChild(container);
   });
 
-  function renderTabBar() {
+  function renderTabBar(initialPath?: string) {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -81,7 +81,7 @@ describe("BottomTabBar", () => {
       root.render(
         createElement(
           MemoryRouter,
-          null,
+          initialPath ? { initialEntries: [initialPath] } : null,
           createElement(
             QueryClientProvider,
             { client: queryClient },
@@ -202,5 +202,27 @@ describe("BottomTabBar", () => {
     // vacuously if the entry vanished from both.
     const profileLinks = document.querySelectorAll('a[href="/profile"]');
     expect(profileLinks.length).toBe(1);
+  });
+
+  it("a detail route lights its parent primary tab", () => {
+    mockUseCurrentUser.mockReturnValue({
+      data: makeUser({ is_admin: true, modules: [] }),
+    });
+    renderTabBar("/time-entry/123");
+
+    const tabbar = document.querySelector(".app-tabbar")!;
+    const timeLink = tabbar.querySelector('a[href="/time-entry/list"]')!;
+    expect(timeLink.classList.contains("app-tabbar-tab-active")).toBe(true);
+    expect(timeLink.getAttribute("aria-current")).toBe("page");
+
+    for (const href of ["/labor/list", "/project/list", "/profile"]) {
+      const link = tabbar.querySelector(`a[href="${href}"]`)!;
+      expect(link.classList.contains("app-tabbar-tab-active")).toBe(false);
+      expect(link.getAttribute("aria-current")).toBeNull();
+    }
+
+    const btn = moreButton();
+    expect(btn).not.toBeNull();
+    expect(btn!.classList.contains("app-tabbar-tab-active")).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { MoreHorizontal } from "lucide-react";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { isEntryRouteActive, primarySlotsForUser, secondarySectionsForUser } from "./menuConfig";
@@ -34,17 +34,17 @@ export default function BottomTabBar() {
       <nav className="app-tabbar" role="tablist">
         {slots.map((entry) => {
           const Icon = entry.icon;
+          const active = isEntryRouteActive(entry, pathname);
           return (
-            <NavLink
+            <Link
               key={entry.id}
               to={entry.route}
-              className={({ isActive }) =>
-                `app-tabbar-tab${isActive ? " app-tabbar-tab-active" : ""}`
-              }
+              className={`app-tabbar-tab${active ? " app-tabbar-tab-active" : ""}`}
+              aria-current={active ? "page" : undefined}
             >
               <Icon size={20} strokeWidth={2} />
               <span className="app-tabbar-tab-label">{entry.label}</span>
-            </NavLink>
+            </Link>
           );
         })}
         {sections.length > 0 && (

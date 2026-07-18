@@ -1,25 +1,26 @@
-import { NavLink } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import type { ReactNode } from "react";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import {
+  isEntryRouteActive,
   primarySlotsForUser,
   secondarySectionsForUser,
   type MenuEntry,
 } from "./menuConfig";
 
-function sidebarLink(entry: MenuEntry): ReactNode {
+function sidebarLink(entry: MenuEntry, pathname: string): ReactNode {
   const Icon = entry.icon;
+  const active = isEntryRouteActive(entry, pathname);
   return (
-    <NavLink
+    <Link
       key={entry.id}
       to={entry.route}
-      className={({ isActive }) =>
-        `app-sidebar-link${isActive ? " app-sidebar-link-active" : ""}`
-      }
+      className={`app-sidebar-link${active ? " app-sidebar-link-active" : ""}`}
+      aria-current={active ? "page" : undefined}
     >
       <Icon size={18} strokeWidth={2} />
       <span>{entry.label}</span>
-    </NavLink>
+    </Link>
   );
 }
 
@@ -34,18 +35,20 @@ function sidebarLink(entry: MenuEntry): ReactNode {
  */
 export default function AppSidebar() {
   const { data: me } = useCurrentUser();
+  const { pathname } = useLocation();
   const slots = primarySlotsForUser(me);
   const secondary = secondarySectionsForUser(me);
+  const renderLink = (entry: MenuEntry) => sidebarLink(entry, pathname);
 
   return (
     <aside className="app-sidebar" role="navigation" aria-label="Primary">
       <div className="app-sidebar-brand">Build One</div>
       <nav className="app-sidebar-nav">
-        {slots.map(sidebarLink)}
+        {slots.map(renderLink)}
         {secondary.map((sec) => (
           <div key={sec.section} className="app-sidebar-section">
             <div className="app-sidebar-section-label">{sec.label}</div>
-            {sec.entries.map(sidebarLink)}
+            {sec.entries.map(renderLink)}
           </div>
         ))}
       </nav>
