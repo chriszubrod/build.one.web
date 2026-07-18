@@ -1176,13 +1176,18 @@ button[type="submit"]:disabled {
   color: var(--color-text);
 }
 
-/* Status badge */
-.status-badge {
+/* Base pill shape shared by status badges + expense-coding chips (U-083) */
+.status-badge,
+.expense-coding-credit-chip,
+.expense-coding-confidence-badge {
   display: inline-block;
   padding: 2px var(--space-sm);
   border-radius: var(--radius-pill);
   font-size: var(--font-size-caption);
   font-weight: 600;
+}
+
+.status-badge {
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
@@ -1366,11 +1371,6 @@ button[type="submit"]:disabled {
 }
 
 .expense-coding-credit-chip {
-  display: inline-block;
-  padding: 2px var(--space-sm);
-  border-radius: var(--radius-pill);
-  font-size: var(--font-size-caption);
-  font-weight: 600;
   background: var(--color-info-bg);
   color: var(--color-info-fg);
 }
@@ -1380,11 +1380,6 @@ button[type="submit"]:disabled {
    (needs scrutiny) and no-score (needs cardholder follow-up) rows. Modifier
    suffix matches the ConfidenceTier value in expenseCodingLogic.ts. */
 .expense-coding-confidence-badge {
-  display: inline-block;
-  padding: 2px var(--space-sm);
-  border-radius: var(--radius-pill);
-  font-size: var(--font-size-caption);
-  font-weight: 600;
   letter-spacing: 0.3px;
 }
 
