@@ -168,6 +168,41 @@ describe("BottomTabBar", () => {
     expect(customerLink).not.toBeNull();
   });
 
+  it("system admin opening More exposes the Docs link (Reference section)", () => {
+    mockUseCurrentUser.mockReturnValue({
+      data: makeUser({ is_admin: true, modules: [] }),
+    });
+    renderTabBar();
+
+    act(() => {
+      moreButton()!.click();
+    });
+
+    const docsLink = document.querySelector('a[href="/docs"]');
+    expect(docsLink).not.toBeNull();
+    expect(docsLink!.textContent).toContain("Docs");
+  });
+
+  it("a non-admin with a secondary section sees the More drawer but no Docs link", () => {
+    mockUseCurrentUser.mockReturnValue({
+      data: makeUser({
+        role: "AP Specialist",
+        modules: [makeModule(Modules.VENDORS, { can_read: true })],
+      }),
+    });
+    renderTabBar();
+
+    const btn = moreButton();
+    expect(btn).not.toBeNull();
+
+    act(() => {
+      btn!.click();
+    });
+
+    expect(document.querySelector('a[href="/vendor/list"]')).not.toBeNull();
+    expect(document.querySelector('a[href="/docs"]')).toBeNull();
+  });
+
   it("sheet backdrop is not a descendant of .app-tabbar when drawer is open", () => {
     // .app-tabbar has transform: translateX(-50%), and a transformed ancestor
     // becomes the containing block for position:fixed descendants — mounting the
