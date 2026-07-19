@@ -1,4 +1,4 @@
-import { BookOpen, Briefcase, Calculator, ClipboardCheck, Clock, FileText, HardHat, Store, User, Users } from "lucide-react";
+import { BookOpen, Briefcase, Calculator, ClipboardCheck, Clock, FileText, HardHat, ShieldCheck, Store, User, Users } from "lucide-react";
 import type { ComponentType } from "react";
 import { Modules, type ModuleName } from "../shared/modules";
 import type { CurrentUser } from "../types/api";
@@ -114,6 +114,16 @@ export const MENU_ENTRIES: MenuEntry[] = [
     permission: "can_read",
     section: "contacts",
     priority: 50,
+  },
+  {
+    id: "vendor-compliance",
+    label: "Compliance",
+    icon: ShieldCheck,
+    route: "/vendor-compliance",
+    module: Modules.VENDORS,
+    permission: "can_read",
+    section: "contacts",
+    priority: 55,
   },
   {
     id: "customers",

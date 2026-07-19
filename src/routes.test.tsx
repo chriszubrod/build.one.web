@@ -98,6 +98,7 @@ describe("appRouteTree — real route tree (U-066)", () => {
       "/time-entry/past/:date",
       "/user/:id",
       "/user/:id/edit",
+      "/vendor-compliance",
       "/vendor/:publicId",
       "/vendor/:publicId/edit",
       "/vendor/create",
@@ -253,6 +254,7 @@ describe("routed <-> nav reconciliation (U-077)", () => {
       "/profile",
       "/project/list",
       "/time-entry/list",
+      "/vendor-compliance",
       "/vendor/list",
     ]);
   });

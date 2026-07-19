@@ -303,7 +303,7 @@ describe("entriesInSection", () => {
 
   it("Returns Vendors and Customers under contacts (Phase 1B)", () => {
     const me = makeUser({ is_admin: true });
-    expect(entriesInSection("contacts", me).map((e) => e.id)).toEqual(["vendors", "customers"]);
+    expect(entriesInSection("contacts", me).map((e) => e.id)).toEqual(["vendors", "vendor-compliance", "customers"]);
   });
 
   it("Account section contains Profile", () => {
@@ -332,7 +332,7 @@ describe("secondarySectionsForUser", () => {
     const me = makeUser({ is_admin: true, modules: [] });
     const contacts = secondarySectionsForUser(me).find((s) => s.section === "contacts");
     expect(contacts).toBeDefined();
-    expect(contacts!.entries.map((e) => e.id)).toEqual(["vendors", "customers"]);
+    expect(contacts!.entries.map((e) => e.id)).toEqual(["vendors", "vendor-compliance", "customers"]);
   });
 
   // U-055's actual promise: Budgets was routed but had no menu entry, so it was
@@ -406,6 +406,7 @@ describe("secondarySectionsForUser", () => {
     expect(sections.find((s) => s.section === "reference")).toBeUndefined();
     expect(sections.find((s) => s.section === "contacts")?.entries.map((e) => e.id)).toEqual([
       "vendors",
+      "vendor-compliance",
     ]);
   });
 });

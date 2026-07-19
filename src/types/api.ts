@@ -208,6 +208,54 @@ export interface Vendor {
   markup: string | null;
 }
 
+export type ComplianceDocumentType = "BUSINESS_LICENSE" | "CONTRACTORS_LICENSE" | "CERTIFICATE_OF_INSURANCE";
+export type ComplianceVerificationStatus = "Received" | "Verified" | "Rejected";
+export type ComplianceCoverageType = "GL" | "AUTO" | "UMBRELLA" | "WC";
+
+export interface VendorComplianceSlot {
+  status: string; // "valid"|"expiring"|"expired"|"incomplete"|"missing" for licenses/COI; "present"|"missing" for W9
+  document_public_id?: string | null;
+  document_number?: string | null;
+  issuing_authority?: string | null;
+  expiry_date?: string | null;
+  days_until_expiry?: number | null;
+  verification_status?: ComplianceVerificationStatus | null;
+  policy_count?: number;                 // COI only
+  attachment_public_id?: string | null;  // W9 only
+}
+export interface VendorComplianceRosterEntry {
+  vendor_public_id: string;
+  vendor_name: string;
+  vendor_abbreviation: string | null;
+  slots: Record<string, VendorComplianceSlot>;
+}
+export interface VendorComplianceSuggestion {
+  vendor_public_id: string;
+  vendor_name: string;
+  vendor_type: string;
+}
+export interface VendorComplianceDashboard {
+  roster: VendorComplianceRosterEntry[];
+  suggestions: VendorComplianceSuggestion[];
+}
+export interface VendorComplianceDocument {
+  id: number; public_id: string; row_version: string;
+  created_datetime: string | null; modified_datetime: string | null;
+  vendor_id: number; document_type: ComplianceDocumentType;
+  issuing_authority: string | null; document_number: string | null; classification: string | null;
+  issue_date: string | null; expiry_date: string | null; attachment_id: number | null;
+  verification_status: ComplianceVerificationStatus; created_by_user_id: number | null;
+}
+export interface VendorInsurancePolicy {
+  id: number; public_id: string; row_version: string;
+  created_datetime: string | null; modified_datetime: string | null;
+  vendor_compliance_document_id: number;
+  coverage_type: ComplianceCoverageType;
+  carrier: string | null; policy_number: string | null;
+  each_occurrence: string | null; aggregate: string | null;  // money transported as string
+  effective_date: string | null; expiry_date: string | null; created_by_user_id: number | null;
+}
+
 /** Per-(Vendor × Project) rate override. NULL fields inherit from Vendor defaults. */
 export interface VendorProjectRate {
   id: number;
