@@ -11,30 +11,18 @@
  * source file is missing.
  */
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { dest, FILES, iosDocsDir, iosPresent } from "./ios-docs-shared.mjs";
 
-const webRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const iosDocs = join(webRoot, "..", "build.one.ios", "docs");
-const dest = join(webRoot, "src", "docs", "ios");
-
-// [source relative to build.one.ios/docs, destination filename]
-const FILES = [
-  ["ios-manifest.json", "ios-manifest.json"],
-  ["app-guide/architecture.md", "architecture.md"],
-  ["app-guide/offline-multiuser.md", "offline-multiuser.md"],
-  ["app-guide/distribution.md", "distribution.md"],
-];
-
-if (!existsSync(iosDocs)) {
-  console.error(`✗ iOS docs not found at ${iosDocs}.`);
+if (!iosPresent()) {
+  console.error(`✗ iOS docs not found at ${iosDocsDir}.`);
   console.error("  Is build.one.ios checked out as a sibling of build.one.web?");
   process.exit(1);
 }
 
 mkdirSync(dest, { recursive: true });
 for (const [src, out] of FILES) {
-  const from = join(iosDocs, src);
+  const from = join(iosDocsDir, src);
   if (!existsSync(from)) {
     console.error(`✗ Missing source: ${from}`);
     console.error("  Run scripts/gen_docs_manifest.py in build.one.ios first.");

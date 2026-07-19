@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "docs:check:ios": "node scripts/check-ios-docs-fresh.mjs",
     "docs:sync:ios": "node scripts/sync-ios-docs.mjs",
     "docs:sync:web": "node scripts/gen-web-docs-manifest.mjs",
     "prebuild": "npm run docs:sync:web"
