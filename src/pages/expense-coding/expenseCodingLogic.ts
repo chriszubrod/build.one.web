@@ -81,6 +81,16 @@ export function formatAutoClearedPct(metrics: ExpenseCodingMetrics): string {
   return `${pct.toFixed(1)}%`;
 }
 
+/**
+ * Write-gate policy: recode writes are OFF only when the api explicitly says
+ * so. `recode_writes_enabled` is optional (a persisted pre-U-058a metrics
+ * payload can hydrate without it) — omitted means "unknown" and behaves as
+ * enabled; the api's 422 on a gate-off confirm is the backstop for that case.
+ */
+export function recodeWritesOff(metrics: ExpenseCodingMetrics | undefined): boolean {
+  return metrics?.recode_writes_enabled === false;
+}
+
 export function formatSuggestionHelper(
   reason: string | null | undefined,
   confidence: number | string | null | undefined,
@@ -193,6 +203,29 @@ export function buildConfirmPayload(
     sub_cost_code_public_id: subCostCodePublicId,
     description,
     was_overridden: wasOverridden,
+  };
+}
+
+export interface ConfirmToast {
+  message: string;
+  kind: "success" | "error";
+}
+
+/**
+ * Toast honesty for the confirm response: success ONLY when the api actually
+ * enqueued the recode to QBO (`enqueued === true`); any other 2xx recorded
+ * state without sending it, which must read as a failure to the operator.
+ */
+export function confirmResultToast(result: {
+  enqueued?: boolean;
+  reason?: string;
+}): ConfirmToast {
+  if (result.enqueued === true) {
+    return { message: "Expense coding confirmed", kind: "success" };
+  }
+  return {
+    message: `Coding recorded but NOT sent to QBO${result.reason ? ` — ${result.reason}` : ""}`,
+    kind: "error",
   };
 }
 

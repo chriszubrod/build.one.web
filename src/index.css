@@ -1463,6 +1463,18 @@ button[type="submit"]:disabled {
 }
 
 /* Expense coding cockpit (U-005) */
+.expense-coding-gate-banner {
+  width: 100%;
+  margin-bottom: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--color-warning);
+  border-left: 4px solid var(--color-warning);
+  border-radius: var(--radius);
+  background: var(--color-warning-bg);
+  color: var(--color-warning-fg);
+  font-size: var(--font-size-body);
+}
+
 .expense-coding-subtitle {
   font-size: var(--font-size-caption);
   color: var(--color-text-muted);

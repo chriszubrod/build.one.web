@@ -4,14 +4,17 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import ExpenseCodingCockpit from "./ExpenseCodingCockpit";
+import { ApiError } from "../../api/client";
 import {
   buildConfirmPayload,
   computeAutoClearedPct,
   computeWasOverridden,
   confidenceTier,
+  confirmResultToast,
   formatAutoClearedPct,
   formatConfidencePct,
   initialSelectionFromRow,
+  recodeWritesOff,
   sortQueueByConfidence,
 } from "./expenseCodingLogic";
 import type { ExpenseCodingMetrics, ExpenseCodingQueueRow } from "../../types/api";
@@ -21,6 +24,7 @@ import type { ExpenseCodingMetrics, ExpenseCodingQueueRow } from "../../types/ap
 const mockGetList = vi.fn();
 const mockGetOne = vi.fn();
 const mockPost = vi.fn();
+const mockToast = vi.fn();
 
 vi.mock("../../api/client", () => ({
   getList: (...args: unknown[]) => mockGetList(...args),
@@ -54,7 +58,7 @@ vi.mock("../../hooks/useLookups", () => ({
 }));
 
 vi.mock("../../components/Toast", () => ({
-  useToast: () => ({ toast: vi.fn() }),
+  useToast: () => ({ toast: (...args: unknown[]) => mockToast(...args) }),
 }));
 
 function sampleRow(overrides: Partial<ExpenseCodingQueueRow> = {}): ExpenseCodingQueueRow {
@@ -237,6 +241,36 @@ describe("sortQueueByConfidence", () => {
   });
 });
 
+describe("recodeWritesOff", () => {
+  it("is off ONLY when the api explicitly reports false", () => {
+    expect(recodeWritesOff(sampleMetrics({ recode_writes_enabled: false }))).toBe(true);
+    expect(recodeWritesOff(sampleMetrics({ recode_writes_enabled: true }))).toBe(false);
+    expect(recodeWritesOff(sampleMetrics())).toBe(false); // pre-U-058a payload
+    expect(recodeWritesOff(undefined)).toBe(false); // metrics not loaded yet
+  });
+});
+
+describe("confirmResultToast", () => {
+  it("is success ONLY on enqueued === true; anything else reads as an error", () => {
+    expect(confirmResultToast({ enqueued: true })).toEqual({
+      message: "Expense coding confirmed",
+      kind: "success",
+    });
+    expect(confirmResultToast({ enqueued: false })).toEqual({
+      message: "Coding recorded but NOT sent to QBO",
+      kind: "error",
+    });
+    expect(confirmResultToast({})).toEqual({
+      message: "Coding recorded but NOT sent to QBO",
+      kind: "error",
+    });
+    expect(confirmResultToast({ enqueued: false, reason: "writes gate off" })).toEqual({
+      message: "Coding recorded but NOT sent to QBO — writes gate off",
+      kind: "error",
+    });
+  });
+});
+
 describe("ExpenseCodingCockpit", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -276,8 +310,7 @@ describe("ExpenseCodingCockpit", () => {
     });
   }
 
-  it("renders queue row memo, vendor, amount, and status badge", async () => {
-    renderCockpit();
+  async function waitForQueue() {
     await act(async () => {
       await vi.waitFor(
         () => {
@@ -286,6 +319,25 @@ describe("ExpenseCodingCockpit", () => {
         { timeout: 2000 },
       );
     });
+  }
+
+  async function expandFirstRow() {
+    const summary = container.querySelector(".expense-coding-row-summary") as HTMLButtonElement;
+    expect(summary).not.toBeNull();
+    await act(async () => {
+      summary.click();
+    });
+  }
+
+  function confirmButton(): HTMLButtonElement | null {
+    return container.querySelector(
+      ".expense-coding-row-actions .btn-primary",
+    ) as HTMLButtonElement | null;
+  }
+
+  it("renders queue row memo, vendor, amount, and status badge", async () => {
+    renderCockpit();
+    await waitForQueue();
 
     expect(container.textContent).toContain("266 lumber for framing");
     expect(container.textContent).toContain("$75.50");
@@ -296,19 +348,128 @@ describe("ExpenseCodingCockpit", () => {
 
   it("renders a confidence badge in the row header", async () => {
     renderCockpit();
-    await act(async () => {
-      await vi.waitFor(
-        () => {
-          expect(container.textContent).toContain("Home Depot");
-        },
-        { timeout: 2000 },
-      );
-    });
+    await waitForQueue();
 
     // sampleRow() has suggestion_confidence 0.92 → High tier, 92%.
     const badge = container.querySelector(".expense-coding-confidence-badge--high");
     expect(badge).not.toBeNull();
     expect(badge?.textContent).toContain("High");
     expect(badge?.textContent).toContain("92%");
+  });
+
+  it("shows gate banner and disables Confirm when recode_writes_enabled is false", async () => {
+    mockGetOne.mockResolvedValue(sampleMetrics({ recode_writes_enabled: false }));
+    renderCockpit();
+    await waitForQueue();
+
+    expect(container.querySelector(".expense-coding-gate-banner")).not.toBeNull();
+    expect(container.textContent).toContain(
+      "Recode writes are disabled — Confirm is blocked; nothing will be sent to QBO.",
+    );
+
+    await expandFirstRow();
+    expect(confirmButton()?.disabled).toBe(true);
+
+    // Gate blocks ONLY Confirm — Flag and Generate suggestions are not QBO
+    // recode writes and must stay usable.
+    const flagBtn = container.querySelector(
+      ".expense-coding-row-actions .btn-secondary",
+    ) as HTMLButtonElement | null;
+    expect(flagBtn?.disabled).toBe(false);
+    const suggestBtn = container.querySelector(
+      ".expense-coding-metrics-actions .btn-primary",
+    ) as HTMLButtonElement | null;
+    expect(suggestBtn?.disabled).toBe(false);
+  });
+
+  const gateEnabledCases: Array<[string, Partial<ExpenseCodingMetrics>]> = [
+    ["true", { recode_writes_enabled: true }],
+    ["omitted", {}],
+  ];
+  it.each(gateEnabledCases)(
+    "hides gate banner and enables Confirm when recode_writes_enabled is %s",
+    async (_label, overrides) => {
+      mockGetOne.mockResolvedValue(sampleMetrics(overrides));
+      renderCockpit();
+      await waitForQueue();
+
+      expect(container.querySelector(".expense-coding-gate-banner")).toBeNull();
+
+      await expandFirstRow();
+      expect(confirmButton()?.disabled).toBe(false);
+    },
+  );
+
+  it("toasts success when confirm enqueues to QBO", async () => {
+    mockPost.mockResolvedValue({ ...sampleRow(), enqueued: true });
+    renderCockpit();
+    await waitForQueue();
+    await expandFirstRow();
+
+    await act(async () => {
+      confirmButton()?.click();
+      await vi.waitFor(() => {
+        expect(mockToast).toHaveBeenCalledWith("Expense coding confirmed", "success");
+      });
+    });
+  });
+
+  it("toasts error (not success) when confirm records coding but does not enqueue", async () => {
+    mockPost.mockResolvedValue({ enqueued: false, reason: "writes gate off" });
+    renderCockpit();
+    await waitForQueue();
+    await expandFirstRow();
+
+    const queueCallsBefore = mockGetList.mock.calls.length;
+
+    await act(async () => {
+      confirmButton()?.click();
+      await vi.waitFor(() => {
+        expect(mockToast).toHaveBeenCalledWith(
+          "Coding recorded but NOT sent to QBO — writes gate off",
+          "error",
+        );
+      });
+    });
+
+    expect(mockToast).not.toHaveBeenCalledWith("Expense coding confirmed", "success");
+
+    // A 2xx recorded server state even without the enqueue — the queue must
+    // refetch so the row/counts reflect it.
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(mockGetList.mock.calls.length).toBeGreaterThan(queueCallsBefore);
+      });
+    });
+  });
+
+  it("toasts blocked error and refetches metrics on confirm 422", async () => {
+    mockPost.mockRejectedValue(new ApiError(422, "Recode writes are disabled"));
+    renderCockpit();
+    await waitForQueue();
+    await expandFirstRow();
+
+    const metricsCallsBefore = mockGetOne.mock.calls.filter(
+      (c) => c[0] === "/api/v1/expense-coding/metrics",
+    ).length;
+
+    await act(async () => {
+      confirmButton()?.click();
+      await vi.waitFor(() => {
+        expect(mockToast).toHaveBeenCalledWith(
+          "Blocked: recode writes are disabled — nothing was sent to QBO",
+          "error",
+        );
+      });
+    });
+
+    await act(async () => {
+      await vi.waitFor(() => {
+        const metricsCallsAfter = mockGetOne.mock.calls.filter(
+          (c) => c[0] === "/api/v1/expense-coding/metrics",
+        ).length;
+        expect(metricsCallsAfter).toBeGreaterThan(metricsCallsBefore);
+      });
+    });
   });
 });

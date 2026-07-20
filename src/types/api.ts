@@ -1226,6 +1226,8 @@ export interface ExpenseCodingMetrics {
   error_count: number;
   accepted_count: number;
   overridden_count: number;
+  /** Optional — persisted pre-U-058a metrics payloads may omit; UI gates strictly on === false */
+  recode_writes_enabled?: boolean;
 }
 
 /** POST /api/v1/expense-coding/suggest response counts */

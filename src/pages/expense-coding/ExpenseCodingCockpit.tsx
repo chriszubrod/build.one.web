@@ -20,10 +20,12 @@ import {
   computeWasOverridden,
   confidenceTier,
   CONFIDENCE_TIER_LABELS,
+  confirmResultToast,
   formatAutoClearedPct,
   formatConfidencePct,
   formatSuggestionHelper,
   initialSelectionFromRow,
+  recodeWritesOff,
   rowKey,
   sortQueueByConfidence,
   type RowCodingSelection,
@@ -82,6 +84,7 @@ export default function ExpenseCodingCockpit() {
     [queueQuery.data?.data],
   );
   const metrics = metricsQuery.data;
+  const writesOff = recodeWritesOff(metrics);
 
   const refreshAll = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: QUEUE_QUERY_KEY });
@@ -161,14 +164,17 @@ export default function ExpenseCodingCockpit() {
         `/api/v1/expense-coding/${row.coding_item_public_id}/confirm`,
         body,
       );
-      toast("Expense coding confirmed", "success");
-      if (result.enqueued === false && result.reason) {
-        toast(result.reason, "info");
-      }
+      const resultToast = confirmResultToast(result);
+      toast(resultToast.message, resultToast.kind);
+      // A 2xx recorded server state either way — refresh so the row/counts
+      // reflect it even when the enqueue didn't happen.
       refreshAll();
     } catch (err) {
       if (err instanceof ApiError) {
-        if (err.status === 409) {
+        if (err.status === 422) {
+          toast("Blocked: recode writes are disabled — nothing was sent to QBO", "error");
+          void queryClient.invalidateQueries({ queryKey: METRICS_QUERY_KEY });
+        } else if (err.status === 409) {
           toast("Held by another reviewer — row is read-only", "error");
           setReadOnlyKeys((prev) => new Set(prev).add(key));
         } else {
@@ -224,6 +230,12 @@ export default function ExpenseCodingCockpit() {
         <span className="expense-coding-subtitle">58999 → SubCostCode</span>
       </PageHeader>
 
+      {writesOff && (
+        <div className="expense-coding-gate-banner">
+          Recode writes are disabled — Confirm is blocked; nothing will be sent to QBO.
+        </div>
+      )}
+
       {metrics && (
         <div className="expense-coding-metrics">
           <MetricChip label="Total" value={metrics.total_target_lines} />
@@ -271,6 +283,7 @@ export default function ExpenseCodingCockpit() {
                 projects={projects}
                 subCostCodes={subCostCodes}
                 readOnly={readOnlyKeys.has(key)}
+                writesOff={writesOff}
                 busy={busyKey === key}
                 onToggle={() => toggleExpanded(row)}
                 onSelectionChange={(patch) => setSelection(row, patch)}
@@ -309,6 +322,7 @@ interface QueueRowCardProps {
   projects: LookupProject[];
   subCostCodes: LookupSubCostCode[];
   readOnly: boolean;
+  writesOff: boolean;
   busy: boolean;
   onToggle: () => void;
   onSelectionChange: (patch: Partial<RowCodingSelection>) => void;
@@ -323,6 +337,7 @@ function QueueRowCard({
   projects,
   subCostCodes,
   readOnly,
+  writesOff,
   busy,
   onToggle,
   onSelectionChange,
@@ -331,6 +346,7 @@ function QueueRowCard({
 }: QueueRowCardProps) {
   const canConfirm =
     !readOnly &&
+    !writesOff &&
     selection.projectId != null &&
     selection.subCostCodeId != null &&
     Boolean(row.coding_item_public_id);
@@ -374,6 +390,11 @@ function QueueRowCard({
         <div className="expense-coding-row-editor">
           {readOnly && (
             <p className="expense-coding-readonly-note">Held by another reviewer — read-only</p>
+          )}
+          {writesOff && (
+            <p className="expense-coding-readonly-note">
+              Recode writes are disabled — Confirm is blocked.
+            </p>
           )}
 
           <label className="form-field">
