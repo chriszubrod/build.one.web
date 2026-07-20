@@ -189,16 +189,19 @@ export function canSeeEntry(entry: MenuEntry, me: CurrentUser | undefined | null
  * Phase 1+ will extend each role's list as financial entities unpark.
  *
  * Fallback: unknown role + system admin both use DEFAULT_PRIMARY_SLOTS.
+ *
+ * Mobile pill shows these slots PLUS a More slot whenever secondary sections
+ * exist, so curated lists must stay ≤4 to keep the pill at MAX_PRIMARY_SLOTS total.
  */
-const PRIMARY_SLOTS_BY_ROLE: Record<string, string[]> = {
+export const PRIMARY_SLOTS_BY_ROLE: Record<string, string[]> = {
   "Field Crew": ["time", "profile"],
   "Intern": ["time", "profile"],
   "Time Clerk": ["time", "profile"],
   "Project Manager": ["time", "labor", "projects", "profile"],
   "Owner": ["time", "labor", "projects", "profile"],
-  "AP Specialist": ["time", "labor", "projects", "profile"],
+  "AP Specialist": ["time", "labor", "bills", "profile"],
   "AR Specialist": ["time", "labor", "projects", "profile"],
-  "Controller": ["time", "labor", "projects", "profile"],
+  "Controller": ["time", "labor", "bills", "profile"],
   "Reviewer": ["time", "labor", "projects", "profile"],
   "Auditor": ["time", "labor", "projects", "profile"],
   "Tenant Admin": ["time", "labor", "projects", "profile"],

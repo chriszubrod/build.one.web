@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   MENU_ENTRIES,
+  PRIMARY_SLOTS_BY_ROLE,
+  DEFAULT_PRIMARY_SLOTS,
+  MAX_PRIMARY_SLOTS,
   primarySlotsForUser,
   secondarySectionsForUser,
   SECONDARY_SECTION_SPECS,
@@ -119,6 +122,49 @@ describe("primarySlotsForUser — curated per-role mapping", () => {
     const me = makeUser({ role: "Project Manager", modules: [] });
     expect(primarySlotsForUser(me).map((s) => s.id)).toEqual(["profile"]);
   });
+
+  // The Projects grant is load-bearing: with it granted, the exact toEqual
+  // proves bills REPLACED projects in the curated row rather than projects
+  // merely being permission-filtered out.
+  it.each(["AP Specialist", "Controller"])(
+    "%s sees Time + Labor + Bills + Profile when fully permissioned",
+    (role) => {
+      const me = makeUser({
+        role,
+        modules: [
+          makeModule("Time Tracking", { can_read: true }),
+          makeModule("Contract Labor", { can_read: true }),
+          makeModule("Projects", { can_read: true }),
+          makeModule("Bills", { can_read: true }),
+        ],
+      });
+      expect(primarySlotsForUser(me).map((s) => s.id)).toEqual([
+        "time",
+        "labor",
+        "bills",
+        "profile",
+      ]);
+    },
+  );
+
+  it.each(["AP Specialist", "Controller"])(
+    "%s without Bills permission drops the Bills slot",
+    (role) => {
+      const me = makeUser({
+        role,
+        modules: [
+          makeModule("Time Tracking", { can_read: true }),
+          makeModule("Contract Labor", { can_read: true }),
+          makeModule("Projects", { can_read: true }),
+        ],
+      });
+      expect(primarySlotsForUser(me).map((s) => s.id)).toEqual([
+        "time",
+        "labor",
+        "profile",
+      ]);
+    },
+  );
 });
 
 describe("primarySlotsForUser — system admin", () => {
@@ -233,49 +279,29 @@ describe("canSeeEntry — RBAC gating", () => {
     expect(canSeeEntry(findMenuEntry("docs")!, undefined)).toBe(false);
   });
 
-  it("Vendors entry visible to a user with Vendors can_read", () => {
-    const me = makeUser({ role: "AP Specialist", modules: [makeModule("Vendors", { can_read: true })] });
-    expect(canSeeEntry(findMenuEntry("vendors")!, me)).toBe(true);
+  // Per-entity RBAC triad, one row per module-gated entry (TODO.md rule-of-three,
+  // collapsed at the 4th entity — U-094). Raw module-name literals on purpose:
+  // they pin the real wire value the nav constant must match.
+  const ENTRY_MODULE_ROWS: Array<[entryId: string, moduleName: string]> = [
+    ["vendors", "Vendors"],
+    ["customers", "Customers"],
+    ["budgets", "Budgets"],
+    ["bills", "Bills"],
+  ];
+
+  it.each(ENTRY_MODULE_ROWS)("%s entry visible to a user with %s can_read", (entryId, moduleName) => {
+    const me = makeUser({ modules: [makeModule(moduleName, { can_read: true })] });
+    expect(canSeeEntry(findMenuEntry(entryId)!, me)).toBe(true);
   });
 
-  it("Vendors entry hidden from a non-admin without the Vendors module", () => {
-    const me = makeUser({ role: "Field Crew", modules: [] });
-    expect(canSeeEntry(findMenuEntry("vendors")!, me)).toBe(false);
+  it.each(ENTRY_MODULE_ROWS)("%s entry hidden from a non-admin without the %s module", (entryId) => {
+    const me = makeUser({ modules: [] });
+    expect(canSeeEntry(findMenuEntry(entryId)!, me)).toBe(false);
   });
 
-  it("Vendors entry visible to system admin via bypass", () => {
+  it.each(ENTRY_MODULE_ROWS)("%s entry visible to system admin via bypass", (entryId) => {
     const me = makeUser({ is_admin: true, modules: [] });
-    expect(canSeeEntry(findMenuEntry("vendors")!, me)).toBe(true);
-  });
-
-  it("Customers entry visible to a user with Customers can_read", () => {
-    const me = makeUser({ role: "AR Specialist", modules: [makeModule("Customers", { can_read: true })] });
-    expect(canSeeEntry(findMenuEntry("customers")!, me)).toBe(true);
-  });
-
-  it("Customers entry hidden from a non-admin without the Customers module", () => {
-    const me = makeUser({ role: "Field Crew", modules: [] });
-    expect(canSeeEntry(findMenuEntry("customers")!, me)).toBe(false);
-  });
-
-  it("Customers entry visible to system admin via bypass", () => {
-    const me = makeUser({ is_admin: true, modules: [] });
-    expect(canSeeEntry(findMenuEntry("customers")!, me)).toBe(true);
-  });
-
-  it("Budgets entry visible to a user with Budgets can_read", () => {
-    const me = makeUser({ role: "Project Manager", modules: [makeModule("Budgets", { can_read: true })] });
-    expect(canSeeEntry(findMenuEntry("budgets")!, me)).toBe(true);
-  });
-
-  it("Budgets entry hidden from a non-admin without the Budgets module", () => {
-    const me = makeUser({ role: "Field Crew", modules: [] });
-    expect(canSeeEntry(findMenuEntry("budgets")!, me)).toBe(false);
-  });
-
-  it("Budgets entry visible to system admin via bypass", () => {
-    const me = makeUser({ is_admin: true, modules: [] });
-    expect(canSeeEntry(findMenuEntry("budgets")!, me)).toBe(true);
+    expect(canSeeEntry(findMenuEntry(entryId)!, me)).toBe(true);
   });
 });
 
@@ -353,6 +379,21 @@ describe("secondarySectionsForUser", () => {
     const me = makeUser({ role: "Project Manager", modules: [] });
     const allIds = secondarySectionsForUser(me).flatMap((s) => s.entries.map((e) => e.id));
     expect(allIds).not.toContain("budgets");
+  });
+
+  it("AP Specialist with Bills on the primary pill lists Budgets in financials but not Bills", () => {
+    const me = makeUser({
+      role: "AP Specialist",
+      modules: [
+        makeModule("Time Tracking", { can_read: true }),
+        makeModule("Contract Labor", { can_read: true }),
+        makeModule("Bills", { can_read: true }),
+        makeModule("Budgets", { can_read: true }),
+      ],
+    });
+    expect(primarySlotsForUser(me).map((e) => e.id)).toContain("bills");
+    const financials = secondarySectionsForUser(me).find((s) => s.section === "financials");
+    expect(financials?.entries.map((e) => e.id)).toEqual(["budgets"]);
   });
 
   it("system admin result never contains profile or projects in any section", () => {
@@ -442,5 +483,27 @@ describe("MENU_ENTRIES base uniqueness", () => {
   it("no two entries share the same first-segment base", () => {
     const bases = MENU_ENTRIES.map((e) => "/" + e.route.split("/")[1]);
     expect(new Set(bases).size).toBe(MENU_ENTRIES.length);
+  });
+});
+
+describe("PRIMARY_SLOTS_BY_ROLE invariants (U-094 tripwire)", () => {
+  const allSlotLists: Array<[name: string, ids: string[]]> = [
+    ...Object.entries(PRIMARY_SLOTS_BY_ROLE),
+    ["DEFAULT_PRIMARY_SLOTS", DEFAULT_PRIMARY_SLOTS],
+  ];
+
+  // BottomTabBar appends a More slot whenever the user has any secondary
+  // section (realistically always), so a curated list may hold at most
+  // MAX_PRIMARY_SLOTS - 1 ids or the pill exceeds its ergonomic cap.
+  it.each(allSlotLists)("%s curated list leaves room for the More slot", (_name, ids) => {
+    expect(ids.length).toBeLessThanOrEqual(MAX_PRIMARY_SLOTS - 1);
+  });
+
+  // primarySlotsForUser silently skips unknown ids (`if (!entry) continue`),
+  // so a typo'd slot id ships a missing tab with a green suite unless pinned here.
+  it.each(allSlotLists)("every slot id in %s resolves to a real menu entry", (_name, ids) => {
+    for (const id of ids) {
+      expect(findMenuEntry(id), `unknown slot id "${id}"`).toBeDefined();
+    }
   });
 });
