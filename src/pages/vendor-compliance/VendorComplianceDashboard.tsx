@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { Folder, RefreshCw } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, fetchWithRefresh, getOne, put } from "../../api/client";
 import { useToast } from "../../components/Toast";
@@ -23,6 +23,7 @@ import {
 } from "./vendorComplianceLogic";
 import UploadDocumentSheet from "./UploadDocumentSheet";
 import PolicyManagerSheet from "./PolicyManagerSheet";
+import VendorFolderSheet from "./VendorFolderSheet";
 
 const DASHBOARD_QUERY_KEY = ["vendor-compliance", "dashboard"] as const;
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -93,6 +94,10 @@ export default function VendorComplianceDashboard() {
   const [policiesFor, setPoliciesFor] = useState<{
     docPublicId: string;
     label: string;
+  } | null>(null);
+  const [folderFor, setFolderFor] = useState<{
+    vendorPublicId: string;
+    vendorName: string;
   } | null>(null);
 
   const dashboardQuery = useQuery({
@@ -223,6 +228,12 @@ export default function VendorComplianceDashboard() {
           onVerifyChange={(documentPublicId, verificationStatus) =>
             void handleVerifyChange(documentPublicId, verificationStatus)
           }
+          onOpenFolder={() =>
+            setFolderFor({
+              vendorPublicId: entry.vendor_public_id,
+              vendorName: entry.vendor_name,
+            })
+          }
         />
       ))}
 
@@ -247,6 +258,15 @@ export default function VendorComplianceDashboard() {
           onChanged={refreshDashboard}
         />
       )}
+      {folderFor && (
+        <VendorFolderSheet
+          vendorPublicId={folderFor.vendorPublicId}
+          vendorName={folderFor.vendorName}
+          isOpen
+          onClose={() => setFolderFor(null)}
+          onChanged={refreshDashboard}
+        />
+      )}
     </div>
   );
 }
@@ -263,6 +283,7 @@ interface RosterCardProps {
     documentPublicId: string,
     verificationStatus: ComplianceVerificationStatus,
   ) => void;
+  onOpenFolder: () => void;
 }
 
 function RosterCard({
@@ -274,6 +295,7 @@ function RosterCard({
   onAddDocument,
   onManagePolicies,
   onVerifyChange,
+  onOpenFolder,
 }: RosterCardProps) {
   const vendorLabel = entry.vendor_abbreviation
     ? `${entry.vendor_name} (${entry.vendor_abbreviation})`
@@ -287,6 +309,15 @@ function RosterCard({
         <div className="vendor-compliance-card-header">
           <span>{vendorLabel}</span>
           <div className="vendor-compliance-card-actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={packetBusy || unflagBusy}
+              onClick={onOpenFolder}
+            >
+              <Folder size={14} aria-hidden />
+              Folder
+            </button>
             <button
               type="button"
               className="btn btn-secondary btn-sm"

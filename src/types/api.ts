@@ -256,6 +256,33 @@ export interface VendorInsurancePolicy {
   effective_date: string | null; expiry_date: string | null; created_by_user_id: number | null;
 }
 
+export interface VendorFolderDrive {
+  drive_public_id: string;
+  name: string;
+}
+
+export interface VendorFolderBrowseItem {
+  item_id: string;
+  name: string;
+  item_type: "folder" | "file";
+  child_count?: number;
+}
+
+export interface VendorFolderLinkedFolder {
+  name?: string;
+  web_url?: string;
+  drive_id: string;
+  item_id: string;
+}
+
+export interface VendorFolderFile {
+  graph_item_id: string;
+  name: string;
+  folder_path: string;
+  size?: number;
+  compliance_hint: boolean;
+}
+
 /** Per-(Vendor × Project) rate override. NULL fields inherit from Vendor defaults. */
 export interface VendorProjectRate {
   id: number;

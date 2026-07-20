@@ -1322,6 +1322,105 @@ button[type="submit"]:disabled {
   color: var(--color-text-muted);
 }
 
+.vendor-folder-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+}
+
+.vendor-folder-linked-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: var(--space-md) var(--space-lg);
+  font-weight: 600;
+}
+
+.vendor-folder-linked-name a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.vendor-folder-linked-name a:hover {
+  text-decoration: underline;
+}
+
+.vendor-folder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  padding: 0 var(--space-lg) var(--space-md);
+}
+
+.vendor-folder-picker-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0 var(--space-lg) var(--space-sm);
+}
+
+.vendor-folder-picker-path {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vendor-folder-link-current {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-caption);
+}
+
+.vendor-folder-browse-row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-xs);
+}
+
+.vendor-folder-browse-row .list-row {
+  flex: 1;
+  min-width: 0;
+}
+
+.vendor-folder-browse-row .btn {
+  align-self: center;
+  margin-right: var(--space-sm);
+  flex-shrink: 0;
+}
+
+.vendor-folder-file-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.vendor-folder-file-row .list-row {
+  flex: 1;
+  min-width: 0;
+}
+
+.vendor-folder-file-row .compliance-badge {
+  flex-shrink: 0;
+  margin-right: var(--space-sm);
+}
+
+.vendor-folder-file-muted {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
 .status-badge.draft {
   background: var(--color-warning-bg);
   color: var(--color-warning-fg);
