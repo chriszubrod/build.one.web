@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act } from "react";
 import { getOne, ApiError, OfflineError } from "../api/client";
-import { useCompletionPolling } from "./useCompletionPolling";
+import { useCompletionPolling, type CompletionPollingOptions } from "./useCompletionPolling";
 import { renderHook as renderHookHarness, deferred, drain } from "./__testutils__/renderHook";
 
 vi.mock("../api/client", async (importOriginal) => {
@@ -12,11 +12,13 @@ vi.mock("../api/client", async (importOriginal) => {
 // Shape returned by the completion-result endpoint (mirrors the hook's CompletionResult).
 type PollResult = { status_code: number; message: string };
 
+type DraftBill = { is_draft: boolean; message?: string };
+
 const RESULT_PATH = "/api/v1/get/expense/1/completion-result";
 
 // Render the polling hook through the shared createRoot/act harness.
-function renderHook() {
-  return renderHookHarness(() => useCompletionPolling(RESULT_PATH));
+function renderHook<T = PollResult>(opts?: CompletionPollingOptions<T>) {
+  return renderHookHarness(() => useCompletionPolling<T>(RESULT_PATH, opts));
 }
 
 describe("useCompletionPolling", () => {
@@ -277,6 +279,115 @@ describe("useCompletionPolling", () => {
       if (h.result.current.state.status === "complete") {
         expect(h.result.current.state.result.message).toBe("FRESH");
       }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("200 that fails isDone keeps polling until a later 200 passes isDone", async () => {
+    vi.useFakeTimers();
+    try {
+      const isDone = (b: DraftBill) => b.is_draft === false;
+      vi.mocked(getOne)
+        .mockResolvedValueOnce({ is_draft: true, message: "still draft" })
+        .mockResolvedValueOnce({ is_draft: false, message: "finalized" });
+      const h = renderHook<DraftBill>({ isDone });
+
+      act(() => {
+        h.result.current.start();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(h.result.current.state.status).toBe("polling");
+      if (h.result.current.state.status === "polling") {
+        expect(h.result.current.state.attempt).toBe(1);
+      }
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(h.result.current.state.status).toBe("complete");
+      if (h.result.current.state.status === "complete") {
+        expect(h.result.current.state.result.message).toBe("finalized");
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("times out at 60 attempts when every 200 fails isDone", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(getOne).mockResolvedValue({ is_draft: true });
+      const h = renderHook<DraftBill>({ isDone: (b: DraftBill) => b.is_draft === false });
+      act(() => {
+        h.result.current.start();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000 * 61);
+      });
+      expect(h.result.current.state.status).toBe("error");
+      if (h.result.current.state.status === "error") {
+        expect(h.result.current.state.message).toContain("timed out");
+      }
+      const calls = vi.mocked(getOne).mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(9000);
+      });
+      expect(vi.mocked(getOne).mock.calls.length).toBe(calls);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("onComplete fires exactly once with the passing payload and onError never fires", async () => {
+    vi.useFakeTimers();
+    try {
+      const payload = { is_draft: false, message: "finalized" };
+      vi.mocked(getOne).mockResolvedValueOnce(payload);
+      const onComplete = vi.fn();
+      const onError = vi.fn();
+      const h = renderHook<DraftBill>({
+        isDone: (b: DraftBill) => b.is_draft === false,
+        onComplete,
+        onError,
+      });
+
+      act(() => {
+        h.result.current.start();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(onComplete).toHaveBeenCalledTimes(1);
+      expect(onComplete).toHaveBeenCalledWith(payload);
+      expect(onError).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("onError fires exactly once on the 60-attempt timeout and onComplete never fires", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(getOne).mockRejectedValue(new ApiError(404, "not found"));
+      const onComplete = vi.fn();
+      const onError = vi.fn();
+      const h = renderHook({ onComplete, onError });
+
+      act(() => {
+        h.result.current.start();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000 * 61);
+      });
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError).toHaveBeenCalledWith("Polling timed out after 3 minutes.");
+      expect(onComplete).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

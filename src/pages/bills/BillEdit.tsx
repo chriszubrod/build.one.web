@@ -1,10 +1,13 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useEntityItem, deleteEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, deleteEntity, entityItemKey } from "../../hooks/useEntity";
 import { useAutoSave } from "../../hooks/useAutoSave";
 import { useSyncedToken } from "../../hooks/useSyncedToken";
 import { useToast } from "../../components/Toast";
 import { put, post, del, getList, getOne } from "../../api/client";
+import { useCompletionPolling } from "../../hooks/useCompletionPolling";
+import CompletionStatusBar from "../../components/CompletionStatusBar";
 import { useViewAttachmentObjectUrl } from "../../hooks/useViewAttachmentObjectUrl";
 import { useLookups } from "../../hooks/useLookups";
 import { useEntityList } from "../../hooks/useEntity";
@@ -51,7 +54,9 @@ function newLineItem(): LineItemRow {
 export default function BillEdit() {
   const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
-  const { item, loading, error } = useEntityItem<Bill>(`/api/v1/get/bill/${publicId}`);
+  const queryClient = useQueryClient();
+  const billItemPath = `/api/v1/get/bill/${publicId}`;
+  const { item, loading, error } = useEntityItem<Bill>(billItemPath);
   const { data: lookups } = useLookups("vendors,payment_terms,sub_cost_codes,projects");
   const { items: fullVendors } = useEntityList<FullVendor>("/api/v1/get/vendors");
   const { items: fullPaymentTerms } = useEntityList<{ id: number; public_id: string }>("/api/v1/get/payment-terms");
@@ -74,6 +79,19 @@ export default function BillEdit() {
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const { state: pollState, start: startPolling } = useCompletionPolling<Bill>(
+    billItemPath,
+    {
+      isDone: (b) => b.is_draft === false,
+      onComplete: (bill) => {
+        queryClient.setQueryData(entityItemKey(billItemPath), bill);
+        toast("Bill completed — external syncs continue in the background.");
+        setForm((prev) => (prev ? { ...prev, is_draft: false } : prev));
+        setCompleting(false);
+      },
+      onError: () => setCompleting(false),
+    },
+  );
 
   // Load line items
   useEffect(() => {
@@ -184,7 +202,7 @@ export default function BillEdit() {
     ],
     300,
     // auto-save total is computed from lineItems — must not run before they load
-    !!form && !!item && lineItemsLoaded,
+    !!form && !!item && lineItemsLoaded && form.is_draft && !completing,
   );
 
   // A debounce armed on the previous bill must not fire after a /bill/:id/edit param
@@ -284,13 +302,15 @@ export default function BillEdit() {
   };
 
   const handleComplete = async () => {
+    if (!confirm("Complete this bill? This finalizes it and syncs to SharePoint, Excel, and QBO.")) return;
     const saved = await saveAll();
     if (!saved) return;
     setCompleting(true);
+    cancelAutoSave();
     setSaveError("");
     try {
       await post(`/api/v1/complete/bill/${publicId}`, {});
-      navigate("/bill/list");
+      startPolling();
     } catch (err: any) {
       setSaveError(err.message);
       setCompleting(false);
@@ -506,6 +526,13 @@ export default function BillEdit() {
             </button>
           )}
         </div>
+
+        <CompletionStatusBar
+          state={pollState}
+          completeMessage="Bill completed — external syncs continue in the background."
+          viewLabel="View Bill"
+          onView={() => navigate(`/bill/${publicId}`)}
+        />
 
       </form>
 

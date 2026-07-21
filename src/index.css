@@ -1146,6 +1146,26 @@ button[type="submit"]:disabled {
   margin-bottom: var(--space-lg);
 }
 
+.completion-status-bar {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.completion-status-bar--info {
+  background: var(--color-info-bg);
+}
+
+.completion-status-bar--success {
+  background: var(--color-success-bg);
+}
+
+.completion-status-bar--error {
+  background: var(--color-danger-bg);
+  color: var(--color-danger-fg);
+}
+
 .form-checkbox {
   display: flex;
   align-items: center;

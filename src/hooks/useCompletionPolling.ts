@@ -7,18 +7,29 @@ interface CompletionResult {
   [key: string]: unknown;
 }
 
-type PollingState =
+export type PollingState<T> =
   | { status: "idle" }
   | { status: "polling"; attempt: number }
-  | { status: "complete"; result: CompletionResult }
+  | { status: "complete"; result: T }
   | { status: "error"; message: string };
+
+export interface CompletionPollingOptions<T> {
+  isDone?: (result: T) => boolean;
+  onComplete?: (result: T) => void;
+  onError?: (message: string) => void;
+}
 
 /**
  * Poll a completion-result endpoint after triggering a 202 async operation.
  * Polls every 3s for up to 60 attempts (3 minutes).
  */
-export function useCompletionPolling(resultPath: string) {
-  const [state, setState] = useState<PollingState>({ status: "idle" });
+export function useCompletionPolling<T = CompletionResult>(
+  resultPath: string,
+  opts?: CompletionPollingOptions<T>,
+) {
+  const [state, setState] = useState<PollingState<T>>({ status: "idle" });
+  const optsRef = useRef(opts);
+  optsRef.current = opts;
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const attemptRef = useRef(0);
   const genRef = useRef(0); // bumped on every stop()/start(); a poll may mutate state only while its captured gen matches
@@ -42,15 +53,21 @@ export function useCompletionPolling(resultPath: string) {
       attemptRef.current += 1;
       if (attemptRef.current > 60) {
         stop();
-        setState({ status: "error", message: "Polling timed out after 3 minutes." });
+        const message = "Polling timed out after 3 minutes.";
+        setState({ status: "error", message });
+        optsRef.current?.onError?.(message);
         return;
       }
       setState({ status: "polling", attempt: attemptRef.current });
       try {
-        const result = await getOne<CompletionResult>(resultPath);
+        const result = await getOne<T>(resultPath);
         if (genRef.current !== myGen) return; // a concurrent poll settled, or the run was restarted, while we awaited
+        if (optsRef.current?.isDone && !optsRef.current.isDone(result)) {
+          return; // not done yet — keep polling (attempt counter continues)
+        }
         stop();
         setState({ status: "complete", result });
+        optsRef.current?.onComplete?.(result);
       } catch (err) {
         if (genRef.current !== myGen) return;
         const status = err instanceof ApiError ? err.status : null;
@@ -59,13 +76,12 @@ export function useCompletionPolling(resultPath: string) {
         }
         if (status !== null) {
           stop();
-          setState({
-            status: "error",
-            message:
-              err instanceof ApiError && err.detail
-                ? "Completion failed: " + err.detail
-                : "Completion failed (status " + status + ").",
-          });
+          const message =
+            err instanceof ApiError && err.detail
+              ? "Completion failed: " + err.detail
+              : "Completion failed (status " + status + ").";
+          setState({ status: "error", message });
+          optsRef.current?.onError?.(message);
           return;
         }
         // No HTTP status (OfflineError / network blip / unknown throw) — transient, keep polling
