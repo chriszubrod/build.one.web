@@ -10,6 +10,8 @@ import { useCompletionPolling } from "../../hooks/useCompletionPolling";
 import CompletionStatusBar from "../../components/CompletionStatusBar";
 import { useViewAttachmentObjectUrl } from "../../hooks/useViewAttachmentObjectUrl";
 import { useLookups } from "../../hooks/useLookups";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { resolveBillEditActions } from "./billPermissions";
 import { useEntityList } from "../../hooks/useEntity";
 import type { Vendor as FullVendor, SubCostCode, Project } from "../../types/api";
 import { computeBillLine, sumLineAmounts } from "./lineMath";
@@ -62,6 +64,8 @@ export default function BillEdit() {
   const { items: fullPaymentTerms } = useEntityList<{ id: number; public_id: string }>("/api/v1/get/payment-terms");
   const { items: fullSubCostCodes } = useEntityList<SubCostCode>("/api/v1/get/sub-cost-codes");
   const { items: fullProjects } = useEntityList<Project>("/api/v1/get/projects");
+  const { data: me, isLoading: meLoading } = useCurrentUser();
+  const actions = resolveBillEditActions(me);
   const [form, setForm] = useState<Record<string, any> | null>(null);
   const formRef = useRef(form);
   formRef.current = form;
@@ -201,8 +205,9 @@ export default function BillEdit() {
       lineItemsLoaded,
     ],
     300,
-    // auto-save total is computed from lineItems — must not run before they load
-    !!form && !!item && lineItemsLoaded && form.is_draft && !completing,
+    // auto-save total is computed from lineItems — must not run before they load;
+    // auto-save PUTs the can_update-guarded /update/bill route — must not arm without canEdit
+    !!form && !!item && lineItemsLoaded && form.is_draft && !completing && actions.canEdit,
   );
 
   // A debounce armed on the previous bill must not fire after a /bill/:id/edit param
@@ -211,9 +216,32 @@ export default function BillEdit() {
     cancelAutoSave();
   }, [publicId, cancelAutoSave]);
 
-  if (loading) return <div className="page-loading">Loading...</div>;
+  // Permission can be revoked mid-edit (AuthContext invalidates ['me'] on the
+  // SSE profile_changed event). useAutoSave's effect keys only on its deps
+  // array, so flipping enabled false does not clear a timer that is already
+  // armed — cancel it explicitly the moment canEdit goes false.
+  useEffect(() => {
+    if (!actions.canEdit) cancelAutoSave();
+  }, [actions.canEdit, cancelAutoSave]);
+
+  if (loading || meLoading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
   if (!form) return null;
+
+  // Every write path on this page — Save, the 300ms auto-save, and the
+  // pre-save inside Complete / Submit-for-Review — issues the same
+  // can_update-guarded PUT /update/bill. Without can_update the form can
+  // only produce silent 403s, so don't render it at all.
+  if (!actions.canEdit) {
+    return (
+      <div className="page">
+        <div className="page-error">You don&apos;t have permission to edit this bill.</div>
+        <button type="button" className="btn btn-secondary" onClick={() => navigate(`/bill/${publicId}`)}>
+          Back to Bill
+        </button>
+      </div>
+    );
+  }
 
   const onChange = (name: string, value: string) => {
     headerDirtyRef.current = true;
@@ -472,35 +500,37 @@ export default function BillEdit() {
         </div>
 
         <div className="form-actions">
-          <button
-            type="button"
-            className="btn btn-danger"
-            disabled={saving || completing || submitting || deleting}
-            onClick={async () => {
-              if (!confirm("Delete this bill? This cannot be undone.")) return;
-              // confirm blocks the event loop, so no timer can fire while open.
-              // An already-in-flight header PUT racing the DELETE is harmless —
-              // matches 0 rows post-delete, silently caught.
-              cancelAutoSave();
-              setDeleting(true);
-              try {
-                await deleteEntity(`/api/v1/delete/bill/${publicId}`);
-                toast("Bill deleted.");
-                navigate("/bill/list");
-              } catch (err: any) {
-                toast(err.message, "error");
-                setDeleting(false);
-              }
-            }}
-          >
-            {deleting ? "Deleting..." : "Delete"}
-          </button>
+          {actions.canDelete && (
+            <button
+              type="button"
+              className="btn btn-danger"
+              disabled={saving || completing || submitting || deleting}
+              onClick={async () => {
+                if (!confirm("Delete this bill? This cannot be undone.")) return;
+                // confirm blocks the event loop, so no timer can fire while open.
+                // An already-in-flight header PUT racing the DELETE is harmless —
+                // matches 0 rows post-delete, silently caught.
+                cancelAutoSave();
+                setDeleting(true);
+                try {
+                  await deleteEntity(`/api/v1/delete/bill/${publicId}`);
+                  toast("Bill deleted.");
+                  navigate("/bill/list");
+                } catch (err: any) {
+                  toast(err.message, "error");
+                  setDeleting(false);
+                }
+              }}
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </button>
+          )}
           <div className="page-header-spacer" />
           <button type="button" className="btn btn-secondary" onClick={() => navigate(`/bill/${publicId}`)}>Cancel</button>
           <button type="submit" className="btn btn-primary" disabled={saving || completing || submitting || deleting || !lineItemsLoaded}>
             {saving ? "Saving..." : "Save"}
           </button>
-          {form.is_draft && (
+          {form.is_draft && actions.canSubmitForReview && (
             <button
               type="button"
               className="btn btn-primary"
@@ -515,7 +545,7 @@ export default function BillEdit() {
               {submitting ? "Submitting..." : "Submit for Review"}
             </button>
           )}
-          {form.is_draft && (
+          {form.is_draft && actions.canComplete && (
             <button
               type="button"
               className="btn btn-success"

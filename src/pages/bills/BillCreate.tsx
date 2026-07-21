@@ -4,13 +4,13 @@ import { post, uploadFile } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
-import { Modules } from "../../shared/modules";
 import { computeBillLine } from "./lineMath";
 import FormField from "../../components/FormField";
 import DateField from "../../components/DateField";
 import TextareaField from "../../components/TextareaField";
 import SelectField from "../../components/SelectField";
 import type { Bill } from "../../types/api";
+import { hasBillPermission } from "./billPermissions";
 
 interface AttachmentResponse {
   public_id: string;
@@ -60,10 +60,7 @@ export default function BillCreate() {
   // (SharePoint, Excel, QBO). The API gates it on Modules.BILLS.can_complete;
   // we mirror that here so the button only shows when it would actually work.
   // System admins bypass the module check on the server side; bypass here too.
-  const canCompleteBills =
-    !!me &&
-    (me.is_admin ||
-      !!me.modules?.find((m) => m.name === Modules.BILLS)?.can_complete);
+  const canCompleteBills = hasBillPermission(me, "can_complete");
   const [form, setForm] = useState({
     vendor_public_id: "",
     payment_term_public_id: "",

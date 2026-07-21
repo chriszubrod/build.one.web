@@ -1,6 +1,7 @@
 import { BookOpen, Briefcase, Calculator, ClipboardCheck, Clock, FileText, HardHat, ShieldCheck, Store, User, Users } from "lucide-react";
 import type { ComponentType } from "react";
 import { Modules, type ModuleName } from "../shared/modules";
+import { hasModulePermission } from "../shared/permissions";
 import type { CurrentUser } from "../types/api";
 
 /**
@@ -172,11 +173,7 @@ export function canSeeEntry(entry: MenuEntry, me: CurrentUser | undefined | null
   if (entry.requiresAdmin) return !!me?.is_admin; // admin entries: never on unauth boots
   if (!me) return entry.module === null; // unauth boots only see unconditional entries
   if (entry.module === null) return true;
-  if (me.is_admin) return true;
-  const mod = me.modules?.find((m) => m.name === entry.module);
-  if (!mod) return false;
-  const perm = entry.permission ?? "can_read";
-  return !!(mod as unknown as Record<string, boolean>)[perm];
+  return hasModulePermission(me, entry.module, entry.permission ?? "can_read");
 }
 
 /**
