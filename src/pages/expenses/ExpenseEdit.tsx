@@ -1,8 +1,11 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useEntityItem } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, entityItemKey } from "../../hooks/useEntity";
 import { useAutoSave } from "../../hooks/useAutoSave";
 import { useCompletionPolling } from "../../hooks/useCompletionPolling";
+import { useToast } from "../../components/Toast";
+import CompletionStatusBar from "../../components/CompletionStatusBar";
 import { put, post, del, getList } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
 import FormField from "../../components/FormField";
@@ -50,7 +53,9 @@ function newLineItem(): LineItemRow {
 export default function ExpenseEdit() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { item, loading, error } = useEntityItem<Expense>(`/api/v1/get/expense/${id}`);
+  const queryClient = useQueryClient();
+  const expenseItemPath = `/api/v1/get/expense/${id}`;
+  const { item, loading, error } = useEntityItem<Expense>(expenseItemPath);
   const { data: lookups } = useLookups("vendors");
   const [form, setForm] = useState<Record<string, any> | null>(null);
   const [lineItems, setLineItems] = useState<LineItemRow[]>([]);
@@ -58,6 +63,7 @@ export default function ExpenseEdit() {
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const { toast } = useToast();
   // Authoritative current row_version, updated SYNCHRONOUSLY on every successful
   // header save. Chained saves (the auto-save reschedule loop, and saveAll right
   // after flush on Complete) read this instead of the possibly-stale React-state
@@ -73,8 +79,18 @@ export default function ExpenseEdit() {
     rowVersionRef.current = null;
   }, [form?.row_version]);
 
-  const { state: pollState, start: startPolling } = useCompletionPolling(
-    `/api/v1/get/expense/${id}/completion-result`
+  const { state: pollState, start: startPolling } = useCompletionPolling<Expense>(
+    expenseItemPath,
+    {
+      isDone: (e) => e.is_draft === false,
+      onComplete: (expense) => {
+        queryClient.setQueryData(entityItemKey(expenseItemPath), expense);
+        toast("Expense completed — external syncs continue in the background.");
+        setForm((prev: any) => (prev ? { ...prev, is_draft: false } : prev));
+        setCompleting(false);
+      },
+      onError: () => setCompleting(false),
+    },
   );
 
   // Load line items
@@ -135,11 +151,11 @@ export default function ExpenseEdit() {
     }
   }, [form, id]);
 
-  const { flush: flushAutoSave } = useAutoSave(
+  const { flush: flushAutoSave, cancel: cancelAutoSave } = useAutoSave(
     autoSaveHeader,
     [form?.vendor_public_id, form?.expense_date, form?.reference_number, form?.total_amount, form?.memo, form?.is_credit],
     300,
-    !!form && !!item,
+    !!form && !!item && form.is_draft && !completing,
   );
 
   if (loading) return <div className="page-loading">Loading...</div>;
@@ -224,6 +240,8 @@ export default function ExpenseEdit() {
     const saved = await saveAll();
     if (!saved) return;
     setCompleting(true);
+    cancelAutoSave();
+    setSaveError("");
     try {
       await post(`/api/v1/complete/expense/${id}`, {});
       startPolling();
@@ -307,22 +325,12 @@ export default function ExpenseEdit() {
           </div>
         )}
 
-        {pollState.status === "polling" && (
-          <div style={{ marginTop: 16, padding: 12, background: "#eff6ff", borderRadius: 6, fontSize: 13 }}>
-            Completing... (poll #{pollState.attempt})
-          </div>
-        )}
-        {pollState.status === "complete" && (
-          <div style={{ marginTop: 16, padding: 12, background: "#dcfce7", borderRadius: 6, fontSize: 13 }}>
-            Complete: {pollState.result.message}{" "}
-            <button className="btn btn-secondary btn-sm" onClick={() => navigate(`/expense/${id}`)}>View Expense</button>
-          </div>
-        )}
-        {pollState.status === "error" && (
-          <div style={{ marginTop: 16, padding: 12, background: "#fef2f2", borderRadius: 6, fontSize: 13, color: "#dc2626" }}>
-            {pollState.message}
-          </div>
-        )}
+        <CompletionStatusBar
+          state={pollState}
+          completeMessage="Expense completed — external syncs continue in the background."
+          viewLabel="View Expense"
+          onView={() => navigate(`/expense/${id}`)}
+        />
       </form>
     </div>
   );
