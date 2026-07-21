@@ -1,13 +1,15 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useEntityItem, deleteEntity } from "../../hooks/useEntity";
+import { useAutoSave } from "../../hooks/useAutoSave";
+import { useSyncedToken } from "../../hooks/useSyncedToken";
 import { useToast } from "../../components/Toast";
 import { put, post, del, getList, getOne } from "../../api/client";
 import { useViewAttachmentObjectUrl } from "../../hooks/useViewAttachmentObjectUrl";
 import { useLookups } from "../../hooks/useLookups";
 import { useEntityList } from "../../hooks/useEntity";
 import type { Vendor as FullVendor, SubCostCode, Project } from "../../types/api";
-import { computeBillLine } from "./lineMath";
+import { computeBillLine, sumLineAmounts } from "./lineMath";
 import FormField from "../../components/FormField";
 import DateField from "../../components/DateField";
 import TextareaField from "../../components/TextareaField";
@@ -59,7 +61,10 @@ export default function BillEdit() {
   const formRef = useRef(form);
   formRef.current = form;
   const [lineItems, setLineItems] = useState<LineItemRow[]>([]);
-  const [origLineItems, setOrigLineItems] = useState<BillLineItem[]>([]);
+  const [lineItemsLoaded, setLineItemsLoaded] = useState(false);
+  const persistedLineTotalRef = useRef<number | null>(null);
+  const headerDirtyRef = useRef(false);
+  const [origLineItemPublicIds, setOrigLineItemPublicIds] = useState<string[]>([]);
   const [attachmentPublicId, setAttachmentPublicId] = useState<string | null>(null);
   const { objectUrl: attachmentBlobUrl, loading: attachmentLoading, loadError: attachmentLoadError } =
     useViewAttachmentObjectUrl(attachmentPublicId);
@@ -75,7 +80,7 @@ export default function BillEdit() {
     if (!item || fullProjects.length === 0) return;
     getList<BillLineItem>(`/api/v1/get/bill_line_items/bill/${item.id}`)
       .then((res) => {
-        setOrigLineItems(res.data);
+        setOrigLineItemPublicIds(res.data.map((li) => li.public_id));
         setAttachmentPublicId(null);
         // Fetch attachment from first line item (one attachment shared across all)
         if (res.data.length > 0) {
@@ -106,6 +111,8 @@ export default function BillEdit() {
             price: li.price ?? "",
           });
         }));
+        persistedLineTotalRef.current = sumLineAmounts(res.data);
+        setLineItemsLoaded(true);
       })
       .catch(() => {
         setAttachmentPublicId(null);
@@ -130,22 +137,84 @@ export default function BillEdit() {
   }
 
 
+  const rowVersion = useSyncedToken(form?.row_version);
+
+  // Auto-save header on changes (300ms debounce)
+  const autoSaveHeader = useCallback(async () => {
+    if (!form || !publicId) return;
+    // flush() ignores the enabled gate — must not PUT until line items have loaded.
+    if (persistedLineTotalRef.current == null) return;
+    if (!headerDirtyRef.current) return;
+    headerDirtyRef.current = false;
+    try {
+      // Auto-save sends the last-PERSISTED line total so the server total always
+      // matches server lines; live UI sums only go up with explicit saveAll.
+      const updated = await put<Bill>(`/api/v1/update/bill/${publicId}`, {
+        row_version: rowVersion.read(),
+        vendor_public_id: form.vendor_public_id || undefined,
+        payment_term_public_id: form.payment_term_public_id || undefined,
+        bill_date: form.bill_date,
+        due_date: form.due_date,
+        bill_number: form.bill_number,
+        total_amount: persistedLineTotalRef.current,
+        memo: form.memo || null,
+        is_draft: form.is_draft,
+      });
+      rowVersion.set(updated.row_version);
+      setForm((prev: any) => (prev ? { ...prev, row_version: updated.row_version } : prev));
+    } catch {
+      headerDirtyRef.current = true;
+      // Silent fail for auto-save — stale-token loop is prevented by useSyncedToken;
+      // manual Save / Complete / Submit-for-Review still surface errors via saveAll.
+    }
+  }, [form, publicId, rowVersion]);
+
+  // Line items intentionally omitted from deps — a coalesced follow-up could run
+  // before React commits a just-created row's public_id and duplicate-CREATE it.
+  const { flush: flushAutoSave, cancel: cancelAutoSave } = useAutoSave(
+    autoSaveHeader,
+    [
+      form?.vendor_public_id,
+      form?.payment_term_public_id,
+      form?.bill_date,
+      form?.due_date,
+      form?.bill_number,
+      form?.memo,
+      lineItemsLoaded,
+    ],
+    300,
+    // auto-save total is computed from lineItems — must not run before they load
+    !!form && !!item && lineItemsLoaded,
+  );
+
+  // A debounce armed on the previous bill must not fire after a /bill/:id/edit param
+  // change; the stale PUT could not land anyway (RowVersion WHERE-guard) but don't emit it.
+  useEffect(() => {
+    cancelAutoSave();
+  }, [publicId, cancelAutoSave]);
+
   if (loading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
   if (!form) return null;
 
-  const onChange = (name: string, value: string) => setForm((prev: any) => ({ ...prev, [name]: value }));
+  const onChange = (name: string, value: string) => {
+    headerDirtyRef.current = true;
+    setForm((prev: any) => ({ ...prev, [name]: value }));
+  };
 
   const saveAll = async () => {
     const latestForm = formRef.current;
     if (!latestForm) return false;
+    // Pre-load, computedTotal over empty lineItems would PUT total_amount 0.
+    if (!lineItemsLoaded) return false;
     setSaving(true);
     setSaveError("");
     try {
+      await flushAutoSave(); // flush clears headerDirtyRef when it runs; do not clear again after header PUT (mid-flight edits must stay dirty for debounce)
       // Save header — total_amount computed from line items
-      const computedTotal = lineItems.reduce((sum, li) => sum + (li.amount !== "" ? Number(li.amount) : 0), 0);
+      const computedTotal = sumLineAmounts(lineItems);
       const updated = await put<Bill>(`/api/v1/update/bill/${publicId}`, {
-        row_version: latestForm.row_version,
+        row_version: rowVersion.read(),
         vendor_public_id: latestForm.vendor_public_id || undefined,
         payment_term_public_id: latestForm.payment_term_public_id || undefined,
         bill_date: latestForm.bill_date,
@@ -155,13 +224,14 @@ export default function BillEdit() {
         memo: latestForm.memo || null,
         is_draft: latestForm.is_draft,
       });
+      rowVersion.set(updated.row_version);
       setForm((prev: any) => ({ ...prev, row_version: updated.row_version }));
 
       // Sync line items: delete removed, update existing, create new
       const currentIds = new Set(lineItems.filter((li) => li.public_id).map((li) => li.public_id));
-      for (const orig of origLineItems) {
-        if (!currentIds.has(orig.public_id)) {
-          await del(`/api/v1/delete/bill_line_item/${orig.public_id}`);
+      for (const origId of origLineItemPublicIds) {
+        if (!currentIds.has(origId)) {
+          await del(`/api/v1/delete/bill_line_item/${origId}`);
         }
       }
 
@@ -192,9 +262,13 @@ export default function BillEdit() {
         }
       }
       setLineItems(savedItems);
-      setOrigLineItems([]); // Reset tracking after successful save
+      setOrigLineItemPublicIds(savedItems.map((li) => li.public_id!));
+      persistedLineTotalRef.current = computedTotal;
       return true;
     } catch (err: any) {
+      // Failed saveAll may have partially synced lines or failed the header PUT —
+      // persisted total is untrustworthy; null disables auto-save until explicit Save succeeds.
+      persistedLineTotalRef.current = null;
       setSaveError(err.message);
       return false;
     } finally {
@@ -278,8 +352,7 @@ export default function BillEdit() {
             <label>Total Amount</label>
             <div className="form-value">
               {lineItems.length > 0
-                ? lineItems.reduce((sum, li) => sum + (li.amount !== "" ? Number(li.amount) : 0), 0)
-                    .toLocaleString("en-US", { style: "currency", currency: "USD" })
+                ? sumLineAmounts(lineItems).toLocaleString("en-US", { style: "currency", currency: "USD" })
                 : "$0.00"}
             </div>
           </div>
@@ -385,6 +458,10 @@ export default function BillEdit() {
             disabled={saving || completing || submitting || deleting}
             onClick={async () => {
               if (!confirm("Delete this bill? This cannot be undone.")) return;
+              // confirm blocks the event loop, so no timer can fire while open.
+              // An already-in-flight header PUT racing the DELETE is harmless —
+              // matches 0 rows post-delete, silently caught.
+              cancelAutoSave();
               setDeleting(true);
               try {
                 await deleteEntity(`/api/v1/delete/bill/${publicId}`);
@@ -400,7 +477,7 @@ export default function BillEdit() {
           </button>
           <div className="page-header-spacer" />
           <button type="button" className="btn btn-secondary" onClick={() => navigate(`/bill/${publicId}`)}>Cancel</button>
-          <button type="submit" className="btn btn-primary" disabled={saving || completing || submitting || deleting}>
+          <button type="submit" className="btn btn-primary" disabled={saving || completing || submitting || deleting || !lineItemsLoaded}>
             {saving ? "Saving..." : "Save"}
           </button>
           {form.is_draft && (
@@ -408,7 +485,7 @@ export default function BillEdit() {
               type="button"
               className="btn btn-primary"
               onClick={handleSubmitForReview}
-              disabled={saving || completing || submitting || deleting || !hasProjectOnLineItem}
+              disabled={saving || completing || submitting || deleting || !lineItemsLoaded || !hasProjectOnLineItem}
               title={
                 hasProjectOnLineItem
                   ? "Submit for review — drafts an email to the project PMs and advances the bill state."
@@ -423,7 +500,7 @@ export default function BillEdit() {
               type="button"
               className="btn btn-success"
               onClick={handleComplete}
-              disabled={saving || completing || submitting || deleting}
+              disabled={saving || completing || submitting || deleting || !lineItemsLoaded}
             >
               {completing ? "Completing..." : "Complete Bill"}
             </button>

@@ -60,12 +60,11 @@ shipped**; these are the lower-severity residuals left for later.
   `@testing-library/react` harness) — covered by tsc (TimeEntry only; `pages/expenses`
   is excluded from `tsconfig.app.json`), build, Codex re-review, and the hook's
   ref-visibility spec.
-- [ ] **Extract `useSyncedToken(form?.row_version)` when Bills gets auto-save (Pass-2
-  altitude follow-up, 2026-07-12).** The `rowVersionRef` + clear-effect + `?? committed`
-  read pattern is duplicated in ExpenseEdit + TimeEntryView. At 2 callers it's left
-  inline (rule-of-three); extract a tiny `useSyncedToken` hook (`{ read, set }` +
-  the clear-effect) as the **first step** of wiring Bills onto `useAutoSave`, so the
-  silent-failure-critical clear-effect is never hand-copied into a 3rd caller.
+- [x] **Extract `useSyncedToken(form?.row_version)` — DONE in U-097 (2026-07-20).** The
+  `rowVersionRef` + clear-effect + `?? committed` read pattern was duplicated in
+  ExpenseEdit + TimeEntryView; extracted to `src/hooks/useSyncedToken.ts` as the
+  first step of wiring BillEdit onto `useAutoSave`. TimeEntryView migrated; BillEdit
+  auto-save shipped in the same unit.
 - [ ] **Entry-delete vs in-flight log-save race (P3).** `f1f75c0` disables Delete
   Entry + guards `handleDelete` while any log row is `saving`, closing the main
   window. Residual: the guard is a point-in-time snapshot, so a delete initiated in
@@ -127,8 +126,8 @@ Project-scoped vs entity-scoped doors decision (2026-06-17): **both, sharing one
 
 ### Phase 2 — Tier 3 financial surfaces (3-4 weeks, web-only)
 
-- [x] **Unpark Bills — DONE in U-094 (2026-07-20), premise was stale.** The Bills surface was never route/nav-parked: routes wired under AppLayout since U-079, `menuConfig` financials entry since `265695b` (2026-06-25), both live in prod; the list API 500 was fixed by U-089. U-094 added the missing piece — `bills` in the AP Specialist + Controller primary pill (kept at 4 curated slots: BottomTabBar appends More, so 5 curated would render a 6-item pill; a `PRIMARY_SLOTS_BY_ROLE` invariant tripwire now enforces ≤ MAX−1 + id resolution) — and source-verified LIST/VIEW against the current API contract (envelope `{data,count}`, `?is_draft=` filter composition, line-item/attachment routes). The full bills-first pill re-order (`["bills", "expenses", "invoices", "more", "profile"]`) waits for Expenses/Invoices to unpark. **Follow-up review units (live surfaces, never two-passed):** Bill CREATE (drop-zone/folder intake, DI prefill, `can_complete` gating) · Bill EDIT + auto-save (flush-on-Complete / guard-on-Delete race class) · Bill COMPLETE web path (vs U-065 durable CompletionJob) · ReviewTimeline interactive surface · `/accept` data check: prod `RoleModule` grants Bills `can_read` for AP Specialist/Controller · (P3) BillList sort is client-side over the current page only.
-- [ ] **Unpark Expenses.** Same scaffolding verification. AP / field-receipt-capture get Expenses in their pill.
+- [x] **Unpark Bills — DONE in U-094 (2026-07-20), premise was stale.** The Bills surface was never route/nav-parked: routes wired under AppLayout since U-079, `menuConfig` financials entry since `265695b` (2026-06-25), both live in prod; the list API 500 was fixed by U-089. U-094 added the missing piece — `bills` in the AP Specialist + Controller primary pill (kept at 4 curated slots: BottomTabBar appends More, so 5 curated would render a 6-item pill; a `PRIMARY_SLOTS_BY_ROLE` invariant tripwire now enforces ≤ MAX−1 + id resolution) — and source-verified LIST/VIEW against the current API contract (envelope `{data,count}`, `?is_draft=` filter composition, line-item/attachment routes). The full bills-first pill re-order (`["bills", "expenses", "invoices", "more", "profile"]`) waits for Expenses/Invoices to unpark. **Follow-up review units (live surfaces, never two-passed):** Bill CREATE (drop-zone/folder intake, DI prefill, `can_complete` gating) · Bill EDIT + auto-save (flush-on-Complete / guard-on-Delete race class) · Bill COMPLETE web path (vs U-065 durable CompletionJob) · ReviewTimeline interactive surface · `/accept` data check: prod `RoleModule` grants Bills `can_read` for AP Specialist/Controller · (P3) BillList sort is client-side over the current page only · (pre-existing, Codex U-097) BillEdit state (form/lineItems) is not reset on a /bill/:id/edit → /bill/:other/edit history navigation — page shows the prior bill until reload; writes are corruption-proof (RowVersion guard) but the staleness needs a param-change reset.
+- [ ] **Unpark Expenses.** Same scaffolding verification. AP / field-receipt-capture get Expenses in their pill. (when unparking: migrate ExpenseEdit onto useSyncedToken — src/hooks/ — and fix its setOrigLineItems([]) delete-tracking bug, same class as the U-097 BillEdit fix)
 - [ ] **Unpark Invoices.** Same. AR / Controller pill gains Invoices.
 - [ ] **Unpark BillCredits.** Lower-frequency surface; lives in More drawer Financials section, not a primary slot.
 - [ ] **Project detail page Bills/Expenses/Invoices/ContractLabor tabs** become fully functional — same list component as top-level entries, with `defaultFilter={{ project_id }}` + `hiddenFilters={['project_id']}` + `showProjectColumn={false}`.

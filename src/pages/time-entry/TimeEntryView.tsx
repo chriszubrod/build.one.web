@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, del, getOne, post, put } from "../../api/client";
 import { useAutoSave } from "../../hooks/useAutoSave";
+import { useSyncedToken } from "../../hooks/useSyncedToken";
 import { useEntityList } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
@@ -250,24 +251,7 @@ export default function TimeEntryView() {
   const headerSaveFailedRef = useRef(false);
   const formRef = useRef<HeaderForm | null>(null);
   formRef.current = form;
-  // Authoritative current row_version, updated SYNCHRONOUSLY on each successful
-  // header auto-save. The coalesced reschedule in useAutoSave can run before
-  // React commits the setForm(row_version) below, so reading form.row_version
-  // there would send a stale token -> optimistic-concurrency failure. Reading
-  // this ref keeps chained saves current. Field values still come from the
-  // closure (each edit re-renders and refreshes saveFnRef).
-  const rowVersionRef = useRef<string | null>(null);
-
-  // Once React commits any row_version change — a local save's setForm OR an
-  // authoritative server hydration (the effect that syncs form from `entry`) —
-  // clear the ref so the next save reads the committed, authoritative
-  // form.row_version. The ref only needs to bridge the pre-commit window of the
-  // coalesced auto-save follow-up (and the pre-commit reads in the save chain);
-  // outside it, form.row_version is authoritative and may be newer than the ref
-  // after an external refetch.
-  useEffect(() => {
-    rowVersionRef.current = null;
-  }, [form?.row_version]);
+  const rowVersion = useSyncedToken(form?.row_version);
 
   // Self-heal the list cache: when this View fetches an entry, push the
   // user-visible fields into every cached list page so a stale row (e.g.,
@@ -373,12 +357,12 @@ export default function TimeEntryView() {
     setHeaderError("");
     try {
       const updated = await put<TimeEntry>(`/api/v1/time-entries/${publicId}`, {
-        row_version: rowVersionRef.current ?? form.row_version,
+        row_version: rowVersion.read(),
         user_public_id: sent.user_public_id || undefined,
         work_date: sent.work_date,
         note: sent.note || null,
       });
-      rowVersionRef.current = updated.row_version;
+      rowVersion.set(updated.row_version);
       headerSaveFailedRef.current = false;
       // Clear the dirty guard only if the current form still matches what we
       // sent — if the user kept typing, the newer edit stays dirty (and thus

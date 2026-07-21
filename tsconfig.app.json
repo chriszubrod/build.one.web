@@ -27,7 +27,6 @@
     "src/pages/addresses/**",
     "src/pages/address-types/**",
     "src/pages/bill-credits/**",
-    "src/pages/bills/**",
     "src/pages/companies/**",
     "src/pages/contract-labor/**",
     "src/pages/cost-codes/**",

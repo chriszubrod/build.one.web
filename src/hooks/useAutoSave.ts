@@ -15,9 +15,9 @@ import { useCallback, useEffect, useRef } from "react";
  * NOTE for callers that both READ and WRITE server state guarded by an
  * optimistic-concurrency token (e.g. row_version): the coalesced follow-up may
  * run before React commits any state update the prior save queued. Source such
- * tokens from a ref updated SYNCHRONOUSLY inside `saveFn` on success — not from
- * React state — so chained saves don't send a stale token. See ExpenseEdit /
- * TimeEntryView `rowVersionRef`.
+ * tokens via `useSyncedToken` (src/hooks/useSyncedToken.ts) — not from React
+ * state — so chained saves don't send a stale token. See BillEdit /
+ * TimeEntryView; ExpenseEdit still hand-rolls the ref pending its unpark.
  */
 export function useAutoSave(
   saveFn: () => Promise<void>,
@@ -83,7 +83,8 @@ export function useAutoSave(
 
   // Force an immediate save. Cancels the pending debounce first, then runs (or
   // coalesces into the in-flight run) and resolves only after the latest state
-  // is persisted. Ignores `enabled` (same as before).
+  // is persisted. Ignores `enabled` — a saveFn with a load gate must self-guard
+  // (see BillEdit's persisted-total null check).
   const flush = useCallback(() => {
     cancel();
     return runSave();
