@@ -49,6 +49,7 @@ import BillEdit from "./pages/bills/BillEdit";
 
 import ExpenseCodingCockpit from "./pages/expense-coding/ExpenseCodingCockpit";
 import VendorComplianceDashboard from "./pages/vendor-compliance/VendorComplianceDashboard";
+import RequiredCoverageEditor from "./pages/vendor-compliance/RequiredCoverageEditor";
 import VendorList from "./pages/vendors/VendorList";
 import VendorView from "./pages/vendors/VendorView";
 import VendorEdit from "./pages/vendors/VendorEdit";
@@ -93,6 +94,10 @@ export const appRouteTree = (
 
         <Route path="/expense-coding" element={<ExpenseCodingCockpit />} />
         <Route path="/vendor-compliance" element={<VendorComplianceDashboard />} />
+        <Route
+          path="/vendor-compliance/required-coverages"
+          element={<RequiredCoverageEditor />}
+        />
 
         <Route path="/budget/list" element={<BudgetList />} />
         <Route path="/budget/create" element={<BudgetCreate />} />

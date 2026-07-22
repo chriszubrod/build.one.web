@@ -12,7 +12,7 @@ import type {
 } from "../../types/api";
 
 interface PolicyManagerSheetProps {
-  coiDocumentPublicId: string;
+  certificatePublicId: string;
   coiLabel: string;
   onClose: () => void;
   onChanged: () => void;
@@ -20,9 +20,8 @@ interface PolicyManagerSheetProps {
 
 const COVERAGE_OPTIONS: { value: ComplianceCoverageType; label: string }[] = [
   { value: "GL", label: "GL" },
-  { value: "AUTO", label: "AUTO" },
-  { value: "UMBRELLA", label: "UMBRELLA" },
   { value: "WC", label: "WC" },
+  { value: "OTHER", label: "Other" },
 ];
 
 function fmtDate(v: string | null | undefined): string {
@@ -47,20 +46,20 @@ function policySummary(p: VendorInsurancePolicy): string {
 }
 
 export default function PolicyManagerSheet({
-  coiDocumentPublicId,
+  certificatePublicId,
   coiLabel,
   onClose,
   onChanged,
 }: PolicyManagerSheetProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const policiesQueryKey = ["vendor-insurance-policies", coiDocumentPublicId] as const;
+  const policiesQueryKey = ["vendor-insurance-policies", certificatePublicId] as const;
 
   const policiesQuery = useQuery({
     queryKey: policiesQueryKey,
     queryFn: () =>
       getList<VendorInsurancePolicy>(
-        `/api/v1/get/vendor-insurance-policies/by-document/${coiDocumentPublicId}`,
+        `/api/v1/get/vendor-insurance-policies/by-certificate-of-insurance/${certificatePublicId}`,
       ),
   });
 
@@ -96,7 +95,7 @@ export default function PolicyManagerSheet({
     setAdding(true);
     try {
       await post("/api/v1/create/vendor-insurance-policy", {
-        compliance_document_public_id: coiDocumentPublicId,
+        certificate_of_insurance_public_id: certificatePublicId,
         coverage_type: coverageType,
         carrier: carrier || null,
         policy_number: policyNumber || null,

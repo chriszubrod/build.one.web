@@ -5,27 +5,37 @@ import SheetHeader from "../../components/ui/SheetHeader";
 import SectionCard from "../../components/ui/SectionCard";
 import Field from "../../components/ui/Field";
 import { useToast } from "../../components/Toast";
-import type { ComplianceDocumentType, VendorComplianceDocument } from "../../types/api";
+import type { BusinessLicense, ComplianceDocumentType, ContractorsLicense } from "../../types/api";
+
+/** BL/CL ingest only — COI uses the coverage flow (later stage). */
+type IngestDocumentType = Extract<
+  ComplianceDocumentType,
+  "BUSINESS_LICENSE" | "CONTRACTORS_LICENSE"
+>;
 
 interface UploadDocumentSheetProps {
   vendorPublicId: string;
+  /** When opened from a specific slot, pre-select and lock document type. */
+  initialDocumentType?: IngestDocumentType;
   onClose: () => void;
   onSaved: () => void;
 }
 
-const DOCUMENT_TYPE_OPTIONS: { value: ComplianceDocumentType; label: string }[] = [
+const DOCUMENT_TYPE_OPTIONS: { value: IngestDocumentType; label: string }[] = [
   { value: "BUSINESS_LICENSE", label: "Business License" },
   { value: "CONTRACTORS_LICENSE", label: "Contractor's License" },
-  { value: "CERTIFICATE_OF_INSURANCE", label: "Certificate of Insurance" },
 ];
 
 export default function UploadDocumentSheet({
   vendorPublicId,
+  initialDocumentType,
   onClose,
   onSaved,
 }: UploadDocumentSheetProps) {
   const { toast } = useToast();
-  const [documentType, setDocumentType] = useState<ComplianceDocumentType | "">("");
+  const [documentType, setDocumentType] = useState<IngestDocumentType | "">(
+    initialDocumentType ?? "",
+  );
   const [issuingAuthority, setIssuingAuthority] = useState("");
   const [documentNumber, setDocumentNumber] = useState("");
   const [classification, setClassification] = useState("");
@@ -34,7 +44,8 @@ export default function UploadDocumentSheet({
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const canSave = documentType !== "";
+  const typeLocked = initialDocumentType != null;
+  const canSave = documentType !== "" && file != null;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const chosen = e.target.files?.[0] ?? null;
@@ -49,28 +60,40 @@ export default function UploadDocumentSheet({
 
   const handleSave = async () => {
     if (!canSave || saving || !documentType) return;
+    if (!file) {
+      toast("A PDF attachment is required", "error");
+      return;
+    }
     setSaving(true);
     try {
-      let attachmentPublicId: string | null = null;
-      if (file) {
-        const att = await uploadFile<{ public_id: string }>(
-          "/api/v1/upload/attachment",
-          file,
-        );
-        attachmentPublicId = att.public_id;
-      }
+      const att = await uploadFile<{ public_id: string }>(
+        "/api/v1/upload/attachment",
+        file,
+      );
+      const attachmentPublicId = att.public_id;
 
-      await post<VendorComplianceDocument>("/api/v1/create/vendor-compliance-document", {
-        vendor_public_id: vendorPublicId,
-        document_type: documentType,
-        issuing_authority: issuingAuthority || null,
-        document_number: documentNumber || null,
-        classification: classification || null,
-        issue_date: issueDate || null,
-        expiry_date:
-          documentType === "CERTIFICATE_OF_INSURANCE" ? null : expiryDate || null,
+      const common = {
         attachment_public_id: attachmentPublicId,
-      });
+        license_number: documentNumber || null,
+        issuing_authority: issuingAuthority || null,
+        issue_date: issueDate || null,
+        expiry_date: expiryDate || null,
+      };
+
+      if (documentType === "BUSINESS_LICENSE") {
+        await post<BusinessLicense>(
+          `/api/v1/vendor/${vendorPublicId}/business-license/ingest`,
+          common,
+        );
+      } else {
+        await post<ContractorsLicense>(
+          `/api/v1/vendor/${vendorPublicId}/contractors-license/ingest`,
+          {
+            ...common,
+            classification: classification || null,
+          },
+        );
+      }
 
       toast("Document added", "success");
       onSaved();
@@ -99,8 +122,9 @@ export default function UploadDocumentSheet({
             <select
               className="form-select"
               value={documentType}
-              onChange={(e) => setDocumentType(e.target.value as ComplianceDocumentType | "")}
-              autoFocus
+              disabled={typeLocked}
+              onChange={(e) => setDocumentType(e.target.value as IngestDocumentType | "")}
+              autoFocus={!typeLocked}
             >
               <option value="">Select type…</option>
               {DOCUMENT_TYPE_OPTIONS.map((opt) => (
@@ -117,17 +141,19 @@ export default function UploadDocumentSheet({
             placeholder="Issuing authority"
           />
           <Field
-            label="Document number"
+            label="License number"
             value={documentNumber}
             onChange={setDocumentNumber}
-            placeholder="Document number"
+            placeholder="License number"
           />
-          <Field
-            label="Classification"
-            value={classification}
-            onChange={setClassification}
-            placeholder="Classification"
-          />
+          {documentType === "CONTRACTORS_LICENSE" && (
+            <Field
+              label="Classification"
+              value={classification}
+              onChange={setClassification}
+              placeholder="Classification"
+            />
+          )}
           <div className="field">
             <label className="field-label">Issue date</label>
             <input
@@ -137,19 +163,17 @@ export default function UploadDocumentSheet({
               onChange={(e) => setIssueDate(e.target.value)}
             />
           </div>
-          {documentType !== "CERTIFICATE_OF_INSURANCE" && (
-            <div className="field">
-              <label className="field-label">Expiry date</label>
-              <input
-                className="field-input"
-                type="date"
-                value={expiryDate}
-                onChange={(e) => setExpiryDate(e.target.value)}
-              />
-            </div>
-          )}
           <div className="field">
-            <label className="field-label">PDF attachment (optional)</label>
+            <label className="field-label">Expiry date</label>
+            <input
+              className="field-input"
+              type="date"
+              value={expiryDate}
+              onChange={(e) => setExpiryDate(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label className="field-label">PDF attachment (required)</label>
             <input type="file" accept="application/pdf" onChange={handleFileChange} />
           </div>
         </SectionCard>

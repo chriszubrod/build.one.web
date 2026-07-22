@@ -210,7 +210,21 @@ export interface Vendor {
 
 export type ComplianceDocumentType = "BUSINESS_LICENSE" | "CONTRACTORS_LICENSE" | "CERTIFICATE_OF_INSURANCE";
 export type ComplianceVerificationStatus = "Received" | "Verified" | "Rejected";
-export type ComplianceCoverageType = "GL" | "AUTO" | "UMBRELLA" | "WC";
+export type ComplianceCoverageType = "GL" | "WC" | "OTHER";
+
+export interface CoverageEntry {
+  coverage_type: string;
+  required: boolean;
+  status: string; // "valid"|"expiring"|"expired"|"incomplete"|"missing"
+  expiry_date?: string | null;
+  days_until_expiry?: number | null;
+  carrier?: string | null;
+  policy_number?: string | null;
+  each_occurrence?: string | null;
+  aggregate?: string | null;
+  policy_public_id?: string | null;
+  certificate_public_id?: string | null;
+}
 
 export interface VendorComplianceSlot {
   status: string; // "valid"|"expiring"|"expired"|"incomplete"|"missing" for licenses/COI; "present"|"missing" for W9
@@ -222,6 +236,10 @@ export interface VendorComplianceSlot {
   verification_status?: ComplianceVerificationStatus | null;
   policy_count?: number;                 // COI only
   attachment_public_id?: string | null;  // W9 only
+  coverages?: Record<string, CoverageEntry>;
+  extra_coverages?: CoverageEntry[];
+  compliant?: boolean;
+  certificate_count?: number;
 }
 export interface VendorComplianceRosterEntry {
   vendor_public_id: string;
@@ -246,10 +264,48 @@ export interface VendorComplianceDocument {
   issue_date: string | null; expiry_date: string | null; attachment_id: number | null;
   verification_status: ComplianceVerificationStatus; created_by_user_id: number | null;
 }
+
+export interface BusinessLicense {
+  public_id: string;
+  row_version: string;
+  verification_status: ComplianceVerificationStatus;
+}
+
+export interface ContractorsLicense {
+  public_id: string;
+  row_version: string;
+  verification_status: ComplianceVerificationStatus;
+}
+
+export interface CertificateOfInsurance {
+  public_id: string;
+  row_version: string;
+  verification_status: ComplianceVerificationStatus;
+}
+
+export interface CertificateOfInsuranceExtractPolicy {
+  coverage_type: ComplianceCoverageType;
+  carrier: string | null;
+  policy_number: string | null;
+  each_occurrence: string | null;
+  aggregate: string | null;
+  effective_date: string | null;
+  expiry_date: string | null;
+}
+
+export interface CertificateOfInsuranceExtractResult {
+  issuing_authority: string | null;
+  issue_date: string | null;
+  policies: CertificateOfInsuranceExtractPolicy[];
+  attachment_public_id: string;
+  confidence: number;
+  unresolved: string[];
+}
+
 export interface VendorInsurancePolicy {
   id: number; public_id: string; row_version: string;
   created_datetime: string | null; modified_datetime: string | null;
-  vendor_compliance_document_id: number;
+  certificate_of_insurance_id: number;
   coverage_type: ComplianceCoverageType;
   carrier: string | null; policy_number: string | null;
   each_occurrence: string | null; aggregate: string | null;  // money transported as string
@@ -329,6 +385,15 @@ export interface VendorType {
   modified_datetime: string | null;
   name: string;
   description: string | null;
+}
+
+export type VendorTypeRequiredCoverageType = "GL" | "WC";
+
+export interface VendorTypeRequiredCoverage {
+  public_id: string;
+  vendor_type_id: number;
+  coverage_type: VendorTypeRequiredCoverageType;
+  created_datetime?: string | null;
 }
 
 export interface Role {

@@ -35,3 +35,15 @@ export function expiryHint(days: number | null | undefined): string {
   const n = Math.abs(days);
   return `${n} day${n === 1 ? "" : "s"} ago`;
 }
+
+export const COVERAGE_LABELS: Record<string, string> = {
+  GL: "General Liability",
+  WC: "Workers' Comp",
+  OTHER: "Other",
+  AUTO: "Auto",
+  UMBRELLA: "Umbrella",
+};
+
+export function coverageLabel(t: string): string {
+  return COVERAGE_LABELS[t] ?? t;
+}
