@@ -5,8 +5,7 @@ import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
 import TimeLogForm, { type TimeLogFormValues } from "./TimeLogForm";
 import type { TimeEntry, User } from "../../types/api";
-
-const TIME_TRACKING_MODULE = "Time Tracking";
+import { canViewTeamTimeEntries } from "./timeEntryPermissions";
 const DEFAULT_START = "09:00";
 const DEFAULT_END = "17:00";
 
@@ -31,11 +30,7 @@ export default function CreateLogScreen() {
 
   const dateParam = searchParams.get("date") || fmtIsoDate(new Date());
 
-  const canPickUser =
-    !!(
-      me?.is_admin ||
-      me?.modules?.find((m) => m.name === TIME_TRACKING_MODULE)?.can_view_team
-    );
+  const canPickUser = canViewTeamTimeEntries(me);
 
   const usersQuery = useQuery<User[]>({
     queryKey: ["users-roster"],

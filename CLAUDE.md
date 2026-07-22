@@ -131,9 +131,39 @@ this as a DOM-tree assertion.
 
 Module name constants live in `src/shared/modules.ts`
 — mirror of `build.one.api/shared/rbac_constants.py`. Never use the raw
-module-name string literals (`"Contract Labor"`, etc.) in nav code;
-typos on a literal silently hide entries while typos on a constant fail
-compilation.
+module-name string literals (`"Contract Labor"`, etc.) anywhere a value is
+compared against `dbo.Module.Name` — nav code, permission gates, module
+filters alike; typos on a literal silently hide entries while typos on a
+constant fail compilation.
+
+## Permissions (RBAC gating in the UI)
+
+`src/shared/permissions.ts::hasModulePermission(me, module, permission)` is
+the **single** client-side mirror of the API's
+`require_module_api(module, permission)`, system-admin bypass included.
+Three standing rules (U-105 shipped the primitive; U-108 retired the last
+inline check — there are now zero `me.modules?.find(...)` permission
+lookups in `src/`, and it should stay that way):
+
+1. **Never hand-roll the lookup.** Call `hasModulePermission` directly, or an
+   entity wrapper (`src/pages/bills/billPermissions.ts`,
+   `src/pages/time-entry/timeEntryPermissions.ts`). Add a wrapper only when a
+   gate needs a *name*, a composite rule, or a contract note — a bare one-off
+   flag read is clearer inline.
+2. **Gate on the permission that action's route actually enforces, and cite
+   the route in a comment.** Getting this wrong is the live bug class here,
+   in both directions: gating on too weak a permission offers a button that
+   403s (U-108: TimeEntryView gated Approve/Reject on `can_update` when
+   `/approve` + `/reject` enforce `can_approve`); gating on too strong a one
+   hides an action the API allows. Check the router — don't infer from the
+   button's label.
+3. **Mind compound actions.** If a handler pre-saves before its headline call
+   (Complete, Submit, "Save & Activate"), it needs the save's permission **in
+   addition** to its own — see `resolveBillEditActions`, which encodes exactly
+   that for BillEdit.
+
+Nothing enforces web↔API parity yet; a cross-repo route→permission parity
+test is tracked in `TODO.md`.
 
 Breakpoint tiers (2026-06-17 flip):
 - **Mobile portrait** (default, < 768w): `.app-shell` is a 430px column,

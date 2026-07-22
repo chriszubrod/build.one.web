@@ -19,8 +19,9 @@ import {
   fmtMoney,
   statusBadgeClass,
   STATUS_LABELS,
-  BUDGETS_MODULE,
 } from "../../api/budget";
+import { hasModulePermission } from "../../shared/permissions";
+import { Modules } from "../../shared/modules";
 import type { LookupSubCostCode, BudgetRevision } from "../../types/api";
 import "./budget.css";
 
@@ -77,8 +78,7 @@ export default function BudgetEdit() {
   const id = publicId!;
   const revParam = searchParams.get("rev");
 
-  const mod = me?.modules?.find((m) => m.name === BUDGETS_MODULE);
-  const canApprove = !!(me?.is_admin || mod?.can_approve);
+  const canApprove = hasModulePermission(me, Modules.BUDGETS, "can_approve");
 
   const budgetQ = useQuery({
     queryKey: budgetKeys.detail(id),

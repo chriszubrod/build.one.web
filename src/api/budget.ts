@@ -18,9 +18,6 @@ import type {
   BudgetVariancePayload,
 } from "../types/api";
 
-/** Module name string the RBAC nav-gate matches (dbo.Module.Name). */
-export const BUDGETS_MODULE = "Budgets";
-
 /* ---- react-query keys -------------------------------------------------- */
 export const budgetKeys = {
   list: ["budget-list"] as const,

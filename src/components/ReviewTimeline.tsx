@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { getList, post, ApiError } from "../api/client";
 import { useCurrentUser } from "../hooks/useCurrentUser";
+import { hasModulePermission } from "../shared/permissions";
+import { Modules, type ModuleName } from "../shared/modules";
 import type { Review, ReviewParentType } from "../types/api";
 
 interface ReviewTimelineProps {
@@ -23,12 +25,12 @@ const URL_SLUG: Record<ReviewParentType, string> = {
 // can_update on this module (the same gate the API enforces). ContractLabor
 // review actions are gated on "Time Tracking" rather than "Contract Labor"
 // because TimeTracking-sourced rows share an actor with TimeEntry review.
-const MODULE_NAME: Record<ReviewParentType, string> = {
-  bill: "Bills",
-  expense: "Expenses",
-  bill_credit: "Bill Credits",
-  invoice: "Invoices",
-  contract_labor: "Time Tracking",
+const MODULE_NAME: Record<ReviewParentType, ModuleName> = {
+  bill: Modules.BILLS,
+  expense: Modules.EXPENSES,
+  bill_credit: Modules.BILL_CREDITS,
+  invoice: Modules.INVOICES,
+  contract_labor: Modules.TIME_TRACKING,
 };
 
 type ActionKind = "submit" | "advance" | "decline";
@@ -84,8 +86,8 @@ export default function ReviewTimeline({
   const [dialog, setDialog] = useState<ActionDialog | null>(null);
 
   const { data: me } = useCurrentUser();
-  const moduleRow = me?.modules?.find((m) => m.name === MODULE_NAME[parentType]);
-  const canAct = !readOnly && (me?.is_admin || moduleRow?.can_update || false);
+  const canAct =
+    !readOnly && hasModulePermission(me, MODULE_NAME[parentType], "can_update");
 
   const slug = URL_SLUG[parentType];
   const fetchPath = `/api/v1/get/reviews/${slug}/${parentPublicId}`;

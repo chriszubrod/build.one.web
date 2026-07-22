@@ -9,18 +9,16 @@ import {
   signClass,
   statusBadgeClass,
   STATUS_LABELS,
-  BUDGETS_MODULE,
 } from "../../api/budget";
+import { hasModulePermission } from "../../shared/permissions";
+import { Modules } from "../../shared/modules";
 import type { BudgetListRow } from "../../types/api";
 import "./budget.css";
 
 export default function BudgetList() {
   const navigate = useNavigate();
   const { data: me } = useCurrentUser();
-  const canCreate = !!(
-    me?.is_admin ||
-    me?.modules?.find((m) => m.name === BUDGETS_MODULE)?.can_create
-  );
+  const canCreate = hasModulePermission(me, Modules.BUDGETS, "can_create");
 
   const { data, isLoading, error } = useQuery({
     queryKey: budgetKeys.list,

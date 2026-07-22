@@ -18,8 +18,9 @@ import {
   signClass,
   statusBadgeClass,
   STATUS_LABELS,
-  BUDGETS_MODULE,
 } from "../../api/budget";
+import { hasModulePermission } from "../../shared/permissions";
+import { Modules } from "../../shared/modules";
 import { buildLedger, centsToAmount } from "./revisionLedger";
 import type {
   BudgetVarianceMoney,
@@ -95,9 +96,8 @@ export function BudgetViewContent({ publicId }: BudgetViewContentProps) {
   const { toast } = useToast();
   const { data: me } = useCurrentUser();
 
-  const mod = me?.modules?.find((m) => m.name === BUDGETS_MODULE);
-  const canCreate = !!(me?.is_admin || mod?.can_create);
-  const canUpdate = !!(me?.is_admin || mod?.can_update);
+  const canCreate = hasModulePermission(me, Modules.BUDGETS, "can_create");
+  const canUpdate = hasModulePermission(me, Modules.BUDGETS, "can_update");
 
   const id = publicId;
 

@@ -6,6 +6,7 @@ import { useAutoSave } from "../../hooks/useAutoSave";
 import { useSyncedToken } from "../../hooks/useSyncedToken";
 import { useEntityList } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { canApproveTimeEntry } from "./timeEntryPermissions";
 import { useToast } from "../../components/Toast";
 import PageHeader from "../../components/PageHeader";
 import type {
@@ -177,10 +178,7 @@ export default function TimeEntryView() {
   const { data: me } = useCurrentUser();
   const isAdmin = me?.is_admin ?? false;
 
-  const canApprove = useMemo(() => {
-    const mod = me?.modules?.find((m) => m.name === "Time Tracking");
-    return Boolean(mod?.can_update);
-  }, [me]);
+  const canApprove = canApproveTimeEntry(me);
 
   // === Server-fetched entry ===
   // The API's GET /time-entries/{id} now bundles time_logs, status_history,

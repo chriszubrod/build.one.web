@@ -11,8 +11,7 @@ import DayStrip from "../../components/ui/DayStrip";
 import EntryCard from "../../components/ui/EntryCard";
 import ScopeToggle, { type Scope } from "../../components/ui/ScopeToggle";
 import type { TimeEntry, TimeLog, LookupProject, User } from "../../types/api";
-
-const TIME_TRACKING_MODULE = "Time Tracking";
+import { canViewTeamTimeEntries } from "./timeEntryPermissions";
 
 function compactName(firstname?: string | null, lastname?: string | null): string {
   const f = (firstname ?? "").trim();
@@ -91,8 +90,7 @@ export default function PastDayScreen() {
   const iso = fmtIsoDate(targetDate);
   const [scope, setScope] = useState<Scope>("me");
 
-  const canViewTeam =
-    me?.modules?.find((m) => m.name === TIME_TRACKING_MODULE)?.can_view_team ?? false;
+  const canViewTeam = canViewTeamTimeEntries(me);
   const effectiveScope: Scope = canViewTeam ? scope : "me";
 
   const usersQuery = useQuery<User[]>({
