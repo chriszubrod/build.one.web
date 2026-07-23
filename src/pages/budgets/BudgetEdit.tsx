@@ -20,9 +20,8 @@ import {
   statusBadgeClass,
   STATUS_LABELS,
 } from "../../api/budget";
-import { hasModulePermission } from "../../shared/permissions";
-import { Modules } from "../../shared/modules";
 import type { LookupSubCostCode, BudgetRevision } from "../../types/api";
+import { resolveBudgetEditActions } from "./budgetPermissions";
 import "./budget.css";
 
 interface LineRow {
@@ -72,13 +71,13 @@ export default function BudgetEdit() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { data: me } = useCurrentUser();
+  const { data: me, isLoading: meLoading } = useCurrentUser();
   const { data: lookups } = useLookups("sub_cost_codes");
 
   const id = publicId!;
   const revParam = searchParams.get("rev");
 
-  const canApprove = hasModulePermission(me, Modules.BUDGETS, "can_approve");
+  const actions = resolveBudgetEditActions(me);
 
   const budgetQ = useQuery({
     queryKey: budgetKeys.detail(id),
@@ -130,6 +129,7 @@ export default function BudgetEdit() {
   const isDraft = revision?.status === "draft";
   const isOriginal = revision?.type === "original";
   const locked = !!revision && !isDraft;
+  const readOnly = locked || !actions.canEdit;
 
   // Seed local state once the revision + its line items load.
   useEffect(() => {
@@ -289,7 +289,7 @@ export default function BudgetEdit() {
     }
   };
 
-  if (budgetQ.isLoading || revisionsQ.isLoading || revisionQ.isLoading)
+  if (budgetQ.isLoading || revisionsQ.isLoading || revisionQ.isLoading || meLoading)
     return <div className="page-loading">Loading…</div>;
   if (budgetQ.error || revisionQ.error)
     return (
@@ -326,6 +326,11 @@ export default function BudgetEdit() {
           This revision is approved and locked — line items are read-only.
         </div>
       )}
+      {!actions.canEdit && !locked && (
+        <div className="locked-banner">
+          You do not have permission to edit budgets — read-only view.
+        </div>
+      )}
       {error && <div className="form-error">{error}</div>}
 
       {/* Change-order metadata */}
@@ -337,7 +342,7 @@ export default function BudgetEdit() {
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                disabled={locked}
+                disabled={readOnly}
               />
             </div>
             <div className="form-group">
@@ -346,7 +351,7 @@ export default function BudgetEdit() {
                 type="date"
                 value={effectiveDate}
                 onChange={(e) => setEffectiveDate(e.target.value)}
-                disabled={locked}
+                disabled={readOnly}
               />
             </div>
             <div className="form-group full-width">
@@ -355,7 +360,7 @@ export default function BudgetEdit() {
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={2}
-                disabled={locked}
+                disabled={readOnly}
               />
             </div>
           </div>
@@ -367,7 +372,7 @@ export default function BudgetEdit() {
         <h3 className="line-items-heading">
           Schedule of Values ({rows.length})
         </h3>
-        {!locked && (
+        {!readOnly && (
           <button type="button" className="btn btn-secondary btn-sm" onClick={addRow}>
             + Add Line
           </button>
@@ -378,7 +383,7 @@ export default function BudgetEdit() {
         <div className="li-card" key={li.public_id ?? `new-${idx}`}>
           <div className="li-card-header">
             <span className="li-card-num">#{idx + 1}</span>
-            {!locked && (
+            {!readOnly && (
               <button
                 type="button"
                 className="inline-li-remove btn btn-danger btn-sm"
@@ -395,7 +400,7 @@ export default function BudgetEdit() {
                 className="inline-li-input"
                 value={li.sub_cost_code_id}
                 onChange={(e) => updateField(idx, "sub_cost_code_id", e.target.value)}
-                disabled={locked}
+                disabled={readOnly}
               >
                 <option value="">—</option>
                 {sccOptions.map((s) => (
@@ -411,7 +416,7 @@ export default function BudgetEdit() {
                 className="inline-li-input"
                 value={li.description}
                 onChange={(e) => updateField(idx, "description", e.target.value)}
-                disabled={locked}
+                disabled={readOnly}
               />
             </div>
           </div>
@@ -424,7 +429,7 @@ export default function BudgetEdit() {
                 step="any"
                 value={li.quantity}
                 onChange={(e) => updateField(idx, "quantity", e.target.value)}
-                disabled={locked}
+                disabled={readOnly}
               />
             </div>
             <div className="li-card-field">
@@ -435,7 +440,7 @@ export default function BudgetEdit() {
                 step="any"
                 value={li.rate}
                 onChange={(e) => updateField(idx, "rate", e.target.value)}
-                disabled={locked}
+                disabled={readOnly}
               />
             </div>
             <div className="li-card-field">
@@ -450,7 +455,7 @@ export default function BudgetEdit() {
                 step="any"
                 value={li.markup}
                 onChange={(e) => updateField(idx, "markup", e.target.value)}
-                disabled={locked}
+                disabled={readOnly}
               />
             </div>
             <div className="li-card-field">
@@ -462,21 +467,23 @@ export default function BudgetEdit() {
       ))}
       {rows.length === 0 && (
         <div className="detail-card" style={{ textAlign: "center", color: "var(--color-text-muted)" }}>
-          No lines yet. {!locked && 'Click "+ Add Line" to start the schedule of values.'}
+          No lines yet. {!readOnly && 'Click "+ Add Line" to start the schedule of values.'}
         </div>
       )}
 
-      {!locked && (
+      {!readOnly && (
         <div className="form-actions">
           <button type="button" className="btn btn-secondary" onClick={handleSave} disabled={saving}>
             {saving ? "Saving…" : "Save"}
           </button>
-          {isOriginal && budget.status === "draft" && canApprove && (
+          {/* Pre-saves via saveAll (can_update) before POST /activate/budget (can_approve). */}
+          {isOriginal && budget.status === "draft" && actions.canActivate && (
             <button type="button" className="btn btn-success" onClick={handleActivate} disabled={saving}>
               Save &amp; Activate Budget
             </button>
           )}
-          {!isOriginal && canApprove && (
+          {/* Pre-saves via saveAll (can_update) before POST /approve/budget-revision (can_approve). */}
+          {!isOriginal && actions.canApproveRevision && (
             <button type="button" className="btn btn-success" onClick={handleApprove} disabled={saving}>
               Save &amp; Approve Change Order
             </button>

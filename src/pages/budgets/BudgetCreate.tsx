@@ -2,7 +2,10 @@ import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLookups } from "../../hooks/useLookups";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
+import { hasModulePermission } from "../../shared/permissions";
+import { Modules } from "../../shared/modules";
 import { createBudget, budgetKeys } from "../../api/budget";
 import type { LookupProject } from "../../types/api";
 
@@ -11,7 +14,9 @@ export default function BudgetCreate() {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { data: me, isLoading: meLoading } = useCurrentUser();
   const { data: lookups, loading } = useLookups("projects");
+  const canCreate = hasModulePermission(me, Modules.BUDGETS, "can_create");
 
   const [projectPublicId, setProjectPublicId] = useState(
     () => searchParams.get("project_public_id") ?? "",
@@ -46,6 +51,16 @@ export default function BudgetCreate() {
       setSaving(false);
     }
   };
+
+  // POST /create/budget → can_create (entities/budget/api/router.py)
+  if (meLoading) return <div className="page-loading">Loading…</div>;
+  if (!canCreate) {
+    return (
+      <div className="page-error">
+        You do not have permission to create budgets.
+      </div>
+    );
+  }
 
   return (
     <div className="page">
