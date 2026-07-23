@@ -61,6 +61,12 @@ import BillCreditCreate from "./pages/bill-credits/BillCreditCreate";
 import BillCreditView from "./pages/bill-credits/BillCreditView";
 import BillCreditEdit from "./pages/bill-credits/BillCreditEdit";
 
+// Invoice surface (Phase 3) — browse-only: renders inside the responsive AppLayout,
+// office/AR audience (gated on the Invoices module). Invoices are QBO-first (created
+// in QBO, pulled local); Create/Edit deliberately unrouted + tsconfig-parked (U-128).
+import InvoiceList from "./pages/invoices/InvoiceList";
+import InvoiceView from "./pages/invoices/InvoiceView";
+
 import ExpenseCodingCockpit from "./pages/expense-coding/ExpenseCodingCockpit";
 import VendorComplianceDashboard from "./pages/vendor-compliance/VendorComplianceDashboard";
 import RequiredCoverageEditor from "./pages/vendor-compliance/RequiredCoverageEditor";
@@ -136,6 +142,10 @@ export const appRouteTree = (
         <Route path="/bill-credit/:publicId" element={<BillCreditView />} />
         <Route path="/bill-credit/:publicId/edit" element={<BillCreditEdit />} />
         <Route path="/bill-credit/*" element={<Navigate to="/bill-credit/list" replace />} />
+
+        <Route path="/invoice/list" element={<InvoiceList />} />
+        <Route path="/invoice/:publicId" element={<InvoiceView />} />
+        <Route path="/invoice/*" element={<Navigate to="/invoice/list" replace />} />
 
         <Route path="/vendor/list" element={<VendorList />} />
         <Route path="/vendor/create" element={<VendorCreate />} />

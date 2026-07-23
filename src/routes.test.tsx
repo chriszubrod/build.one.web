@@ -66,6 +66,11 @@ const billCreditPaths = [
   "/bill-credit/abc123/edit",
 ] as const;
 
+const invoicePaths = [
+  "/invoice/list",
+  "/invoice/abc123",
+] as const;
+
 describe("appRouteTree — real route tree (U-066)", () => {
   // Route-inventory tripwire. U-066 hand-moved every <Route> from App.tsx into
   // routes.tsx; dropping one during that move would otherwise stay green, since
@@ -104,6 +109,9 @@ describe("appRouteTree — real route tree (U-066)", () => {
       "/expense/:publicId/edit",
       "/expense/create",
       "/expense/list",
+      "/invoice/*",
+      "/invoice/:publicId",
+      "/invoice/list",
       "/labor/:public_id",
       "/labor/list",
       "/login",
@@ -306,6 +314,49 @@ describe("appRouteTree — real route tree (U-066)", () => {
       expect(last.route.path).toBe("/bill-credit/*");
     });
   });
+
+  it.each(invoicePaths)("%s matches under AppLayout", (path) => {
+    const branch = branchFor(path);
+    expect(branch).not.toBeNull();
+    expect(branchHasLayout(branch, AppLayout)).toBe(true);
+  });
+
+  it("/invoice/abc123 resolves to the InvoiceView page route", () => {
+    const branch = branchFor("/invoice/abc123");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/invoice/:publicId");
+  });
+
+  describe("/invoice/* redirect catches unknown invoice children", () => {
+    it("/invoice last match is /invoice/* (not AppLayout's * splat)", () => {
+      const branch = branchFor("/invoice");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/invoice/*");
+    });
+
+    it("/invoice/nonsense last match is /invoice/:publicId (not AppLayout's * splat)", () => {
+      const branch = branchFor("/invoice/nonsense");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/invoice/:publicId");
+    });
+
+    it("/invoice/nonsense/extra last match is /invoice/* (not AppLayout's * splat)", () => {
+      const branch = branchFor("/invoice/nonsense/extra");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/invoice/*");
+    });
+  });
+
+  it("/invoice/abc123/edit falls to the /invoice/* splat — edit is deliberately unrouted (QBO-first, U-128)", () => {
+    const branch = branchFor("/invoice/abc123/edit");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/invoice/*");
+  });
 });
 
 /**
@@ -364,6 +415,7 @@ describe("routed <-> nav reconciliation (U-077)", () => {
       "/docs",
       "/expense-coding",
       "/expense/list",
+      "/invoice/list",
       "/labor/list",
       "/profile",
       "/project/list",

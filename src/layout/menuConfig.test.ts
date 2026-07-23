@@ -288,6 +288,7 @@ describe("canSeeEntry — RBAC gating", () => {
     ["budgets", "Budgets"],
     ["bills", "Bills"],
     ["bill-credits", "Bill Credits"],
+    ["invoices", "Invoices"],
   ];
 
   it.each(ENTRY_MODULE_ROWS)("%s entry visible to a user with %s can_read", (entryId, moduleName) => {
@@ -322,6 +323,7 @@ describe("entriesInSection", () => {
       "bill-credits",
       "expenses",
       "expense-coding",
+      "invoices",
     ]);
   });
 

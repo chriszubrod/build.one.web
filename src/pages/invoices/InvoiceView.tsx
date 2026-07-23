@@ -27,7 +27,7 @@ const lineItemCols: LineItemColumn<InvoiceLineItem>[] = [
 ];
 
 export default function InvoiceView() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId: id } = useParams<{ publicId: string }>();
   const { item, loading, error } = useEntityItem<Invoice>(`/api/v1/get/invoice/${id}`);
   const projectMap = useIdNameMap<Project>("/api/v1/get/projects", (p) => p.name);
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>([]);
@@ -46,7 +46,6 @@ export default function InvoiceView() {
   return (
     <DetailView
       title={`Invoice ${item.invoice_number}`}
-      editPath={`/invoice/${id}/edit`}
       breadcrumbs={entityCrumbs("Invoices", "/invoice/list", item.invoice_number)}
       fields={[
         { label: "Invoice Number", value: item.invoice_number },

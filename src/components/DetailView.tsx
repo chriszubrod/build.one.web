@@ -9,7 +9,7 @@ export interface DetailField {
 interface DetailViewProps {
   title: string;
   fields: DetailField[];
-  editPath: string;
+  editPath?: string;
   onDelete?: () => void;
   deleting?: boolean;
   children?: React.ReactNode;
@@ -33,9 +33,11 @@ export default function DetailView({
       <div className="page-header">
         <h1>{title}</h1>
         <div className="page-header-spacer" />
-        <button className="btn btn-secondary" onClick={() => navigate(editPath)}>
-          Edit
-        </button>
+        {editPath && (
+          <button className="btn btn-secondary" onClick={() => navigate(editPath)}>
+            Edit
+          </button>
+        )}
         {onDelete && (
           <button
             className="btn btn-danger"

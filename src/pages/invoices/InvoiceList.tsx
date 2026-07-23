@@ -31,7 +31,7 @@ export default function InvoiceList() {
 
   return (
     <div className="page">
-      <PageHeader title="Invoices" count={items.length} createPath="/invoice/create" />
+      <PageHeader title="Invoices" count={items.length} />
       <DataTable columns={columns} data={items} basePath="/invoice" />
     </div>
   );
