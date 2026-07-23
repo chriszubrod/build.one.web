@@ -99,6 +99,7 @@ describe("appRouteTree — real route tree (U-066)", () => {
       "/user/:id",
       "/user/:id/edit",
       "/vendor-compliance",
+      "/vendor-compliance/required-coverages",
       "/vendor/:publicId",
       "/vendor/:publicId/edit",
       "/vendor/create",
@@ -207,6 +208,7 @@ const INTENTIONAL_NON_NAV_ROUTES = new Set<string>([
   "/profile/security", // base: /profile
   "/profile/appearance", // base: /profile
   "/time-entry/log/new", // base: /time-entry/list
+  "/vendor-compliance/required-coverages", // base: /vendor-compliance (admin-only editor, dashboard header link)
 ]);
 
 // Structural rules below are future-proof: a NEW entity's /entity/:id and
