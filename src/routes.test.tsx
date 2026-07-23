@@ -59,6 +59,13 @@ const expensePaths = [
   "/expense/abc123/edit",
 ] as const;
 
+const billCreditPaths = [
+  "/bill-credit/list",
+  "/bill-credit/create",
+  "/bill-credit/abc123",
+  "/bill-credit/abc123/edit",
+] as const;
+
 describe("appRouteTree — real route tree (U-066)", () => {
   // Route-inventory tripwire. U-066 hand-moved every <Route> from App.tsx into
   // routes.tsx; dropping one during that move would otherwise stay green, since
@@ -70,6 +77,11 @@ describe("appRouteTree — real route tree (U-066)", () => {
     expect(routePaths()).toEqual([
       "*",
       "/",
+      "/bill-credit/*",
+      "/bill-credit/:publicId",
+      "/bill-credit/:publicId/edit",
+      "/bill-credit/create",
+      "/bill-credit/list",
       "/bill/*",
       "/bill/:publicId",
       "/bill/:publicId/edit",
@@ -251,6 +263,49 @@ describe("appRouteTree — real route tree (U-066)", () => {
       expect(last.route.path).toBe("/expense/*");
     });
   });
+
+  it.each(billCreditPaths)("%s matches under AppLayout", (path) => {
+    const branch = branchFor(path);
+    expect(branch).not.toBeNull();
+    expect(branchHasLayout(branch, AppLayout)).toBe(true);
+  });
+
+  it("/bill-credit/abc123/edit resolves to the BillCreditEdit page route, not the /bill-credit/* splat", () => {
+    const branch = branchFor("/bill-credit/abc123/edit");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/bill-credit/:publicId/edit");
+  });
+
+  it("/bill-credit/abc123 resolves to the BillCreditView page route", () => {
+    const branch = branchFor("/bill-credit/abc123");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/bill-credit/:publicId");
+  });
+
+  describe("/bill-credit/* redirect catches unknown bill credit children", () => {
+    it("/bill-credit last match is /bill-credit/* (not AppLayout's * splat)", () => {
+      const branch = branchFor("/bill-credit");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/bill-credit/*");
+    });
+
+    it("/bill-credit/nonsense last match is /bill-credit/:publicId (not AppLayout's * splat)", () => {
+      const branch = branchFor("/bill-credit/nonsense");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/bill-credit/:publicId");
+    });
+
+    it("/bill-credit/nonsense/extra last match is /bill-credit/* (not AppLayout's * splat)", () => {
+      const branch = branchFor("/bill-credit/nonsense/extra");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/bill-credit/*");
+    });
+  });
 });
 
 /**
@@ -302,6 +357,7 @@ describe("routed <-> nav reconciliation (U-077)", () => {
     // Hand-sorted to match navReachableRoutes()'s already-sorted output (it
     // derives from routePaths(), which sorts), same as the route-inventory pin.
     expect(navReachableRoutes()).toEqual([
+      "/bill-credit/list",
       "/bill/list",
       "/budget/list",
       "/customer/list",

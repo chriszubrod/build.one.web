@@ -30,7 +30,7 @@ const lineItemCols: LineItemColumn<BillCreditLineItem>[] = [
 ];
 
 export default function BillCreditView() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId: id } = useParams<{ publicId: string }>();
   const { item, loading, error } = useEntityItem<BillCredit>(`/api/v1/get/bill-credit/${id}`);
   const [lineItems, setLineItems] = useState<BillCreditLineItem[]>([]);
 

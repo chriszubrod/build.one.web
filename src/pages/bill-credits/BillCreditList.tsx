@@ -1,5 +1,7 @@
 import { useEntityList } from "../../hooks/useEntity";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { hasBillCreditPermission } from "./billCreditPermissions";
 import DataTable, { type Column } from "../../components/DataTable";
 import { moneyColumn } from "../../components/MoneyCell";
 import PageHeader from "../../components/PageHeader";
@@ -7,6 +9,7 @@ import type { BillCredit, Vendor } from "../../types/api";
 
 export default function BillCreditList() {
   const { items, loading, error } = useEntityList<BillCredit>("/api/v1/get/bill-credits");
+  const { data: me } = useCurrentUser();
   const vendorMap = useIdNameMap<Vendor>("/api/v1/get/vendors", (v) => v.name);
 
   const columns: Column<BillCredit>[] = [
@@ -30,7 +33,7 @@ export default function BillCreditList() {
 
   return (
     <div className="page">
-      <PageHeader title="Bill Credits" count={items.length} createPath="/bill-credit/create" />
+      <PageHeader title="Bill Credits" count={items.length} createPath={hasBillCreditPermission(me, "can_create") ? "/bill-credit/create" : undefined} />
       <DataTable columns={columns} data={items} basePath="/bill-credit" />
     </div>
   );

@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { useEntityItem } from "../../hooks/useEntity";
 import { put, post, del, getList } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { resolveBillCreditEditActions } from "./billCreditPermissions";
 import FormField from "../../components/FormField";
 import DateField from "../../components/DateField";
 import TextareaField from "../../components/TextareaField";
@@ -44,13 +46,15 @@ function newLineItem(): LineItemRow {
 }
 
 export default function BillCreditEdit() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId: id } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
   const { item, loading, error } = useEntityItem<BillCredit>(`/api/v1/get/bill-credit/${id}`);
   const { data: lookups } = useLookups("vendors");
+  const { data: me, isLoading: meLoading } = useCurrentUser();
+  const actions = resolveBillCreditEditActions(me);
   const [form, setForm] = useState<Record<string, any> | null>(null);
   const [lineItems, setLineItems] = useState<LineItemRow[]>([]);
-  const [origLineItems, setOrigLineItems] = useState<BillCreditLineItem[]>([]);
+  const [origLineItemPublicIds, setOrigLineItemPublicIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -60,7 +64,7 @@ export default function BillCreditEdit() {
     if (!id) return;
     getList<BillCreditLineItem>(`/api/v1/get/bill-credit-line-items/by-bill-credit/${id}`)
       .then((res) => {
-        setOrigLineItems(res.data);
+        setOrigLineItemPublicIds(res.data.map((li) => li.public_id));
         setLineItems(res.data.map((li) => ({
           public_id: li.public_id,
           row_version: li.row_version,
@@ -90,9 +94,20 @@ export default function BillCreditEdit() {
     });
   }
 
-  if (loading) return <div className="page-loading">Loading...</div>;
+  if (loading || meLoading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
   if (!form) return null;
+
+  if (!actions.canEdit) {
+    return (
+      <div className="page">
+        <div className="page-error">You don&apos;t have permission to edit this bill credit.</div>
+        <button type="button" className="btn btn-secondary" onClick={() => navigate(`/bill-credit/${id}`)}>
+          Back to Bill Credit
+        </button>
+      </div>
+    );
+  }
 
   const onChange = (name: string, value: string) => setForm((prev: any) => ({ ...prev, [name]: value }));
 
@@ -114,9 +129,9 @@ export default function BillCreditEdit() {
 
       // Sync line items: delete removed, update existing, create new
       const currentIds = new Set(lineItems.filter((li) => li.public_id).map((li) => li.public_id));
-      for (const orig of origLineItems) {
-        if (!currentIds.has(orig.public_id)) {
-          await del(`/api/v1/delete/bill-credit-line-item/${orig.public_id}`);
+      for (const origId of origLineItemPublicIds) {
+        if (!currentIds.has(origId)) {
+          await del(`/api/v1/delete/bill-credit-line-item/${origId}`);
         }
       }
 
@@ -146,7 +161,7 @@ export default function BillCreditEdit() {
         }
       }
       setLineItems(savedItems);
-      setOrigLineItems([]); // Reset tracking after successful save
+      setOrigLineItemPublicIds(savedItems.map((li) => li.public_id!));
       return true;
     } catch (err: any) {
       setSaveError(err.message);
@@ -225,7 +240,7 @@ export default function BillCreditEdit() {
           <button type="button" className="btn btn-secondary" onClick={() => navigate(`/bill-credit/${id}`)}>Cancel</button>
         </div>
 
-        {form.is_draft && (
+        {form.is_draft && actions.canComplete && (
           <div className="complete-bar">
             <button
               type="button"
