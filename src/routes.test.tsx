@@ -66,6 +66,13 @@ const billCreditPaths = [
   "/bill-credit/abc123/edit",
 ] as const;
 
+const vendorTypePaths = [
+  "/vendor-type/list",
+  "/vendor-type/create",
+  "/vendor-type/abc123",
+  "/vendor-type/abc123/edit",
+] as const;
+
 const invoicePaths = [
   "/invoice/list",
   "/invoice/abc123",
@@ -132,6 +139,11 @@ describe("appRouteTree — real route tree (U-066)", () => {
       "/user/:id/edit",
       "/vendor-compliance",
       "/vendor-compliance/required-coverages",
+      "/vendor-type/*",
+      "/vendor-type/:publicId",
+      "/vendor-type/:publicId/edit",
+      "/vendor-type/create",
+      "/vendor-type/list",
       "/vendor/:publicId",
       "/vendor/:publicId/edit",
       "/vendor/create",
@@ -315,6 +327,49 @@ describe("appRouteTree — real route tree (U-066)", () => {
     });
   });
 
+  it.each(vendorTypePaths)("%s matches under AppLayout", (path) => {
+    const branch = branchFor(path);
+    expect(branch).not.toBeNull();
+    expect(branchHasLayout(branch, AppLayout)).toBe(true);
+  });
+
+  it("/vendor-type/abc123/edit resolves to the VendorTypeEdit page route, not the /vendor-type/* splat", () => {
+    const branch = branchFor("/vendor-type/abc123/edit");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/vendor-type/:publicId/edit");
+  });
+
+  it("/vendor-type/abc123 resolves to the VendorTypeView page route", () => {
+    const branch = branchFor("/vendor-type/abc123");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/vendor-type/:publicId");
+  });
+
+  describe("/vendor-type/* redirect catches unknown vendor type children", () => {
+    it("/vendor-type last match is /vendor-type/* (not AppLayout's * splat)", () => {
+      const branch = branchFor("/vendor-type");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/vendor-type/*");
+    });
+
+    it("/vendor-type/nonsense last match is /vendor-type/:publicId (not AppLayout's * splat)", () => {
+      const branch = branchFor("/vendor-type/nonsense");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/vendor-type/:publicId");
+    });
+
+    it("/vendor-type/nonsense/extra last match is /vendor-type/* (not AppLayout's * splat)", () => {
+      const branch = branchFor("/vendor-type/nonsense/extra");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/vendor-type/*");
+    });
+  });
+
   it.each(invoicePaths)("%s matches under AppLayout", (path) => {
     const branch = branchFor(path);
     expect(branch).not.toBeNull();
@@ -421,6 +476,7 @@ describe("routed <-> nav reconciliation (U-077)", () => {
       "/project/list",
       "/time-entry/list",
       "/vendor-compliance",
+      "/vendor-type/list",
       "/vendor/list",
     ]);
   });

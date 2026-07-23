@@ -1,4 +1,4 @@
-import { BookOpen, Briefcase, Calculator, CircleDollarSign, ClipboardCheck, Clock, FileMinus, FileText, HardHat, Receipt, ShieldCheck, Store, User, Users } from "lucide-react";
+import { BookOpen, Briefcase, Calculator, CircleDollarSign, ClipboardCheck, Clock, FileMinus, FileText, HardHat, Receipt, ShieldCheck, Store, Tags, User, Users } from "lucide-react";
 import type { ComponentType } from "react";
 import { Modules, type ModuleName } from "../shared/modules";
 import { hasModulePermission } from "../shared/permissions";
@@ -145,6 +145,16 @@ export const MENU_ENTRIES: MenuEntry[] = [
     permission: "can_read",
     section: "contacts",
     priority: 50,
+  },
+  {
+    id: "vendor-types",
+    label: "Vendor Types",
+    icon: Tags,
+    route: "/vendor-type/list",
+    module: Modules.VENDORS,
+    permission: "can_read",
+    section: "contacts",
+    priority: 52,
   },
   {
     id: "vendor-compliance",

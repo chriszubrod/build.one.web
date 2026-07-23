@@ -1,11 +1,15 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { createEntity } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
 import type { VendorType } from "../../types/api";
+import { hasVendorTypePermission } from "./vendorTypePermissions";
 
 export default function VendorTypeCreate() {
   const navigate = useNavigate();
+  const { data: me, isLoading: meLoading } = useCurrentUser();
+  const canCreate = hasVendorTypePermission(me, "can_create"); // POST /api/v1/create/vendor-type
   const [form, setForm] = useState({ name: "", description: "" });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -29,6 +33,18 @@ export default function VendorTypeCreate() {
       setSaving(false);
     }
   };
+
+  if (meLoading) return <div className="page-loading">Loading...</div>;
+  if (!canCreate) {
+    return (
+      <div className="page">
+        <div className="page-error">You do not have permission to create vendor types.</div>
+        <button type="button" className="btn btn-secondary" onClick={() => navigate("/vendor-type/list")}>
+          Back to Vendor Types
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="page">

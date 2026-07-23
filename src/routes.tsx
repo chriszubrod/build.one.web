@@ -74,6 +74,12 @@ import VendorList from "./pages/vendors/VendorList";
 import VendorView from "./pages/vendors/VendorView";
 import VendorEdit from "./pages/vendors/VendorEdit";
 import VendorCreate from "./pages/vendors/VendorCreate";
+// Vendor Type surface — vendor reference data (drives the vendor-compliance
+// required-coverage config), office audience, gated on the Vendors module (U-130).
+import VendorTypeList from "./pages/vendor-types/VendorTypeList";
+import VendorTypeView from "./pages/vendor-types/VendorTypeView";
+import VendorTypeEdit from "./pages/vendor-types/VendorTypeEdit";
+import VendorTypeCreate from "./pages/vendor-types/VendorTypeCreate";
 import CustomerList from "./pages/customers/CustomerList";
 import CustomerView from "./pages/customers/CustomerView";
 import CustomerEdit from "./pages/customers/CustomerEdit";
@@ -151,6 +157,12 @@ export const appRouteTree = (
         <Route path="/vendor/create" element={<VendorCreate />} />
         <Route path="/vendor/:publicId" element={<VendorView />} />
         <Route path="/vendor/:publicId/edit" element={<VendorEdit />} />
+
+        <Route path="/vendor-type/list" element={<VendorTypeList />} />
+        <Route path="/vendor-type/create" element={<VendorTypeCreate />} />
+        <Route path="/vendor-type/:publicId" element={<VendorTypeView />} />
+        <Route path="/vendor-type/:publicId/edit" element={<VendorTypeEdit />} />
+        <Route path="/vendor-type/*" element={<Navigate to="/vendor-type/list" replace />} />
 
         <Route path="/customer/list" element={<CustomerList />} />
         <Route path="/customer/create" element={<CustomerCreate />} />

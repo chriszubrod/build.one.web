@@ -52,7 +52,6 @@
     "src/pages/user-projects/**",
     "src/pages/user-roles/**",
     "src/pages/vendor-addresses/**",
-    "src/pages/vendor-types/**",
     "src/pages/users/UserList.tsx",
     "src/pages/users/UserCreate.tsx",
     "src/auth/SignupPage.tsx",
