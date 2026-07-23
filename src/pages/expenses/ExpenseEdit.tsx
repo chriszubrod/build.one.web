@@ -8,6 +8,8 @@ import { useToast } from "../../components/Toast";
 import CompletionStatusBar from "../../components/CompletionStatusBar";
 import { put, post, del, getList } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { resolveExpenseEditActions } from "./expensePermissions";
 import FormField from "../../components/FormField";
 import DateField from "../../components/DateField";
 import TextareaField from "../../components/TextareaField";
@@ -51,15 +53,17 @@ function newLineItem(): LineItemRow {
 }
 
 export default function ExpenseEdit() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId: id } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const expenseItemPath = `/api/v1/get/expense/${id}`;
   const { item, loading, error } = useEntityItem<Expense>(expenseItemPath);
   const { data: lookups } = useLookups("vendors");
+  const { data: me, isLoading: meLoading } = useCurrentUser();
+  const actions = resolveExpenseEditActions(me);
   const [form, setForm] = useState<Record<string, any> | null>(null);
   const [lineItems, setLineItems] = useState<LineItemRow[]>([]);
-  const [origLineItems, setOrigLineItems] = useState<ExpenseLineItem[]>([]);
+  const [origLineItemPublicIds, setOrigLineItemPublicIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -98,7 +102,7 @@ export default function ExpenseEdit() {
     if (!item) return;
     getList<ExpenseLineItem>(`/api/v1/get/expense_line_items/expense/${item.id}`)
       .then((res) => {
-        setOrigLineItems(res.data);
+        setOrigLineItemPublicIds(res.data.map((li) => li.public_id));
         setLineItems(res.data.map((li) => ({
           public_id: li.public_id,
           row_version: li.row_version,
@@ -155,12 +159,27 @@ export default function ExpenseEdit() {
     autoSaveHeader,
     [form?.vendor_public_id, form?.expense_date, form?.reference_number, form?.total_amount, form?.memo, form?.is_credit],
     300,
-    !!form && !!item && form.is_draft && !completing,
+    !!form && !!item && form.is_draft && !completing && actions.canEdit,
   );
 
-  if (loading) return <div className="page-loading">Loading...</div>;
+  useEffect(() => {
+    if (!actions.canEdit) cancelAutoSave();
+  }, [actions.canEdit, cancelAutoSave]);
+
+  if (loading || meLoading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
   if (!form) return null;
+
+  if (!actions.canEdit) {
+    return (
+      <div className="page">
+        <div className="page-error">You don&apos;t have permission to edit this expense.</div>
+        <button type="button" className="btn btn-secondary" onClick={() => navigate(`/expense/${id}`)}>
+          Back to Expense
+        </button>
+      </div>
+    );
+  }
 
   const onChange = (name: string, value: string) => setForm((prev: any) => ({ ...prev, [name]: value }));
 
@@ -184,9 +203,9 @@ export default function ExpenseEdit() {
 
       // Sync line items: delete removed, update existing, create new
       const currentIds = new Set(lineItems.filter((li) => li.public_id).map((li) => li.public_id));
-      for (const orig of origLineItems) {
-        if (!currentIds.has(orig.public_id)) {
-          await del(`/api/v1/delete/expense_line_item/${orig.public_id}`);
+      for (const origId of origLineItemPublicIds) {
+        if (!currentIds.has(origId)) {
+          await del(`/api/v1/delete/expense_line_item/${origId}`);
         }
       }
 
@@ -217,7 +236,7 @@ export default function ExpenseEdit() {
         }
       }
       setLineItems(savedItems);
-      setOrigLineItems([]); // Reset tracking after successful save
+      setOrigLineItemPublicIds(savedItems.map((li) => li.public_id!));
       return true;
     } catch (err: any) {
       setSaveError(err.message);
@@ -309,7 +328,7 @@ export default function ExpenseEdit() {
           <button type="button" className="btn btn-secondary" onClick={() => navigate(`/expense/${id}`)}>Cancel</button>
         </div>
 
-        {form.is_draft && (
+        {form.is_draft && actions.canComplete && (
           <div className="complete-bar">
             <button
               type="button"

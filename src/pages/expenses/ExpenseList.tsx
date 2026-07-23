@@ -1,5 +1,7 @@
 import { useEntityList } from "../../hooks/useEntity";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { hasExpensePermission } from "./expensePermissions";
 import DataTable, { type Column } from "../../components/DataTable";
 import { moneyColumn } from "../../components/MoneyCell";
 import PageHeader from "../../components/PageHeader";
@@ -7,6 +9,7 @@ import type { Expense, Vendor } from "../../types/api";
 
 export default function ExpenseList() {
   const { items, loading, error } = useEntityList<Expense>("/api/v1/get/expenses");
+  const { data: me } = useCurrentUser();
   const vendorMap = useIdNameMap<Vendor>("/api/v1/get/vendors", (v) => v.name);
 
   const columns: Column<Expense>[] = [
@@ -35,7 +38,7 @@ export default function ExpenseList() {
 
   return (
     <div className="page">
-      <PageHeader title="Expenses" count={items.length} createPath="/expense/create" />
+      <PageHeader title="Expenses" count={items.length} createPath={hasExpensePermission(me, "can_create") ? "/expense/create" : undefined} />
       <DataTable columns={columns} data={items} basePath="/expense" />
     </div>
   );

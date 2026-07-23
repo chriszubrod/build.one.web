@@ -2,6 +2,8 @@ import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { post, uploadFile } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { hasExpensePermission } from "./expensePermissions";
 import FormField from "../../components/FormField";
 import DateField from "../../components/DateField";
 import TextareaField from "../../components/TextareaField";
@@ -16,6 +18,8 @@ interface AttachmentResponse {
 export default function ExpenseCreate() {
   const navigate = useNavigate();
   const { data: lookups } = useLookups("vendors");
+  const { data: me, isLoading: meLoading } = useCurrentUser();
+  const canCreate = hasExpensePermission(me, "can_create");
   const [form, setForm] = useState({
     vendor_public_id: "",
     expense_date: "",
@@ -76,6 +80,18 @@ export default function ExpenseCreate() {
       setSaving(false);
     }
   };
+
+  if (meLoading) return <div className="page-loading">Loading...</div>;
+  if (!canCreate) {
+    return (
+      <div className="page">
+        <div className="page-error">You do not have permission to create expenses.</div>
+        <button type="button" className="btn btn-secondary" onClick={() => navigate("/expense/list")}>
+          Back to Expenses
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="page form-page-wide">

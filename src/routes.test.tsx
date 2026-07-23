@@ -52,6 +52,13 @@ const billPaths = [
   "/bill/abc123/edit",
 ] as const;
 
+const expensePaths = [
+  "/expense/list",
+  "/expense/create",
+  "/expense/abc123",
+  "/expense/abc123/edit",
+] as const;
+
 describe("appRouteTree — real route tree (U-066)", () => {
   // Route-inventory tripwire. U-066 hand-moved every <Route> from App.tsx into
   // routes.tsx; dropping one during that move would otherwise stay green, since
@@ -80,6 +87,11 @@ describe("appRouteTree — real route tree (U-066)", () => {
       "/docs",
       "/docs/:section",
       "/expense-coding",
+      "/expense/*",
+      "/expense/:publicId",
+      "/expense/:publicId/edit",
+      "/expense/create",
+      "/expense/list",
       "/labor/:public_id",
       "/labor/list",
       "/login",
@@ -196,6 +208,49 @@ describe("appRouteTree — real route tree (U-066)", () => {
       expect(last.route.path).toBe("/bill/*");
     });
   });
+
+  it.each(expensePaths)("%s matches under AppLayout", (path) => {
+    const branch = branchFor(path);
+    expect(branch).not.toBeNull();
+    expect(branchHasLayout(branch, AppLayout)).toBe(true);
+  });
+
+  it("/expense/abc123/edit resolves to the ExpenseEdit page route, not the /expense/* splat", () => {
+    const branch = branchFor("/expense/abc123/edit");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/expense/:publicId/edit");
+  });
+
+  it("/expense/abc123 resolves to the ExpenseView page route", () => {
+    const branch = branchFor("/expense/abc123");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/expense/:publicId");
+  });
+
+  describe("/expense/* redirect catches unknown expense children", () => {
+    it("/expense last match is /expense/* (not AppLayout's * splat)", () => {
+      const branch = branchFor("/expense");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/expense/*");
+    });
+
+    it("/expense/nonsense last match is /expense/:publicId (not AppLayout's * splat)", () => {
+      const branch = branchFor("/expense/nonsense");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/expense/:publicId");
+    });
+
+    it("/expense/nonsense/extra last match is /expense/* (not AppLayout's * splat)", () => {
+      const branch = branchFor("/expense/nonsense/extra");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/expense/*");
+    });
+  });
 });
 
 /**
@@ -252,6 +307,7 @@ describe("routed <-> nav reconciliation (U-077)", () => {
       "/customer/list",
       "/docs",
       "/expense-coding",
+      "/expense/list",
       "/labor/list",
       "/profile",
       "/project/list",

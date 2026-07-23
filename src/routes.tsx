@@ -47,6 +47,13 @@ import BillCreate from "./pages/bills/BillCreate";
 import BillView from "./pages/bills/BillView";
 import BillEdit from "./pages/bills/BillEdit";
 
+// Expense surface (Phase 3) — renders inside the responsive AppLayout,
+// office/AP audience (gated on the Expenses module), like Bill in U-066.
+import ExpenseList from "./pages/expenses/ExpenseList";
+import ExpenseCreate from "./pages/expenses/ExpenseCreate";
+import ExpenseView from "./pages/expenses/ExpenseView";
+import ExpenseEdit from "./pages/expenses/ExpenseEdit";
+
 import ExpenseCodingCockpit from "./pages/expense-coding/ExpenseCodingCockpit";
 import VendorComplianceDashboard from "./pages/vendor-compliance/VendorComplianceDashboard";
 import RequiredCoverageEditor from "./pages/vendor-compliance/RequiredCoverageEditor";
@@ -110,6 +117,12 @@ export const appRouteTree = (
         <Route path="/bill/:publicId" element={<BillView />} />
         <Route path="/bill/:publicId/edit" element={<BillEdit />} />
         <Route path="/bill/*" element={<Navigate to="/bill/list" replace />} />
+
+        <Route path="/expense/list" element={<ExpenseList />} />
+        <Route path="/expense/create" element={<ExpenseCreate />} />
+        <Route path="/expense/:publicId" element={<ExpenseView />} />
+        <Route path="/expense/:publicId/edit" element={<ExpenseEdit />} />
+        <Route path="/expense/*" element={<Navigate to="/expense/list" replace />} />
 
         <Route path="/vendor/list" element={<VendorList />} />
         <Route path="/vendor/create" element={<VendorCreate />} />

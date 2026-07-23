@@ -32,7 +32,7 @@ const lineItemCols: LineItemColumn<ExpenseLineItem>[] = [
 ];
 
 export default function ExpenseView() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId: id } = useParams<{ publicId: string }>();
   const { item, loading, error } = useEntityItem<Expense>(`/api/v1/get/expense/${id}`);
   const vendorMap = useIdNameMap<Vendor>("/api/v1/get/vendors", (v) => v.name);
   const [lineItems, setLineItems] = useState<ExpenseLineItem[]>([]);

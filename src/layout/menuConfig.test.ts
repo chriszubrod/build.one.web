@@ -318,6 +318,7 @@ describe("entriesInSection", () => {
       "projects",
       "budgets",
       "bills",
+      "expenses",
       "expense-coding",
     ]);
   });

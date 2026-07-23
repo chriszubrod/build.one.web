@@ -17,6 +17,15 @@ const mockPost = vi.fn();
 const mockPut = vi.fn();
 const mockDel = vi.fn();
 const mockToast = vi.fn();
+const mockNavigate = vi.fn();
+
+vi.mock("react-router-dom", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("react-router-dom")>();
+  return {
+    ...mod,
+    useNavigate: () => mockNavigate,
+  };
+});
 
 vi.mock("../../api/client", () => ({
   getList: (...args: unknown[]) => mockGetList(...args),
@@ -52,6 +61,20 @@ vi.mock("../../components/ReviewTimeline", () => ({
 
 vi.mock("../../components/LineItemAttachment", () => ({
   default: () => null,
+}));
+
+vi.mock("../../hooks/useCurrentUser", () => ({
+  useCurrentUser: () => ({
+    data: {
+      is_admin: true,
+      modules: [],
+      auth: { public_id: "a", username: "admin" },
+      user: { id: 1, public_id: "u", firstname: "A", lastname: "D" },
+      role: null,
+      accessible_project_ids: [],
+    },
+    isLoading: false,
+  }),
 }));
 
 function sampleExpense(overrides: Partial<Expense> = {}): Expense {
@@ -94,6 +117,50 @@ function expenseGetCallCount(): number {
 
 function completionSuccessToastCalled(): boolean {
   return mockToast.mock.calls.some((c) => String(c[0]).includes("Expense completed"));
+}
+
+function renderExpenseEdit(root: Root) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  act(() => {
+    root.render(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ["/expense/exp-1/edit"] },
+        createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          createElement(
+            Routes,
+            null,
+            createElement(Route, {
+              path: "/expense/:publicId/edit",
+              element: createElement(ExpenseEdit),
+            }),
+          ),
+        ),
+      ),
+    );
+  });
+}
+
+async function flushMicrotasks() {
+  await act(async () => {
+    for (let i = 0; i < 40; i++) {
+      await Promise.resolve();
+    }
+  });
+}
+
+async function waitForCondition(check: () => boolean) {
+  await act(async () => {
+    for (let i = 0; i < 50; i++) {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      if (check()) return;
+    }
+  });
 }
 
 describe("ExpenseEdit completion polling", () => {
@@ -165,50 +232,8 @@ describe("ExpenseEdit completion polling", () => {
     });
   }
 
-  function renderExpenseEdit() {
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    act(() => {
-      root.render(
-        createElement(
-          MemoryRouter,
-          { initialEntries: ["/expense/exp-1/edit"] },
-          createElement(
-            QueryClientProvider,
-            { client: queryClient },
-            createElement(
-              Routes,
-              null,
-              createElement(Route, {
-                path: "/expense/:id/edit",
-                element: createElement(ExpenseEdit),
-              }),
-            ),
-          ),
-        ),
-      );
-    });
-  }
-
-  async function flushMicrotasks() {
-    await act(async () => {
-      for (let i = 0; i < 30; i++) {
-        await Promise.resolve();
-      }
-    });
-  }
-
   async function waitForReady() {
-    await act(async () => {
-      for (let i = 0; i < 50; i++) {
-        await vi.advanceTimersByTimeAsync(0);
-        await Promise.resolve();
-        if (container.textContent?.includes("Complete Expense")) {
-          return;
-        }
-      }
-    });
+    await waitForCondition(() => container.textContent?.includes("Complete Expense") ?? false);
     expect(container.textContent).toContain("Complete Expense");
   }
 
@@ -243,7 +268,7 @@ describe("ExpenseEdit completion polling", () => {
 
   it("polls the expense entity, never the stale completion-result endpoint", async () => {
     setupGetOnePollResponses([true]);
-    renderExpenseEdit();
+    renderExpenseEdit(root);
     await waitForReady();
     const baseline = expenseGetCallCount();
     await clickCompleteExpense();
@@ -256,7 +281,7 @@ describe("ExpenseEdit completion polling", () => {
 
   it("does not settle while the expense is still a draft", async () => {
     setupGetOnePollResponses([true, true]);
-    renderExpenseEdit();
+    renderExpenseEdit(root);
     await waitForReady();
     await clickCompleteExpense();
 
@@ -275,7 +300,7 @@ describe("ExpenseEdit completion polling", () => {
 
   it("settles only when is_draft flips false", async () => {
     setupGetOnePollResponses([true, true, false]);
-    renderExpenseEdit();
+    renderExpenseEdit(root);
     await waitForReady();
     await clickCompleteExpense();
 
@@ -288,5 +313,128 @@ describe("ExpenseEdit completion polling", () => {
     expect(container.textContent).toContain(
       "Expense completed — external syncs continue in the background.",
     );
+  });
+});
+
+describe("ExpenseEdit line-item delete tracking", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === EXPENSE_GET_PATH) {
+        return Promise.resolve(sampleExpense({ is_draft: true }));
+      }
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+
+    mockGetList.mockResolvedValue({
+      data: [
+        {
+          public_id: "li-a",
+          row_version: "rv-li-a",
+          description: "Line A",
+          sub_cost_code_id: null,
+          quantity: null,
+          rate: null,
+          amount: "10",
+          is_billable: true,
+          markup: null,
+          price: null,
+        },
+        {
+          public_id: "li-b",
+          row_version: "rv-li-b",
+          description: "Line B",
+          sub_cost_code_id: null,
+          quantity: null,
+          rate: null,
+          amount: "20",
+          is_billable: true,
+          markup: null,
+          price: null,
+        },
+      ],
+      count: 2,
+    });
+
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/expense/exp-1") {
+        return Promise.resolve(sampleExpense({ row_version: "rv-2", is_draft: true }));
+      }
+      if (path.startsWith("/api/v1/update/expense_line_item/")) {
+        return Promise.resolve({
+          public_id: path.split("/").pop(),
+          row_version: "rv-li-upd",
+        });
+      }
+      return Promise.reject(new Error("unexpected put: " + path));
+    });
+
+    mockDel.mockResolvedValue({});
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    document.body.removeChild(container);
+    vi.useRealTimers();
+  });
+
+  // The remove control is anchored by its accessible label (title="Remove"),
+  // not InlineLineItems' internal CSS class, so a styling-hook rename can't
+  // break this suite.
+  const removeButton = () => container.querySelector('button[title="Remove"]');
+
+  async function waitForLineItems() {
+    await waitForCondition(() => removeButton() !== null);
+    expect(removeButton()).not.toBeNull();
+  }
+
+  function findSaveButton(): HTMLButtonElement | undefined {
+    return Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent?.trim() === "Save",
+    ) as HTMLButtonElement | undefined;
+  }
+
+  it("issues DELETE for a line item removed after a prior successful save", async () => {
+    renderExpenseEdit(root);
+    await waitForLineItems();
+    await flushMicrotasks();
+
+    const firstSave = findSaveButton();
+    expect(firstSave).toBeDefined();
+    await act(async () => {
+      firstSave!.click();
+      await flushMicrotasks();
+    });
+
+    expect(mockDel).not.toHaveBeenCalled();
+
+    await act(async () => {
+      const removeBtn = removeButton();
+      expect(removeBtn).not.toBeNull();
+      removeBtn!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flushMicrotasks();
+    });
+
+    mockDel.mockClear();
+
+    const secondSave = findSaveButton();
+    expect(secondSave).toBeDefined();
+    await act(async () => {
+      secondSave!.click();
+      await flushMicrotasks();
+    });
+
+    expect(mockDel).toHaveBeenCalledWith("/api/v1/delete/expense_line_item/li-a");
   });
 });
