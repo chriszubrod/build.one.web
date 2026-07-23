@@ -289,6 +289,7 @@ describe("canSeeEntry — RBAC gating", () => {
     ["bills", "Bills"],
     ["bill-credits", "Bill Credits"],
     ["invoices", "Invoices"],
+    ["contract-labor", "Contract Labor"],
   ];
 
   it.each(ENTRY_MODULE_ROWS)("%s entry visible to a user with %s can_read", (entryId, moduleName) => {
@@ -324,6 +325,7 @@ describe("entriesInSection", () => {
       "expenses",
       "expense-coding",
       "invoices",
+      "contract-labor",
     ]);
   });
 
@@ -408,7 +410,7 @@ describe("secondarySectionsForUser", () => {
     });
     expect(primarySlotsForUser(me).map((e) => e.id)).toContain("bills");
     const financials = secondarySectionsForUser(me).find((s) => s.section === "financials");
-    expect(financials?.entries.map((e) => e.id)).toEqual(["budgets"]);
+    expect(financials?.entries.map((e) => e.id)).toEqual(["budgets", "contract-labor"]);
   });
 
   it("system admin result never contains profile or projects in any section", () => {

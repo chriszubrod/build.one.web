@@ -3,27 +3,28 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, fetchWithRefresh, getList, getOne, post } from "../../api/client";
 import { useEntityList } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import PageHeader from "../../components/PageHeader";
+import { hasContractLaborPermission } from "./contractLaborPermissions";
+import { STATUS_CLASSES } from "./contractLaborStatus";
 import type { ContractLabor, Vendor } from "../../types/api";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
 const STATUS_TITLES: Record<string, string> = {
   pending_review: "Pending Review",
+  submitted: "Submitted for Review",
   ready: "Ready for Billing",
   billed: "Billed",
 };
 
+// Compact badge labels for tight table cells — deliberately shorter than the
+// shared full-form labels in contractLaborStatus.ts.
 const STATUS_LABELS: Record<string, string> = {
   pending_review: "Pending",
+  submitted: "Submitted",
   ready: "Ready",
   billed: "Billed",
-};
-
-const STATUS_CLASSES: Record<string, string> = {
-  pending_review: "pending-review",
-  ready: "ready",
-  billed: "billed",
 };
 
 function fmtHoursHHMM(decimalHours: string | null): string {
@@ -73,6 +74,16 @@ export default function ContractLaborList() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { data: me } = useCurrentUser();
+
+  // can_update gates both bulk Mark-as-Ready (POST /api/v1/contract-labor/bulk-mark-ready)
+  // and the row Edit link (PUT /api/v1/contract-labor/{id}/bill) — same server-side flag.
+  const canUpdate = hasContractLaborPermission(me, "can_update");
+  // POST /api/v1/contract-labor/bulk-delete — can_delete
+  const canBulkDelete = hasContractLaborPermission(me, "can_delete");
+  // POST /api/v1/contract-labor/billing/regenerate-pdf — can_create (read-only PDF render)
+  const canViewPdf = hasContractLaborPermission(me, "can_create");
+  const showBulkUi = canUpdate || canBulkDelete || canViewPdf;
 
   // URL-driven state (URL is the source of truth)
   const search = params.get("search") ?? "";
@@ -293,10 +304,6 @@ export default function ContractLaborList() {
   }
 
   const title = STATUS_TITLES[status] ?? "Contract Labor";
-  const generateBillsHref = billingPeriod
-    ? `/contract-labor/bills?billing_period=${encodeURIComponent(billingPeriod)}`
-    : "/contract-labor/bills";
-
   const selectionCount = selected.size;
   const allOnPageSelected = entries.length > 0 && entries.every((e) => selected.has(e.public_id));
   const someOnPageSelected = entries.some((e) => selected.has(e.public_id));
@@ -312,14 +319,7 @@ export default function ContractLaborList() {
 
   return (
     <div className="page">
-      <PageHeader title={title} count={totalCount}>
-        <Link to="/contract-labor/import" className="btn btn-secondary">
-          Import Excel
-        </Link>
-        <Link to={generateBillsHref} className="btn btn-secondary">
-          Generate Bills
-        </Link>
-      </PageHeader>
+      <PageHeader title={title} count={totalCount} />
 
       {/* Filter bar */}
       <div className="cl-filters">
@@ -343,6 +343,7 @@ export default function ContractLaborList() {
           >
             <option value="">All Statuses</option>
             <option value="pending_review">Pending Review</option>
+            <option value="submitted">Submitted</option>
             <option value="ready">Ready for Billing</option>
             <option value="billed">Billed</option>
           </select>
@@ -390,7 +391,7 @@ export default function ContractLaborList() {
       </div>
 
       {/* Bulk actions */}
-      {entries.length > 0 && (
+      {entries.length > 0 && showBulkUi && (
         <div className="cl-bulk-actions">
           <div className="cl-bulk-left">
             <input
@@ -406,30 +407,36 @@ export default function ContractLaborList() {
             <span className="cl-selected-count">({selectionCount} selected)</span>
           </div>
           <div className="cl-bulk-right">
-            <button
-              type="button"
-              className="btn btn-danger btn-sm"
-              disabled={selectionCount === 0}
-              onClick={bulkDelete}
-            >
-              Delete Selected
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={selectionCount === 0}
-              onClick={bulkMarkReady}
-            >
-              Mark as Ready
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={selectionCount === 0 || pdfBusy}
-              onClick={viewPdf}
-            >
-              {pdfBusy ? "Generating..." : "View PDF"}
-            </button>
+            {canBulkDelete && (
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                disabled={selectionCount === 0}
+                onClick={bulkDelete}
+              >
+                Delete Selected
+              </button>
+            )}
+            {canUpdate && (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={selectionCount === 0}
+                onClick={bulkMarkReady}
+              >
+                Mark as Ready
+              </button>
+            )}
+            {canViewPdf && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={selectionCount === 0 || pdfBusy}
+                onClick={viewPdf}
+              >
+                {pdfBusy ? "Generating..." : "View PDF"}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -455,7 +462,7 @@ export default function ContractLaborList() {
           <table className="data-table cl-table">
             <thead>
               <tr>
-                <th style={{ width: 40 }}></th>
+                {showBulkUi && <th style={{ width: 40 }}></th>}
                 <th>Date</th>
                 <th>Vendor</th>
                 <th>Job</th>
@@ -467,20 +474,23 @@ export default function ContractLaborList() {
             <tbody>
               {entries.map((entry) => {
                 const vendorName = workerLabelFor(entry);
+                const viewPath = `/contract-labor/${entry.public_id}`;
                 const editPath = `/contract-labor/${entry.public_id}/edit`;
                 return (
                   <tr
                     key={entry.public_id}
                     className="clickable-row"
-                    onClick={() => navigate(editPath)}
+                    onClick={() => navigate(viewPath)}
                   >
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={selected.has(entry.public_id)}
-                        onChange={(e) => toggleRow(entry.public_id, e.target.checked)}
-                      />
-                    </td>
+                    {showBulkUi && (
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selected.has(entry.public_id)}
+                          onChange={(e) => toggleRow(entry.public_id, e.target.checked)}
+                        />
+                      </td>
+                    )}
                     <td>{entry.work_date || "N/A"}</td>
                     <td>
                       <strong>{vendorName}</strong>
@@ -516,9 +526,11 @@ export default function ContractLaborList() {
                       </span>
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      <Link to={editPath} className="btn btn-secondary btn-sm">
-                        Edit
-                      </Link>
+                      {canUpdate && (
+                        <Link to={editPath} className="btn btn-secondary btn-sm">
+                          Edit
+                        </Link>
+                      )}
                     </td>
                   </tr>
                 );
@@ -581,17 +593,18 @@ export default function ContractLaborList() {
       ) : (
         <div className="cl-empty-state">
           <h3>{hasFilters ? "No Matching Entries" : "No Contract Labor Entries"}</h3>
-          <p>{hasFilters ? "Try adjusting your filters or import new data." : "Import an Excel file to get started."}</p>
-          <div className="cl-empty-actions">
-            <Link to="/contract-labor/import" className="btn btn-primary">
-              Import Excel
-            </Link>
-            {hasFilters && (
+          <p>
+            {hasFilters
+              ? "Try adjusting your filters."
+              : "Entries are aggregated from Time Tracking or imported by an operator."}
+          </p>
+          {hasFilters && (
+            <div className="cl-empty-actions">
               <button type="button" className="btn btn-secondary" onClick={clearFilters}>
                 Clear Filters
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
     </div>

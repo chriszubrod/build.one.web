@@ -66,6 +66,12 @@ const billCreditPaths = [
   "/bill-credit/abc123/edit",
 ] as const;
 
+const contractLaborPaths = [
+  "/contract-labor/list",
+  "/contract-labor/abc123",
+  "/contract-labor/abc123/edit",
+] as const;
+
 const vendorTypePaths = [
   "/vendor-type/list",
   "/vendor-type/create",
@@ -104,6 +110,13 @@ describe("appRouteTree — real route tree (U-066)", () => {
       "/budget/:publicId/edit",
       "/budget/create",
       "/budget/list",
+      "/contract-labor/*",
+      "/contract-labor/:publicId",
+      "/contract-labor/:publicId/edit",
+      "/contract-labor/bills",
+      "/contract-labor/create",
+      "/contract-labor/import",
+      "/contract-labor/list",
       "/customer/:publicId",
       "/customer/:publicId/edit",
       "/customer/create",
@@ -327,6 +340,67 @@ describe("appRouteTree — real route tree (U-066)", () => {
     });
   });
 
+  it.each(contractLaborPaths)("%s matches under AppLayout", (path) => {
+    const branch = branchFor(path);
+    expect(branch).not.toBeNull();
+    expect(branchHasLayout(branch, AppLayout)).toBe(true);
+  });
+
+  it("/contract-labor/abc123/edit resolves to the ContractLaborEdit page route, not the /contract-labor/* splat", () => {
+    const branch = branchFor("/contract-labor/abc123/edit");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/contract-labor/:publicId/edit");
+  });
+
+  it("/contract-labor/abc123 resolves to the ContractLaborView page route", () => {
+    const branch = branchFor("/contract-labor/abc123");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/contract-labor/:publicId");
+  });
+
+  // Bills / Import / Create are deliberately parked (U-134): the API
+  // generate-bills path cannibalizes already-billed records on re-run, so the
+  // billing/import surfaces stay unrouted. Their literal paths redirect to the
+  // list (ahead of :publicId) so stale bookmarks degrade gracefully. Routing
+  // any of these to a real page again is a conscious product decision — update
+  // these pins when that happens.
+  it.each([
+    "/contract-labor/bills",
+    "/contract-labor/import",
+    "/contract-labor/create",
+  ] as const)("%s is a parked-surface redirect to the list, not a page (U-134)", (path) => {
+    const branch = branchFor(path);
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe(path);
+    expect((last.route.element as ReactElement | undefined)?.type).toBe(Navigate);
+  });
+
+  describe("/contract-labor/* redirect catches unknown contract labor children", () => {
+    it("/contract-labor last match is /contract-labor/* (not AppLayout's * splat)", () => {
+      const branch = branchFor("/contract-labor");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/contract-labor/*");
+    });
+
+    it("/contract-labor/nonsense last match is /contract-labor/:publicId (not AppLayout's * splat)", () => {
+      const branch = branchFor("/contract-labor/nonsense");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/contract-labor/:publicId");
+    });
+
+    it("/contract-labor/nonsense/extra last match is /contract-labor/* (not AppLayout's * splat)", () => {
+      const branch = branchFor("/contract-labor/nonsense/extra");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/contract-labor/*");
+    });
+  });
+
   it.each(vendorTypePaths)("%s matches under AppLayout", (path) => {
     const branch = branchFor(path);
     expect(branch).not.toBeNull();
@@ -425,6 +499,8 @@ const INTENTIONAL_NON_NAV_ROUTES = new Set<string>([
   "/profile/appearance", // base: /profile
   "/time-entry/log/new", // base: /time-entry/list
   "/vendor-compliance/required-coverages", // base: /vendor-compliance (admin-only editor, dashboard header link)
+  "/contract-labor/bills", // parked-surface redirect → /contract-labor/list (U-134)
+  "/contract-labor/import", // parked-surface redirect → /contract-labor/list (U-134)
 ]);
 
 // Structural rules below are future-proof: a NEW entity's /entity/:id and
@@ -466,6 +542,7 @@ describe("routed <-> nav reconciliation (U-077)", () => {
       "/bill-credit/list",
       "/bill/list",
       "/budget/list",
+      "/contract-labor/list",
       "/customer/list",
       "/docs",
       "/expense-coding",

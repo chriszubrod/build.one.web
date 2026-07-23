@@ -1,7 +1,6 @@
 import { useCallback, useMemo } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { FileText } from "lucide-react";
 import { getList } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
 import NavHeader from "../../components/ui/NavHeader";
@@ -204,19 +203,7 @@ export default function LaborList() {
 
   return (
     <div className="ios-page labor-list-page">
-      <NavHeader
-        title="Labor review"
-        rightAction={
-          <Link
-            to="/contract-labor/bills"
-            className="labor-generate-bills-button"
-            aria-label="Open Generate Bills page"
-          >
-            <FileText size={16} strokeWidth={2} />
-            <span>Generate Bills</span>
-          </Link>
-        }
-      />
+      <NavHeader title="Labor review" />
 
       <SegmentedControl<LaborStatus>
         options={STATUS_OPTIONS}

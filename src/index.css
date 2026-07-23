@@ -4855,38 +4855,6 @@ a.buildone-record-header-link:hover .buildone-record-name {
   font-size: var(--font-size-caption);
 }
 
-/* Labor list — "Generate Bills" button in NavHeader rightAction slot.
-   Hidden on phones (where /labor/list is the focused review surface and
-   billing happens on desktop); shown from tablet (≥768px) onwards. */
-.labor-generate-bills-button {
-  display: none;
-}
-
-@media (min-width: 768px) {
-  .labor-generate-bills-button {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px var(--space-md);
-    border: 1px solid var(--color-primary);
-    border-radius: var(--radius-pill);
-    background: var(--color-primary);
-    color: #ffffff;
-    font-size: var(--font-size-footnote);
-    font-weight: 500;
-    text-decoration: none;
-    white-space: nowrap;
-  }
-
-  .labor-generate-bills-button:hover {
-    filter: brightness(0.95);
-  }
-
-  .labor-generate-bills-button:active {
-    filter: brightness(0.9);
-  }
-}
-
 /* Labor review — per-line card header with trailing delete icon */
 .line-card-header {
   display: flex;

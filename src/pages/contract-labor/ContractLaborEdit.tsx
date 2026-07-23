@@ -3,7 +3,10 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, del, getList, getOne, post, put } from "../../api/client";
 import { useEntityList } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import ReviewTimeline from "../../components/ReviewTimeline";
+import { resolveContractLaborEditActions } from "./contractLaborPermissions";
+import { STATUS_CLASSES, STATUS_LABELS } from "./contractLaborStatus";
 import type {
   ContractLabor,
   ContractLaborDailySummary,
@@ -14,18 +17,6 @@ import type {
   TimeEntry,
   Vendor,
 } from "../../types/api";
-
-const STATUS_LABELS: Record<string, string> = {
-  pending_review: "Pending Review",
-  ready: "Ready",
-  billed: "Billed",
-};
-
-const STATUS_CLASSES: Record<string, string> = {
-  pending_review: "pending-review",
-  ready: "ready",
-  billed: "billed",
-};
 
 const MAX_DAILY_HOURS = 8;
 
@@ -124,8 +115,10 @@ function fmtShortDate(v: string | null | undefined): string {
 }
 
 export default function ContractLaborEdit() {
-  const { id: publicId } = useParams<{ id: string }>();
+  const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
+  const { data: me, isLoading: meLoading } = useCurrentUser();
+  const actions = resolveContractLaborEditActions(me);
 
   const queryClient = useQueryClient();
   const [entry, setEntry] = useState<ContractLabor | null>(null);
@@ -158,12 +151,6 @@ export default function ContractLaborEdit() {
     () => [...subCostCodes].sort((a, b) => a.number.localeCompare(b.number, undefined, { sensitivity: "base", numeric: true })),
     [subCostCodes],
   );
-  const projectById = useMemo(() => {
-    const m = new Map<number, Project>();
-    for (const p of projects) m.set(p.id, p);
-    return m;
-  }, [projects]);
-
   // Daily-summary + vendor-config queries
   const dailySummaryQuery = useQuery<ContractLaborDailySummary>({
     queryKey: ["cl-daily-summary", publicId],
@@ -462,9 +449,20 @@ export default function ContractLaborEdit() {
     }
   }
 
-  if (loading) return <div className="page-loading">Loading...</div>;
+  if (loading || meLoading) return <div className="page-loading">Loading...</div>;
   if (loadError) return <div className="page-error">{loadError}</div>;
   if (!entry) return <div className="page-error">Entry not found.</div>;
+
+  if (!actions.canEdit) {
+    return (
+      <div className="page">
+        <div className="page-error">You don&apos;t have permission to edit this contract labor entry.</div>
+        <button type="button" className="btn btn-secondary" onClick={() => navigate(`/contract-labor/${publicId}`)}>
+          Back to Contract Labor
+        </button>
+      </div>
+    );
+  }
 
   const isBilled = entry.status === "billed";
   const statusBadge = (
@@ -797,14 +795,14 @@ export default function ContractLaborEdit() {
                 /* in-place re-render via reviewTimelineRefreshKey */
               }
             }}
-            disabled={saving || submittingReview || isBilled}
+            disabled={saving || submittingReview || isBilled || !actions.canSubmit}
           >
             {submittingReview ? "Submitting…" : "Submit For Review"}
           </button>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <Link to="/contract-labor/list" className="btn btn-secondary">Cancel</Link>
-          {!isBilled && (
+          {!isBilled && actions.canDelete && (
             <button type="button" className="btn btn-danger" onClick={handleDelete} disabled={saving}>
               Delete
             </button>

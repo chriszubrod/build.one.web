@@ -1,4 +1,4 @@
-import { BookOpen, Briefcase, Calculator, CircleDollarSign, ClipboardCheck, Clock, FileMinus, FileText, HardHat, Receipt, ShieldCheck, Store, Tags, User, Users } from "lucide-react";
+import { BookOpen, Briefcase, Calculator, CircleDollarSign, ClipboardCheck, Clock, FileMinus, FileText, Hammer, HardHat, Receipt, ShieldCheck, Store, Tags, User, Users } from "lucide-react";
 import type { ComponentType } from "react";
 import { Modules, type ModuleName } from "../shared/modules";
 import { hasModulePermission } from "../shared/permissions";
@@ -135,6 +135,16 @@ export const MENU_ENTRIES: MenuEntry[] = [
     permission: "can_read",
     section: "financials",
     priority: 47,
+  },
+  {
+    id: "contract-labor",
+    label: "Contract Labor",
+    icon: Hammer,
+    route: "/contract-labor/list",
+    module: Modules.CONTRACT_LABOR,
+    permission: "can_read",
+    section: "financials",
+    priority: 48,
   },
   {
     id: "vendors",

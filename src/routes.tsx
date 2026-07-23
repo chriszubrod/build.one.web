@@ -67,6 +67,13 @@ import BillCreditEdit from "./pages/bill-credits/BillCreditEdit";
 import InvoiceList from "./pages/invoices/InvoiceList";
 import InvoiceView from "./pages/invoices/InvoiceView";
 
+// Contract Labor management surface — browse + edit only (U-134).
+// Bills / Import / Create deliberately unrouted + tsconfig-parked: generate-bills
+// cannibalizes already-billed records on re-run (api bill_service edit path, no server guard).
+import ContractLaborList from "./pages/contract-labor/ContractLaborList";
+import ContractLaborView from "./pages/contract-labor/ContractLaborView";
+import ContractLaborEdit from "./pages/contract-labor/ContractLaborEdit";
+
 import ExpenseCodingCockpit from "./pages/expense-coding/ExpenseCodingCockpit";
 import VendorComplianceDashboard from "./pages/vendor-compliance/VendorComplianceDashboard";
 import RequiredCoverageEditor from "./pages/vendor-compliance/RequiredCoverageEditor";
@@ -152,6 +159,17 @@ export const appRouteTree = (
         <Route path="/invoice/list" element={<InvoiceList />} />
         <Route path="/invoice/:publicId" element={<InvoiceView />} />
         <Route path="/invoice/*" element={<Navigate to="/invoice/list" replace />} />
+
+        <Route path="/contract-labor/list" element={<ContractLaborList />} />
+        {/* Parked-surface literals declared ahead of :publicId so stale links/
+            bookmarks (e.g. the retired LaborList "Generate Bills" button)
+            degrade to the list instead of a broken :publicId View. */}
+        <Route path="/contract-labor/bills" element={<Navigate to="/contract-labor/list" replace />} />
+        <Route path="/contract-labor/import" element={<Navigate to="/contract-labor/list" replace />} />
+        <Route path="/contract-labor/create" element={<Navigate to="/contract-labor/list" replace />} />
+        <Route path="/contract-labor/:publicId" element={<ContractLaborView />} />
+        <Route path="/contract-labor/:publicId/edit" element={<ContractLaborEdit />} />
+        <Route path="/contract-labor/*" element={<Navigate to="/contract-labor/list" replace />} />
 
         <Route path="/vendor/list" element={<VendorList />} />
         <Route path="/vendor/create" element={<VendorCreate />} />

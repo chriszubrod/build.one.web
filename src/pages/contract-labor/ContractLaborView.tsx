@@ -3,6 +3,9 @@ import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, getList, getOne } from "../../api/client";
 import { useEntityList } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { hasContractLaborPermission } from "./contractLaborPermissions";
+import { STATUS_CLASSES, STATUS_LABELS } from "./contractLaborStatus";
 import type {
   ContractLabor,
   ContractLaborDailySummary,
@@ -11,18 +14,6 @@ import type {
   SubCostCode,
   Vendor,
 } from "../../types/api";
-
-const STATUS_LABELS: Record<string, string> = {
-  pending_review: "Pending Review",
-  ready: "Ready",
-  billed: "Billed",
-};
-
-const STATUS_CLASSES: Record<string, string> = {
-  pending_review: "pending-review",
-  ready: "ready",
-  billed: "billed",
-};
 
 const MAX_DAILY_HOURS = 8;
 
@@ -58,7 +49,10 @@ function fmtBool(v: boolean | null | undefined): string {
 }
 
 export default function ContractLaborView() {
-  const { id: publicId } = useParams<{ id: string }>();
+  const { publicId } = useParams<{ publicId: string }>();
+  const { data: me } = useCurrentUser();
+  // PUT /api/v1/contract-labor/{id}/bill — can_update
+  const canEdit = hasContractLaborPermission(me, "can_update");
 
   const entryQuery = useQuery<ContractLabor>({
     queryKey: ["cl-entry", publicId],
@@ -165,9 +159,11 @@ export default function ContractLaborView() {
           <Link to="/contract-labor/list" className="btn btn-secondary">
             Back to List
           </Link>
-          <Link to={`/contract-labor/${publicId}/edit`} className="btn btn-primary">
-            Edit
-          </Link>
+          {canEdit && (
+            <Link to={`/contract-labor/${publicId}/edit`} className="btn btn-primary">
+              Edit
+            </Link>
+          )}
         </div>
       </div>
 
