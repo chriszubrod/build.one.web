@@ -72,6 +72,12 @@ const contractLaborPaths = [
   "/contract-labor/abc123/edit",
 ] as const;
 
+const employeeLaborPaths = [
+  "/employee-labor/list",
+  "/employee-labor/abc123",
+  "/employee-labor/abc123/edit",
+] as const;
+
 const vendorTypePaths = [
   "/vendor-type/list",
   "/vendor-type/create",
@@ -123,6 +129,11 @@ describe("appRouteTree — real route tree (U-066)", () => {
       "/customer/list",
       "/docs",
       "/docs/:section",
+      "/employee-labor/*",
+      "/employee-labor/:publicId",
+      "/employee-labor/:publicId/edit",
+      "/employee-labor/create",
+      "/employee-labor/list",
       "/expense-coding",
       "/expense/*",
       "/expense/:publicId",
@@ -401,6 +412,61 @@ describe("appRouteTree — real route tree (U-066)", () => {
     });
   });
 
+  it.each(employeeLaborPaths)("%s matches under AppLayout", (path) => {
+    const branch = branchFor(path);
+    expect(branch).not.toBeNull();
+    expect(branchHasLayout(branch, AppLayout)).toBe(true);
+  });
+
+  it("/employee-labor/abc123/edit resolves to the EmployeeLaborEdit page route, not the /employee-labor/* splat", () => {
+    const branch = branchFor("/employee-labor/abc123/edit");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/employee-labor/:publicId/edit");
+  });
+
+  it("/employee-labor/abc123 resolves to the EmployeeLaborView page route", () => {
+    const branch = branchFor("/employee-labor/abc123");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/employee-labor/:publicId");
+  });
+
+  // Create is deliberately parked (U-136): manual-row billing footgun; EL rows are
+  // auto-aggregated from TimeEntry submit. The literal path redirects to the list
+  // (ahead of :publicId) so stale bookmarks degrade gracefully. Routing this to a
+  // real page again is a conscious product decision — update these pins when that happens.
+  it("/employee-labor/create is a parked-surface redirect to the list, not a page (U-136)", () => {
+    const branch = branchFor("/employee-labor/create");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/employee-labor/create");
+    expect((last.route.element as ReactElement | undefined)?.type).toBe(Navigate);
+  });
+
+  describe("/employee-labor/* redirect catches unknown employee labor children", () => {
+    it("/employee-labor last match is /employee-labor/* (not AppLayout's * splat)", () => {
+      const branch = branchFor("/employee-labor");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/employee-labor/*");
+    });
+
+    it("/employee-labor/nonsense last match is /employee-labor/:publicId (not AppLayout's * splat)", () => {
+      const branch = branchFor("/employee-labor/nonsense");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/employee-labor/:publicId");
+    });
+
+    it("/employee-labor/nonsense/extra last match is /employee-labor/* (not AppLayout's * splat)", () => {
+      const branch = branchFor("/employee-labor/nonsense/extra");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/employee-labor/*");
+    });
+  });
+
   it.each(vendorTypePaths)("%s matches under AppLayout", (path) => {
     const branch = branchFor(path);
     expect(branch).not.toBeNull();
@@ -545,6 +611,7 @@ describe("routed <-> nav reconciliation (U-077)", () => {
       "/contract-labor/list",
       "/customer/list",
       "/docs",
+      "/employee-labor/list",
       "/expense-coding",
       "/expense/list",
       "/invoice/list",

@@ -2,22 +2,20 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useEntityItem, deleteEntity } from "../../hooks/useEntity";
 import { useLookups } from "../../hooks/useLookups";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
 import DetailView from "../../components/DetailView";
 import { entityCrumbs } from "../../components/Breadcrumb";
 import type { EmployeeLabor } from "../../types/api";
-
-const STATUS_LABEL: Record<string, string> = {
-  pending_review: "Pending Review",
-  ready: "Ready",
-  invoiced: "Invoiced",
-};
+import { hasEmployeeLaborPermission } from "./employeeLaborPermissions";
+import { STATUS_LABELS } from "./employeeLaborStatus";
 
 export default function EmployeeLaborView() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { item, loading, error } = useEntityItem<EmployeeLabor>(`/api/v1/get/employee-labor/${id}`);
+  const { data: me } = useCurrentUser();
+  const { item, loading, error } = useEntityItem<EmployeeLabor>(`/api/v1/get/employee-labor/${publicId}`);
   const { data: lookups } = useLookups("employees,projects,sub_cost_codes");
   const [deleting, setDeleting] = useState(false);
 
@@ -29,7 +27,7 @@ export default function EmployeeLaborView() {
     if (!confirm("Delete this employee labor row? This cannot be undone.")) return;
     setDeleting(true);
     try {
-      await deleteEntity(`/api/v1/delete/employee-labor/${id}`);
+      await deleteEntity(`/api/v1/delete/employee-labor/${publicId}`);
       toast("EmployeeLabor deleted.");
       navigate("/employee-labor/list");
     } catch (err: any) {
@@ -46,13 +44,17 @@ export default function EmployeeLaborView() {
   const rate = item.hourly_rate ? `$${item.hourly_rate}` : "—";
   const markupPct = item.markup ? `${(Number(item.markup) * 100).toFixed(0)}%` : "—";
   const isLocked = item.status === "invoiced";
+  // PUT /api/v1/update/employee-labor/{public_id} — can_update
+  const canUpdate = hasEmployeeLaborPermission(me, "can_update");
+  // DELETE /api/v1/delete/employee-labor/{public_id} — can_delete
+  const canDelete = hasEmployeeLaborPermission(me, "can_delete");
 
   return (
     <DetailView
       title={`${employee?.label ?? "Employee"} — ${item.work_date}`}
-      editPath={isLocked ? undefined : `/employee-labor/${id}/edit`}
+      editPath={!isLocked && canUpdate ? `/employee-labor/${publicId}/edit` : undefined}
       breadcrumbs={entityCrumbs("Employee Labor", "/employee-labor/list", `${employee?.label ?? "Row"} — ${item.work_date}`)}
-      onDelete={isLocked ? undefined : handleDelete}
+      onDelete={!isLocked && canDelete ? handleDelete : undefined}
       deleting={deleting}
       fields={[
         { label: "Employee", value: employee?.label ?? `#${item.employee_id}` },
@@ -64,7 +66,7 @@ export default function EmployeeLaborView() {
         { label: "Markup", value: markupPct },
         { label: "Total Amount", value: totalAmount },
         { label: "Sub Cost Code", value: scc ? `${scc.number} — ${scc.name}` : "—" },
-        { label: "Status", value: STATUS_LABEL[item.status ?? ""] ?? item.status ?? "—" },
+        { label: "Status", value: STATUS_LABELS[item.status ?? ""] ?? item.status ?? "—" },
         { label: "Description", value: item.description ?? "—" },
         { label: "Source Time Entry", value: item.source_time_entry_id ? `TimeEntry #${item.source_time_entry_id}` : <span className="text-muted">manual</span> },
         { label: "Invoice Line", value: item.invoice_line_item_id ? `InvoiceLineItem #${item.invoice_line_item_id}` : <span className="text-muted">not invoiced</span> },

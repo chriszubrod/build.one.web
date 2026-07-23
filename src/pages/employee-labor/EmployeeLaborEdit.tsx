@@ -2,26 +2,33 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useEntityItem, updateEntity } from "../../hooks/useEntity";
 import { useLookups } from "../../hooks/useLookups";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
 import SelectField from "../../components/SelectField";
+import TextareaField from "../../components/TextareaField";
 import type { EmployeeLabor } from "../../types/api";
-
-const STATUS_OPTIONS = [
-  { value: "pending_review", label: "Pending Review" },
-  { value: "ready", label: "Ready" },
-  { value: "invoiced", label: "Invoiced (terminal)" },
-];
+import { hasEmployeeLaborPermission } from "./employeeLaborPermissions";
+import { EDITABLE_STATUS_OPTIONS } from "./employeeLaborStatus";
 
 export default function EmployeeLaborEdit() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
-  const { item, loading, error } = useEntityItem<EmployeeLabor>(`/api/v1/get/employee-labor/${id}`);
+  const { data: me, isLoading: meLoading } = useCurrentUser();
+  // PUT /api/v1/update/employee-labor/{public_id} — can_update
+  const canEdit = hasEmployeeLaborPermission(me, "can_update");
+  const { item, loading, error } = useEntityItem<EmployeeLabor>(`/api/v1/get/employee-labor/${publicId}`);
   const { data: lookups } = useLookups("projects,sub_cost_codes");
   const [form, setForm] = useState<Record<string, any> | null>(null);
+  // Which row seeded `form`. Router reuses this component across
+  // /employee-labor/:publicId/edit params, so seeding on `!form` alone would
+  // carry row A's values (and row_version) onto row B; keying the seed by
+  // public_id re-seeds on row change without clobbering in-progress edits on
+  // a background refetch of the same row.
+  const [formSeedId, setFormSeedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
-  if (item && !form) {
+  if (item && formSeedId !== item.public_id) {
     // Resolve project_id → public_id via lookup (lookup carries no id, so we
     // can't pre-hydrate the project picker). Leave blank; user re-picks if
     // they want to change. The current row's project_id is preserved by
@@ -38,9 +45,10 @@ export default function EmployeeLaborEdit() {
       status: item.status ?? "pending_review",
       row_version: item.row_version,
     });
+    setFormSeedId(item.public_id);
   }
 
-  if (loading) return <div className="page-loading">Loading...</div>;
+  if (loading || meLoading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
   if (!item || !form) return <div className="page-error">EmployeeLabor not found.</div>;
 
@@ -51,7 +59,18 @@ export default function EmployeeLaborEdit() {
         <div className="page-error">
           This row is invoiced — locked from edits. Reverse the downstream Invoice first.
         </div>
-        <button className="btn btn-secondary" onClick={() => navigate(`/employee-labor/${id}`)}>Back</button>
+        <button className="btn btn-secondary" onClick={() => navigate(`/employee-labor/${publicId}`)}>Back</button>
+      </div>
+    );
+  }
+
+  if (!canEdit) {
+    return (
+      <div className="page">
+        <div className="page-error">You don&apos;t have permission to edit this employee labor entry.</div>
+        <button type="button" className="btn btn-secondary" onClick={() => navigate(`/employee-labor/${publicId}`)}>
+          Back
+        </button>
       </div>
     );
   }
@@ -65,7 +84,7 @@ export default function EmployeeLaborEdit() {
     setSaving(true);
     setSaveError("");
     try {
-      await updateEntity(`/api/v1/update/employee-labor/${id}`, {
+      await updateEntity(`/api/v1/update/employee-labor/${publicId}`, {
         row_version: form.row_version,
         project_public_id: form.project_public_id || null,
         sub_cost_code_public_id: form.sub_cost_code_public_id || null,
@@ -76,7 +95,7 @@ export default function EmployeeLaborEdit() {
         total_amount: form.total_amount || null,
         status: form.status,
       });
-      navigate(`/employee-labor/${id}`);
+      navigate(`/employee-labor/${publicId}`);
     } catch (err: any) {
       setSaveError(err.message);
       setSaving(false);
@@ -118,15 +137,15 @@ export default function EmployeeLaborEdit() {
           name="status"
           value={form.status}
           onChange={onChange}
-          options={STATUS_OPTIONS}
+          options={EDITABLE_STATUS_OPTIONS}
         />
-        <FormField label="Description" name="description" value={form.description} onChange={onChange} multiline />
+        <TextareaField label="Description" name="description" value={form.description} onChange={onChange} />
 
         <div className="form-actions">
           <button type="submit" className="btn btn-primary" disabled={saving}>
             {saving ? "Saving..." : "Save"}
           </button>
-          <button type="button" className="btn btn-secondary" onClick={() => navigate(`/employee-labor/${id}`)}>
+          <button type="button" className="btn btn-secondary" onClick={() => navigate(`/employee-labor/${publicId}`)}>
             Cancel
           </button>
         </div>

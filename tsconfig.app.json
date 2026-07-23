@@ -33,7 +33,7 @@
     "src/pages/contract-labor/ContractLaborImport.tsx",
     "src/pages/cost-codes/**",
     "src/pages/email-messages/**",
-    "src/pages/employee-labor/**",
+    "src/pages/employee-labor/EmployeeLaborCreate.tsx",
     "src/pages/employees/**",
     "src/pages/expenses/**",
     "src/pages/integrations/**",

@@ -74,6 +74,13 @@ import ContractLaborList from "./pages/contract-labor/ContractLaborList";
 import ContractLaborView from "./pages/contract-labor/ContractLaborView";
 import ContractLaborEdit from "./pages/contract-labor/ContractLaborEdit";
 
+// Employee Labor management surface — browse + edit only (U-136).
+// Create deliberately unrouted + tsconfig-parked: manual-row billing footgun; EL rows are
+// auto-aggregated from TimeEntry submit.
+import EmployeeLaborList from "./pages/employee-labor/EmployeeLaborList";
+import EmployeeLaborView from "./pages/employee-labor/EmployeeLaborView";
+import EmployeeLaborEdit from "./pages/employee-labor/EmployeeLaborEdit";
+
 import ExpenseCodingCockpit from "./pages/expense-coding/ExpenseCodingCockpit";
 import VendorComplianceDashboard from "./pages/vendor-compliance/VendorComplianceDashboard";
 import RequiredCoverageEditor from "./pages/vendor-compliance/RequiredCoverageEditor";
@@ -170,6 +177,14 @@ export const appRouteTree = (
         <Route path="/contract-labor/:publicId" element={<ContractLaborView />} />
         <Route path="/contract-labor/:publicId/edit" element={<ContractLaborEdit />} />
         <Route path="/contract-labor/*" element={<Navigate to="/contract-labor/list" replace />} />
+
+        <Route path="/employee-labor/list" element={<EmployeeLaborList />} />
+        {/* Parked-surface literals declared ahead of :publicId so stale links/bookmarks
+            degrade to the list instead of a broken :publicId View. */}
+        <Route path="/employee-labor/create" element={<Navigate to="/employee-labor/list" replace />} />
+        <Route path="/employee-labor/:publicId" element={<EmployeeLaborView />} />
+        <Route path="/employee-labor/:publicId/edit" element={<EmployeeLaborEdit />} />
+        <Route path="/employee-labor/*" element={<Navigate to="/employee-labor/list" replace />} />
 
         <Route path="/vendor/list" element={<VendorList />} />
         <Route path="/vendor/create" element={<VendorCreate />} />

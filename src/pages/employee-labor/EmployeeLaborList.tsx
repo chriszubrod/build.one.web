@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import PageHeader from "../../components/PageHeader";
 import { rawRequest } from "../../api/client";
+import { STATUS_LABELS } from "./employeeLaborStatus";
 
 interface EmployeeLaborRow {
   id: number;
@@ -30,12 +31,6 @@ function currentPeriodStart(): string {
   const m = String(now.getMonth() + 1).padStart(2, "0");
   return day <= 15 ? `${y}-${m}-01` : `${y}-${m}-16`;
 }
-
-const STATUS_LABEL: Record<string, string> = {
-  pending_review: "Pending Review",
-  ready: "Ready",
-  invoiced: "Invoiced",
-};
 
 export default function EmployeeLaborList() {
   const [period, setPeriod] = useState(currentPeriodStart());
@@ -69,7 +64,7 @@ export default function EmployeeLaborList() {
 
   return (
     <div className="page">
-      <PageHeader title="Employee Labor" count={items.length} createPath="/employee-labor/create" />
+      <PageHeader title="Employee Labor" count={items.length} />
 
       <div style={{ marginBottom: 16 }}>
         <label style={{ marginRight: 8 }}>Billing Period Start:</label>
@@ -121,7 +116,7 @@ export default function EmployeeLaborList() {
                 <td style={{ textAlign: "right" }}>
                   {r.total_amount ? `$${Number(r.total_amount).toFixed(2)}` : "—"}
                 </td>
-                <td>{STATUS_LABEL[r.status] ?? r.status}</td>
+                <td>{STATUS_LABELS[r.status] ?? r.status}</td>
                 <td className="text-muted" style={{ fontSize: "0.85em" }}>
                   {r.description ?? ""}
                 </td>
