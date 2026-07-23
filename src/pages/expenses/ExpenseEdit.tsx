@@ -1,5 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useSyncedToken } from "../../hooks/useSyncedToken";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEntityItem, entityItemKey } from "../../hooks/useEntity";
 import { useAutoSave } from "../../hooks/useAutoSave";
@@ -68,20 +69,7 @@ export default function ExpenseEdit() {
   const [completing, setCompleting] = useState(false);
   const [saveError, setSaveError] = useState("");
   const { toast } = useToast();
-  // Authoritative current row_version, updated SYNCHRONOUSLY on every successful
-  // header save. Chained saves (the auto-save reschedule loop, and saveAll right
-  // after flush on Complete) read this instead of the possibly-stale React-state
-  // `form.row_version`, whose setForm may not have committed yet. Prevents a
-  // stale row_version -> optimistic-concurrency conflict -> silently lost edit.
-  const rowVersionRef = useRef<string | null>(null);
-
-  // Clear the ref once a form.row_version change commits, so the next save reads
-  // the authoritative committed value. The ref only bridges the pre-commit window
-  // of the coalesced follow-up and the Complete-path saveAll (both read it
-  // synchronously, before this effect runs).
-  useEffect(() => {
-    rowVersionRef.current = null;
-  }, [form?.row_version]);
+  const rowVersion = useSyncedToken(form?.row_version);
 
   const { state: pollState, start: startPolling } = useCompletionPolling<Expense>(
     expenseItemPath,
@@ -139,7 +127,7 @@ export default function ExpenseEdit() {
     if (!form || !id) return;
     try {
       const updated = await put<Expense>(`/api/v1/update/expense/${id}`, {
-        row_version: rowVersionRef.current ?? form.row_version,
+        row_version: rowVersion.read(),
         vendor_public_id: form.vendor_public_id || undefined,
         expense_date: form.expense_date,
         reference_number: form.reference_number,
@@ -148,12 +136,12 @@ export default function ExpenseEdit() {
         is_draft: form.is_draft,
         is_credit: form.is_credit,
       });
-      rowVersionRef.current = updated.row_version;
+      rowVersion.set(updated.row_version);
       setForm((prev: any) => prev ? { ...prev, row_version: updated.row_version } : prev);
     } catch {
       // Silent fail for auto-save
     }
-  }, [form, id]);
+  }, [form, id, rowVersion]);
 
   const { flush: flushAutoSave, cancel: cancelAutoSave } = useAutoSave(
     autoSaveHeader,
@@ -189,7 +177,7 @@ export default function ExpenseEdit() {
     try {
       // Save header
       const updated = await put<Expense>(`/api/v1/update/expense/${id}`, {
-        row_version: rowVersionRef.current ?? form.row_version,
+        row_version: rowVersion.read(),
         vendor_public_id: form.vendor_public_id || undefined,
         expense_date: form.expense_date,
         reference_number: form.reference_number,
@@ -198,7 +186,7 @@ export default function ExpenseEdit() {
         is_draft: form.is_draft,
         is_credit: form.is_credit,
       });
-      rowVersionRef.current = updated.row_version;
+      rowVersion.set(updated.row_version);
       setForm((prev: any) => ({ ...prev, row_version: updated.row_version }));
 
       // Sync line items: delete removed, update existing, create new

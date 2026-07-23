@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef } from "react";
  * run before React commits any state update the prior save queued. Source such
  * tokens via `useSyncedToken` (src/hooks/useSyncedToken.ts) — not from React
  * state — so chained saves don't send a stale token. See BillEdit /
- * TimeEntryView; ExpenseEdit still hand-rolls the ref pending its unpark.
+ * TimeEntryView / ExpenseEdit.
  */
 export function useAutoSave(
   saveFn: () => Promise<void>,

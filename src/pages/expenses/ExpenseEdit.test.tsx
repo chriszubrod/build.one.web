@@ -163,6 +163,19 @@ async function waitForCondition(check: () => boolean) {
   });
 }
 
+async function waitForReady(container: HTMLElement) {
+  await waitForCondition(() => container.textContent?.includes("Complete Expense") ?? false);
+  expect(container.textContent).toContain("Complete Expense");
+}
+
+function completeButton(container: HTMLElement): HTMLButtonElement | null {
+  return (
+    Array.from(container.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.includes("Complete Expense") || btn.textContent?.includes("Completing..."),
+    ) ?? null
+  );
+}
+
 describe("ExpenseEdit completion polling", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -232,23 +245,8 @@ describe("ExpenseEdit completion polling", () => {
     });
   }
 
-  async function waitForReady() {
-    await waitForCondition(() => container.textContent?.includes("Complete Expense") ?? false);
-    expect(container.textContent).toContain("Complete Expense");
-  }
-
-  function completeButton(): HTMLButtonElement | null {
-    const buttons = container.querySelectorAll("button");
-    for (const btn of buttons) {
-      if (btn.textContent?.includes("Complete Expense") || btn.textContent?.includes("Completing...")) {
-        return btn as HTMLButtonElement;
-      }
-    }
-    return null;
-  }
-
   async function clickCompleteExpense() {
-    const btn = completeButton();
+    const btn = completeButton(container);
     expect(btn).not.toBeNull();
     await act(async () => {
       btn!.click();
@@ -269,7 +267,7 @@ describe("ExpenseEdit completion polling", () => {
   it("polls the expense entity, never the stale completion-result endpoint", async () => {
     setupGetOnePollResponses([true]);
     renderExpenseEdit(root);
-    await waitForReady();
+    await waitForReady(container);
     const baseline = expenseGetCallCount();
     await clickCompleteExpense();
 
@@ -282,7 +280,7 @@ describe("ExpenseEdit completion polling", () => {
   it("does not settle while the expense is still a draft", async () => {
     setupGetOnePollResponses([true, true]);
     renderExpenseEdit(root);
-    await waitForReady();
+    await waitForReady(container);
     await clickCompleteExpense();
 
     await advancePollInterval(1);
@@ -301,7 +299,7 @@ describe("ExpenseEdit completion polling", () => {
   it("settles only when is_draft flips false", async () => {
     setupGetOnePollResponses([true, true, false]);
     renderExpenseEdit(root);
-    await waitForReady();
+    await waitForReady(container);
     await clickCompleteExpense();
 
     await advancePollInterval(3);
@@ -436,5 +434,90 @@ describe("ExpenseEdit line-item delete tracking", () => {
     });
 
     expect(mockDel).toHaveBeenCalledWith("/api/v1/delete/expense_line_item/li-a");
+  });
+});
+
+describe("ExpenseEdit chained-save row_version", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === EXPENSE_GET_PATH) {
+        // row_version "rv-1" (the fixture default) is the stale token the
+        // chained save must NOT resend after the flush PUT returns "rv-2".
+        return Promise.resolve(sampleExpense({ row_version: "rv-1" }));
+      }
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+
+    mockGetList.mockResolvedValue({ data: [], count: 0 });
+
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/expense/exp-1") {
+        return Promise.resolve(sampleExpense({ row_version: "rv-2" }));
+      }
+      return Promise.reject(new Error("unexpected put: " + path));
+    });
+
+    mockPost.mockImplementation((path: string) => {
+      if (path === "/api/v1/complete/expense/exp-1") {
+        return Promise.resolve({});
+      }
+      return Promise.reject(new Error("unexpected post: " + path));
+    });
+
+    vi.stubGlobal("confirm", vi.fn(() => true));
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    document.body.removeChild(container);
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  function headerPutBodies(): { row_version?: string }[] {
+    return mockPut.mock.calls
+      .filter((c) => c[0] === "/api/v1/update/expense/exp-1")
+      .map((c) => c[1] as { row_version?: string });
+  }
+
+  it("saveAll after flushAutoSave sends the token returned by the flush PUT, not stale form state", async () => {
+    renderExpenseEdit(root);
+    await waitForReady(container);
+    await flushMicrotasks();
+
+    const refInput = container.querySelector('input[name="reference_number"]') as HTMLInputElement;
+    expect(refInput).not.toBeNull();
+
+    await act(async () => {
+      refInput.value = "EXP-EDITED";
+      refInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    // Debounced auto-save is scheduled but must not fire before Complete.
+    expect(headerPutBodies()).toHaveLength(0);
+
+    const btn = completeButton(container);
+    expect(btn).not.toBeNull();
+    await act(async () => {
+      btn!.click();
+      await flushMicrotasks();
+    });
+
+    const bodies = headerPutBodies();
+    expect(bodies.length).toBeGreaterThanOrEqual(2);
+    expect(bodies[0].row_version).toBe("rv-1");
+    expect(bodies[1].row_version).toBe("rv-2");
   });
 });
