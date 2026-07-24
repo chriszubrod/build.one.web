@@ -1,4 +1,6 @@
 import { useEntityList } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { hasSubCostCodePermission } from "./subCostCodePermissions";
 import DataTable, { type Column } from "../../components/DataTable";
 import PageHeader from "../../components/PageHeader";
 import type { SubCostCode } from "../../types/api";
@@ -11,13 +13,19 @@ const columns: Column<SubCostCode>[] = [
 
 export default function SubCostCodeList() {
   const { items, loading, error } = useEntityList<SubCostCode>("/api/v1/get/sub-cost-codes");
+  const { data: me } = useCurrentUser();
 
   if (loading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
 
   return (
     <div className="page">
-      <PageHeader title="Sub Cost Codes" count={items.length} createPath="/sub-cost-code/create" />
+      <PageHeader
+        title="Sub Cost Codes"
+        count={items.length}
+        // POST /api/v1/create/sub-cost-code — can_create
+        createPath={hasSubCostCodePermission(me, "can_create") ? "/sub-cost-code/create" : undefined}
+      />
       <DataTable columns={columns} data={items} basePath="/sub-cost-code" />
     </div>
   );

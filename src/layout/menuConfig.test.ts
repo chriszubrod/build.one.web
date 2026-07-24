@@ -292,6 +292,7 @@ describe("canSeeEntry — RBAC gating", () => {
     ["contract-labor", "Contract Labor"],
     ["employee-labor", "Employee Labor"],
     ["cost-codes", "Cost Codes"],
+    ["sub-cost-codes", "Cost Codes"],
   ];
 
   it.each(ENTRY_MODULE_ROWS)("%s entry visible to a user with %s can_read", (entryId, moduleName) => {
@@ -354,11 +355,11 @@ describe("entriesInSection", () => {
 
   it("Reference section: Cost Codes is module-gated, Docs stays admin-only", () => {
     const admin = makeUser({ is_admin: true });
-    expect(entriesInSection("reference", admin).map((e) => e.id)).toEqual(["cost-codes", "docs"]);
+    expect(entriesInSection("reference", admin).map((e) => e.id)).toEqual(["cost-codes", "sub-cost-codes", "docs"]);
     const withCostCodes = makeUser({
       modules: [makeModule(Modules.COST_CODES, { can_read: true })],
     });
-    expect(entriesInSection("reference", withCostCodes).map((e) => e.id)).toEqual(["cost-codes"]);
+    expect(entriesInSection("reference", withCostCodes).map((e) => e.id)).toEqual(["cost-codes", "sub-cost-codes"]);
     const nonAdmin = makeUser({ role: "Field Crew" });
     expect(entriesInSection("reference", nonAdmin)).toEqual([]);
   });

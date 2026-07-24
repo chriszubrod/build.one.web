@@ -47,7 +47,6 @@
     "src/pages/review-statuses/**",
     "src/pages/role-modules/**",
     "src/pages/roles/**",
-    "src/pages/sub-cost-codes/**",
     "src/pages/taxpayers/**",
     "src/pages/user-modules/**",
     "src/pages/user-projects/**",
