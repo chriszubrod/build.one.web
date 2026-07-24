@@ -99,6 +99,13 @@ const companyPaths = [
   "/company/abc123/edit",
 ] as const;
 
+const organizationPaths = [
+  "/organization/list",
+  "/organization/create",
+  "/organization/abc123",
+  "/organization/abc123/edit",
+] as const;
+
 const subCostCodePaths = [
   "/sub-cost-code/list",
   "/sub-cost-code/create",
@@ -177,6 +184,11 @@ describe("appRouteTree — real route tree (U-066)", () => {
       "/labor/:public_id",
       "/labor/list",
       "/login",
+      "/organization/*",
+      "/organization/:publicId",
+      "/organization/:publicId/edit",
+      "/organization/create",
+      "/organization/list",
       "/profile",
       "/profile/appearance",
       "/profile/details",
@@ -565,6 +577,27 @@ describe("appRouteTree — real route tree (U-066)", () => {
     expect(branchHasLayout(branch, AppLayout)).toBe(true);
   });
 
+  it.each(organizationPaths)("%s matches under AppLayout", (path) => {
+    const branch = branchFor(path);
+    expect(branch).not.toBeNull();
+    expect(branchHasLayout(branch, AppLayout)).toBe(true);
+  });
+
+  describe("/organization/* redirect catches unknown organization children", () => {
+    it.each(["/organization", "/organization/foo/bar"] as const)(
+      "%s last match is /organization/* with redirect to list",
+      (path) => {
+        const branch = branchFor(path);
+        expect(branch).not.toBeNull();
+        const last = branch!.at(-1)!;
+        expect(last.route.path).toBe("/organization/*");
+        const el = last.route.element as ReactElement<{ to: string }> | undefined;
+        expect(el?.type).toBe(Navigate);
+        expect(el?.props.to).toBe("/organization/list");
+      },
+    );
+  });
+
   it("/cost-code/abc123/edit resolves to the CostCodeEdit page route, not the /cost-code/* splat", () => {
     const branch = branchFor("/cost-code/abc123/edit");
     expect(branch).not.toBeNull();
@@ -753,6 +786,7 @@ describe("routed <-> nav reconciliation (U-077)", () => {
       "/expense/list",
       "/invoice/list",
       "/labor/list",
+      "/organization/list",
       "/profile",
       "/project/list",
       "/sub-cost-code/list",

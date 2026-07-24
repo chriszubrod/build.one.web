@@ -106,6 +106,10 @@ import CompanyList from "./pages/companies/CompanyList";
 import CompanyView from "./pages/companies/CompanyView";
 import CompanyEdit from "./pages/companies/CompanyEdit";
 import CompanyCreate from "./pages/companies/CompanyCreate";
+import OrganizationList from "./pages/organizations/OrganizationList";
+import OrganizationView from "./pages/organizations/OrganizationView";
+import OrganizationEdit from "./pages/organizations/OrganizationEdit";
+import OrganizationCreate from "./pages/organizations/OrganizationCreate";
 import CustomerList from "./pages/customers/CustomerList";
 import CustomerView from "./pages/customers/CustomerView";
 import CustomerEdit from "./pages/customers/CustomerEdit";
@@ -226,6 +230,12 @@ export const appRouteTree = (
         <Route path="/company/:publicId" element={<CompanyView />} />
         <Route path="/company/:publicId/edit" element={<CompanyEdit />} />
         <Route path="/company/*" element={<Navigate to="/company/list" replace />} />
+
+        <Route path="/organization/list" element={<OrganizationList />} />
+        <Route path="/organization/create" element={<OrganizationCreate />} />
+        <Route path="/organization/:publicId" element={<OrganizationView />} />
+        <Route path="/organization/:publicId/edit" element={<OrganizationEdit />} />
+        <Route path="/organization/*" element={<Navigate to="/organization/list" replace />} />
 
         <Route path="/customer/list" element={<CustomerList />} />
         <Route path="/customer/create" element={<CustomerCreate />} />

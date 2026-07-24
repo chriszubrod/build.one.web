@@ -1,42 +1,27 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
-import { useEntityItem, deleteEntity } from "../../hooks/useEntity";
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, deleteEntity, removeEntity } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
-import { getList } from "../../api/client";
 import DetailView from "../../components/DetailView";
 import { entityCrumbs } from "../../components/Breadcrumb";
-import type {
-  Organization,
-  Company,
-  OrganizationCompany,
-} from "../../types/api";
+import type { Organization } from "../../types/api";
+import { hasOrganizationPermission } from "./organizationPermissions";
+import { useOrganizationCompanies } from "./useOrganizationCompanies";
 
 export default function OrganizationView() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { data: me } = useCurrentUser();
   const { item, loading, error } = useEntityItem<Organization>(
-    `/api/v1/get/organization/${id}`,
+    `/api/v1/get/organization/${publicId}`,
   );
   const [deleting, setDeleting] = useState(false);
+  const queryClient = useQueryClient();
 
-  const [allCompanies, setAllCompanies] = useState<Company[]>([]);
-  const [orgCompanies, setOrgCompanies] = useState<OrganizationCompany[]>([]);
-
-  useEffect(() => {
-    if (!item) return;
-    Promise.all([
-      getList<Company>("/api/v1/get/companies"),
-      getList<OrganizationCompany>(
-        `/api/v1/get/organization_companies/organization/${item.id}`,
-      ),
-    ])
-      .then(([companies, ocs]) => {
-        setAllCompanies(companies.data);
-        setOrgCompanies(ocs.data);
-      })
-      .catch(() => {});
-  }, [item]);
+  const { orgCompanies, companyMap } = useOrganizationCompanies(item);
 
   if (loading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
@@ -46,7 +31,11 @@ export default function OrganizationView() {
     if (!confirm("Delete this organization?")) return;
     setDeleting(true);
     try {
-      await deleteEntity(`/api/v1/delete/organization/${id}`);
+      await deleteEntity(`/api/v1/delete/organization/${publicId}`);
+      await removeEntity(queryClient, {
+        listPath: "/api/v1/get/organizations",
+        itemPath: `/api/v1/get/organization/${publicId}`,
+      });
       toast("Organization deleted.");
       navigate("/organization/list");
     } catch (err: any) {
@@ -55,14 +44,17 @@ export default function OrganizationView() {
     }
   };
 
-  const companyMap = new Map(allCompanies.map((c) => [c.id, c.name]));
+  // PUT /api/v1/update/organization/:publicId — can_update
+  const canUpdate = hasOrganizationPermission(me, "can_update");
+  // DELETE /api/v1/delete/organization/:publicId — can_delete
+  const canDelete = hasOrganizationPermission(me, "can_delete");
 
   return (
     <DetailView
       title={item.name}
-      editPath={`/organization/${id}/edit`}
+      editPath={canUpdate ? `/organization/${publicId}/edit` : undefined}
       breadcrumbs={entityCrumbs("Organizations", "/organization/list", item.name)}
-      onDelete={handleDelete}
+      onDelete={canDelete ? handleDelete : undefined}
       deleting={deleting}
       fields={[
         { label: "Name", value: item.name },

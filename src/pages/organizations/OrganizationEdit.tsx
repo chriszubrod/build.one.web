@@ -1,58 +1,68 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { useEntityItem, updateEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, updateEntity, invalidateEntity } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
-import { getList, post, del } from "../../api/client";
+import { post, del } from "../../api/client";
 import FormField from "../../components/FormField";
-import type {
-  Organization,
-  Company,
-  OrganizationCompany,
-} from "../../types/api";
+import type { Organization, OrganizationCompany } from "../../types/api";
+import { hasOrganizationPermission } from "./organizationPermissions";
+import { useOrganizationCompanies } from "./useOrganizationCompanies";
 
 export default function OrganizationEdit() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { data: me, isLoading: meLoading } = useCurrentUser();
+  const canEdit = hasOrganizationPermission(me, "can_update"); // PUT /api/v1/update/organization/:publicId
   const { item, loading, error } = useEntityItem<Organization>(
-    `/api/v1/get/organization/${id}`,
+    `/api/v1/get/organization/${publicId}`,
   );
   const [form, setForm] = useState<Record<string, any> | null>(null);
+  // Which row seeded `form`. Router reuses this component across
+  // /organization/:publicId/edit params, so seeding on `!form` alone would
+  // carry row A's values (and row_version) onto row B; keying the seed by
+  // public_id re-seeds on row change without clobbering in-progress edits on
+  // a background refetch of the same row.
+  const [formSeedId, setFormSeedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const queryClient = useQueryClient();
 
   // Companies in this organization
-  const [allCompanies, setAllCompanies] = useState<Company[]>([]);
-  const [orgCompanies, setOrgCompanies] = useState<OrganizationCompany[]>([]);
+  const { orgCompanies, setOrgCompanies, allCompanies, companyMap } =
+    useOrganizationCompanies(item);
   const [selectedCompanyId, setSelectedCompanyId] = useState("");
   const [companyLoading, setCompanyLoading] = useState(false);
 
   useEffect(() => {
-    if (!item) return;
-    Promise.all([
-      getList<Company>("/api/v1/get/companies"),
-      getList<OrganizationCompany>(
-        `/api/v1/get/organization_companies/organization/${item.id}`,
-      ),
-    ])
-      .then(([companies, ocs]) => {
-        setAllCompanies(companies.data);
-        setOrgCompanies(ocs.data);
-      })
-      .catch(() => {});
-  }, [item]);
+    setSelectedCompanyId("");
+  }, [item?.public_id]);
 
-  if (item && !form) {
+  if (item && formSeedId !== item.public_id) {
     setForm({
       name: item.name,
       website: item.website ?? "",
       row_version: item.row_version,
     });
+    setFormSeedId(item.public_id);
   }
 
-  if (loading) return <div className="page-loading">Loading...</div>;
+  if (loading || meLoading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
   if (!item || !form) return null;
+
+  if (!canEdit) {
+    return (
+      <div className="page">
+        <div className="page-error">You do not have permission to edit this organization.</div>
+        <button type="button" className="btn btn-secondary" onClick={() => navigate(`/organization/${publicId}`)}>
+          Back to Organization
+        </button>
+      </div>
+    );
+  }
 
   const onChange = (name: string, value: string) =>
     setForm((prev: any) => ({ ...prev, [name]: value }));
@@ -62,12 +72,16 @@ export default function OrganizationEdit() {
     setSaving(true);
     setSaveError("");
     try {
-      await updateEntity(`/api/v1/update/organization/${id}`, {
+      await updateEntity(`/api/v1/update/organization/${publicId}`, {
         row_version: form.row_version,
         name: form.name,
         website: form.website || null,
       });
-      navigate(`/organization/${id}`);
+      await invalidateEntity(queryClient, {
+        listPath: "/api/v1/get/organizations",
+        itemPath: `/api/v1/get/organization/${publicId}`,
+      });
+      navigate(`/organization/${publicId}`);
     } catch (err: any) {
       setSaveError(err.message);
       setSaving(false);
@@ -75,7 +89,6 @@ export default function OrganizationEdit() {
   };
 
   // ---- Companies ----
-  const companyMap = new Map(allCompanies.map((c) => [c.id, c.name]));
   const assignedCompanyIds = new Set(orgCompanies.map((oc) => oc.company_id));
   const availableCompanies = allCompanies.filter(
     (c) => !assignedCompanyIds.has(c.id),
@@ -118,6 +131,9 @@ export default function OrganizationEdit() {
     }
   };
 
+  const canLinkCompany = hasOrganizationPermission(me, "can_create"); // POST /api/v1/create/organization_company — can_create (organization_company router)
+  const canUnlinkCompany = hasOrganizationPermission(me, "can_delete"); // DELETE /api/v1/delete/organization_company/:publicId — can_delete (organization_company router)
+
   return (
     <div className="page">
       <div className="page-header">
@@ -145,7 +161,7 @@ export default function OrganizationEdit() {
           <button
             type="button"
             className="btn btn-secondary"
-            onClick={() => navigate(`/organization/${id}`)}
+            onClick={() => navigate(`/organization/${publicId}`)}
           >
             Cancel
           </button>
@@ -171,13 +187,15 @@ export default function OrganizationEdit() {
                 <tr key={oc.public_id}>
                   <td>{companyMap.get(oc.company_id) ?? oc.company_id}</td>
                   <td>
-                    <button
-                      type="button"
-                      className="btn btn-danger btn-sm"
-                      onClick={() => handleRemoveCompany(oc)}
-                    >
-                      Remove
-                    </button>
+                    {canUnlinkCompany && (
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm"
+                        onClick={() => handleRemoveCompany(oc)}
+                      >
+                        Remove
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -185,7 +203,7 @@ export default function OrganizationEdit() {
           </table>
         )}
 
-        {availableCompanies.length > 0 && (
+        {canLinkCompany && availableCompanies.length > 0 && (
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <select
               className="inline-li-input"
