@@ -92,6 +92,13 @@ const costCodePaths = [
   "/cost-code/abc123/edit",
 ] as const;
 
+const companyPaths = [
+  "/company/list",
+  "/company/create",
+  "/company/abc123",
+  "/company/abc123/edit",
+] as const;
+
 const subCostCodePaths = [
   "/sub-cost-code/list",
   "/sub-cost-code/create",
@@ -130,6 +137,11 @@ describe("appRouteTree — real route tree (U-066)", () => {
       "/budget/:publicId/edit",
       "/budget/create",
       "/budget/list",
+      "/company/*",
+      "/company/:publicId",
+      "/company/:publicId/edit",
+      "/company/create",
+      "/company/list",
       "/contract-labor/*",
       "/contract-labor/:publicId",
       "/contract-labor/:publicId/edit",
@@ -540,6 +552,19 @@ describe("appRouteTree — real route tree (U-066)", () => {
     expect(branchHasLayout(branch, AppLayout)).toBe(true);
   });
 
+  it("/company/abc123/edit resolves to the CompanyEdit page route, not the /company/* splat", () => {
+    const branch = branchFor("/company/abc123/edit");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/company/:publicId/edit");
+  });
+
+  it.each(companyPaths)("%s matches under AppLayout", (path) => {
+    const branch = branchFor(path);
+    expect(branch).not.toBeNull();
+    expect(branchHasLayout(branch, AppLayout)).toBe(true);
+  });
+
   it("/cost-code/abc123/edit resolves to the CostCodeEdit page route, not the /cost-code/* splat", () => {
     const branch = branchFor("/cost-code/abc123/edit");
     expect(branch).not.toBeNull();
@@ -718,6 +743,7 @@ describe("routed <-> nav reconciliation (U-077)", () => {
       "/bill-credit/list",
       "/bill/list",
       "/budget/list",
+      "/company/list",
       "/contract-labor/list",
       "/cost-code/list",
       "/customer/list",

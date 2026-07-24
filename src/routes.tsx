@@ -102,6 +102,10 @@ import SubCostCodeList from "./pages/sub-cost-codes/SubCostCodeList";
 import SubCostCodeView from "./pages/sub-cost-codes/SubCostCodeView";
 import SubCostCodeEdit from "./pages/sub-cost-codes/SubCostCodeEdit";
 import SubCostCodeCreate from "./pages/sub-cost-codes/SubCostCodeCreate";
+import CompanyList from "./pages/companies/CompanyList";
+import CompanyView from "./pages/companies/CompanyView";
+import CompanyEdit from "./pages/companies/CompanyEdit";
+import CompanyCreate from "./pages/companies/CompanyCreate";
 import CustomerList from "./pages/customers/CustomerList";
 import CustomerView from "./pages/customers/CustomerView";
 import CustomerEdit from "./pages/customers/CustomerEdit";
@@ -216,6 +220,12 @@ export const appRouteTree = (
         <Route path="/sub-cost-code/:publicId" element={<SubCostCodeView />} />
         <Route path="/sub-cost-code/:publicId/edit" element={<SubCostCodeEdit />} />
         <Route path="/sub-cost-code/*" element={<Navigate to="/sub-cost-code/list" replace />} />
+
+        <Route path="/company/list" element={<CompanyList />} />
+        <Route path="/company/create" element={<CompanyCreate />} />
+        <Route path="/company/:publicId" element={<CompanyView />} />
+        <Route path="/company/:publicId/edit" element={<CompanyEdit />} />
+        <Route path="/company/*" element={<Navigate to="/company/list" replace />} />
 
         <Route path="/customer/list" element={<CustomerList />} />
         <Route path="/customer/create" element={<CustomerCreate />} />
