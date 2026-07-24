@@ -85,6 +85,13 @@ const vendorTypePaths = [
   "/vendor-type/abc123/edit",
 ] as const;
 
+const costCodePaths = [
+  "/cost-code/list",
+  "/cost-code/create",
+  "/cost-code/abc123",
+  "/cost-code/abc123/edit",
+] as const;
+
 const invoicePaths = [
   "/invoice/list",
   "/invoice/abc123",
@@ -123,6 +130,11 @@ describe("appRouteTree — real route tree (U-066)", () => {
       "/contract-labor/create",
       "/contract-labor/import",
       "/contract-labor/list",
+      "/cost-code/*",
+      "/cost-code/:publicId",
+      "/cost-code/:publicId/edit",
+      "/cost-code/create",
+      "/cost-code/list",
       "/customer/:publicId",
       "/customer/:publicId/edit",
       "/customer/create",
@@ -510,6 +522,49 @@ describe("appRouteTree — real route tree (U-066)", () => {
     });
   });
 
+  it.each(costCodePaths)("%s matches under AppLayout", (path) => {
+    const branch = branchFor(path);
+    expect(branch).not.toBeNull();
+    expect(branchHasLayout(branch, AppLayout)).toBe(true);
+  });
+
+  it("/cost-code/abc123/edit resolves to the CostCodeEdit page route, not the /cost-code/* splat", () => {
+    const branch = branchFor("/cost-code/abc123/edit");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/cost-code/:publicId/edit");
+  });
+
+  it("/cost-code/abc123 resolves to the CostCodeView page route", () => {
+    const branch = branchFor("/cost-code/abc123");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/cost-code/:publicId");
+  });
+
+  describe("/cost-code/* redirect catches unknown cost code children", () => {
+    it("/cost-code last match is /cost-code/* (not AppLayout's * splat)", () => {
+      const branch = branchFor("/cost-code");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/cost-code/*");
+    });
+
+    it("/cost-code/nonsense last match is /cost-code/:publicId (not AppLayout's * splat)", () => {
+      const branch = branchFor("/cost-code/nonsense");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/cost-code/:publicId");
+    });
+
+    it("/cost-code/nonsense/extra last match is /cost-code/* (not AppLayout's * splat)", () => {
+      const branch = branchFor("/cost-code/nonsense/extra");
+      expect(branch).not.toBeNull();
+      const last = branch!.at(-1)!;
+      expect(last.route.path).toBe("/cost-code/*");
+    });
+  });
+
   it.each(invoicePaths)("%s matches under AppLayout", (path) => {
     const branch = branchFor(path);
     expect(branch).not.toBeNull();
@@ -609,6 +664,7 @@ describe("routed <-> nav reconciliation (U-077)", () => {
       "/bill/list",
       "/budget/list",
       "/contract-labor/list",
+      "/cost-code/list",
       "/customer/list",
       "/docs",
       "/employee-labor/list",

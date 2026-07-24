@@ -1,11 +1,15 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { createEntity } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
 import type { CostCode } from "../../types/api";
+import { hasCostCodePermission } from "./costCodePermissions";
 
 export default function CostCodeCreate() {
   const navigate = useNavigate();
+  const { data: me, isLoading: meLoading } = useCurrentUser();
+  const canCreate = hasCostCodePermission(me, "can_create"); // POST /api/v1/create/cost-code
   const [form, setForm] = useState({ number: "", name: "", description: "" });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -28,6 +32,18 @@ export default function CostCodeCreate() {
       setSaving(false);
     }
   };
+
+  if (meLoading) return <div className="page-loading">Loading...</div>;
+  if (!canCreate) {
+    return (
+      <div className="page">
+        <div className="page-error">You do not have permission to create cost codes.</div>
+        <button type="button" className="btn btn-secondary" onClick={() => navigate("/cost-code/list")}>
+          Back to Cost Codes
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="page">

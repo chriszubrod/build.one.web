@@ -1,4 +1,4 @@
-import { BookOpen, Briefcase, Calculator, CircleDollarSign, ClipboardCheck, Clock, FileMinus, FileText, Hammer, HardHat, Receipt, ShieldCheck, Store, Tags, User, UserCog, Users } from "lucide-react";
+import { BookOpen, Briefcase, Calculator, CircleDollarSign, ClipboardCheck, Clock, FileMinus, FileText, Hammer, HardHat, Hash, Receipt, ShieldCheck, Store, Tags, User, UserCog, Users } from "lucide-react";
 import type { ComponentType } from "react";
 import { Modules, type ModuleName } from "../shared/modules";
 import { hasModulePermission } from "../shared/permissions";
@@ -203,6 +203,16 @@ export const MENU_ENTRIES: MenuEntry[] = [
     route: "/profile",
     module: null, // unconditional
     section: "account",
+    priority: 100,
+  },
+  {
+    id: "cost-codes",
+    label: "Cost Codes",
+    icon: Hash,
+    route: "/cost-code/list",
+    module: Modules.COST_CODES,
+    permission: "can_read",
+    section: "reference",
     priority: 100,
   },
   {
