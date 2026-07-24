@@ -1,16 +1,19 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useEntityItem, deleteEntity } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
 import DetailView from "../../components/DetailView";
 import { entityCrumbs } from "../../components/Breadcrumb";
 import type { PaymentTerm } from "../../types/api";
+import { hasPaymentTermPermission } from "./paymentTermPermissions";
 
 export default function PaymentTermView() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { item, loading, error } = useEntityItem<PaymentTerm>(`/api/v1/get/payment-term/${id}`);
+  const { data: me } = useCurrentUser();
+  const { item, loading, error } = useEntityItem<PaymentTerm>(`/api/v1/get/payment-term/${publicId}`);
   const [deleting, setDeleting] = useState(false);
 
   if (loading) return <div className="page-loading">Loading...</div>;
@@ -21,7 +24,7 @@ export default function PaymentTermView() {
     if (!confirm("Delete this payment term?")) return;
     setDeleting(true);
     try {
-      await deleteEntity(`/api/v1/delete/payment-term/${id}`);
+      await deleteEntity(`/api/v1/delete/payment-term/${publicId}`);
       toast("Payment term deleted.");
       navigate("/payment-term/list");
     } catch (err: any) {
@@ -30,12 +33,17 @@ export default function PaymentTermView() {
     }
   };
 
+  // PUT /api/v1/update/payment-term/:publicId — BILLS can_update
+  const canUpdate = hasPaymentTermPermission(me, "can_update");
+  // DELETE /api/v1/delete/payment-term/:publicId — BILLS can_delete
+  const canDelete = hasPaymentTermPermission(me, "can_delete");
+
   return (
     <DetailView
       title={item.name ?? "Payment Term"}
-      editPath={`/payment-term/${id}/edit`}
+      editPath={canUpdate ? `/payment-term/${publicId}/edit` : undefined}
       breadcrumbs={entityCrumbs("Payment Terms", "/payment-term/list", item.name ?? "")}
-      onDelete={handleDelete}
+      onDelete={canDelete ? handleDelete : undefined}
       deleting={deleting}
       fields={[
         { label: "Name", value: item.name },

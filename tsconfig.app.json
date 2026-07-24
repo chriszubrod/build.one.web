@@ -39,7 +39,6 @@
     "src/pages/invoices/InvoiceEdit.tsx",
     "src/pages/legal/**",
     "src/pages/modules/**",
-    "src/pages/payment-terms/**",
     "src/pages/project-addresses/**",
     "src/pages/projects/**",
     "src/pages/review-statuses/**",

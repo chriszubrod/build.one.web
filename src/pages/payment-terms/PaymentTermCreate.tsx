@@ -1,11 +1,15 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { createEntity } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
 import type { PaymentTerm } from "../../types/api";
+import { hasPaymentTermPermission } from "./paymentTermPermissions";
 
 export default function PaymentTermCreate() {
   const navigate = useNavigate();
+  const { data: me, isLoading: meLoading } = useCurrentUser();
+  const canCreate = hasPaymentTermPermission(me, "can_create"); // POST /api/v1/create/payment-term
   const [form, setForm] = useState({
     name: "",
     description: "",
@@ -38,6 +42,18 @@ export default function PaymentTermCreate() {
       setSaving(false);
     }
   };
+
+  if (meLoading) return <div className="page-loading">Loading...</div>;
+  if (!canCreate) {
+    return (
+      <div className="page">
+        <div className="page-error">You do not have permission to create payment terms.</div>
+        <button type="button" className="btn btn-secondary" onClick={() => navigate("/payment-term/list")}>
+          Back to Payment Terms
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="page">

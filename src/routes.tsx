@@ -102,6 +102,10 @@ import SubCostCodeList from "./pages/sub-cost-codes/SubCostCodeList";
 import SubCostCodeView from "./pages/sub-cost-codes/SubCostCodeView";
 import SubCostCodeEdit from "./pages/sub-cost-codes/SubCostCodeEdit";
 import SubCostCodeCreate from "./pages/sub-cost-codes/SubCostCodeCreate";
+import PaymentTermList from "./pages/payment-terms/PaymentTermList";
+import PaymentTermView from "./pages/payment-terms/PaymentTermView";
+import PaymentTermEdit from "./pages/payment-terms/PaymentTermEdit";
+import PaymentTermCreate from "./pages/payment-terms/PaymentTermCreate";
 import CompanyList from "./pages/companies/CompanyList";
 import CompanyView from "./pages/companies/CompanyView";
 import CompanyEdit from "./pages/companies/CompanyEdit";
@@ -228,6 +232,12 @@ export const appRouteTree = (
         <Route path="/sub-cost-code/:publicId" element={<SubCostCodeView />} />
         <Route path="/sub-cost-code/:publicId/edit" element={<SubCostCodeEdit />} />
         <Route path="/sub-cost-code/*" element={<Navigate to="/sub-cost-code/list" replace />} />
+
+        <Route path="/payment-term/list" element={<PaymentTermList />} />
+        <Route path="/payment-term/create" element={<PaymentTermCreate />} />
+        <Route path="/payment-term/:publicId" element={<PaymentTermView />} />
+        <Route path="/payment-term/:publicId/edit" element={<PaymentTermEdit />} />
+        <Route path="/payment-term/*" element={<Navigate to="/payment-term/list" replace />} />
 
         <Route path="/company/list" element={<CompanyList />} />
         <Route path="/company/create" element={<CompanyCreate />} />

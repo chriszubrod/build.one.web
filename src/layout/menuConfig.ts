@@ -1,4 +1,4 @@
-import { BookOpen, Briefcase, Building2, Calculator, CircleDollarSign, ClipboardCheck, Clock, FileMinus, FileText, Hammer, HardHat, Hash, KeyRound, Layers, Network, Receipt, ShieldCheck, Store, Tags, User, UserCog, Users } from "lucide-react";
+import { BookOpen, Briefcase, Building2, Calculator, CalendarClock, CircleDollarSign, ClipboardCheck, Clock, FileMinus, FileText, Hammer, HardHat, Hash, KeyRound, Layers, Network, Receipt, ShieldCheck, Store, Tags, User, UserCog, Users } from "lucide-react";
 import type { ComponentType } from "react";
 import { Modules, type ModuleName } from "../shared/modules";
 import { hasModulePermission } from "../shared/permissions";
@@ -254,6 +254,17 @@ export const MENU_ENTRIES: MenuEntry[] = [
     permission: "can_read",
     section: "reference",
     priority: 195,
+  },
+  {
+    // payment_term API router gates on the shared Bills module (no separate module)
+    id: "payment-terms",
+    label: "Payment Terms",
+    icon: CalendarClock,
+    route: "/payment-term/list",
+    module: Modules.BILLS,
+    permission: "can_read",
+    section: "reference",
+    priority: 198,
   },
   {
     id: "docs",

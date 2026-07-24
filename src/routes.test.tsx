@@ -120,6 +120,13 @@ const subCostCodePaths = [
   "/sub-cost-code/abc123/edit",
 ] as const;
 
+const paymentTermPaths = [
+  "/payment-term/list",
+  "/payment-term/create",
+  "/payment-term/abc123",
+  "/payment-term/abc123/edit",
+] as const;
+
 const invoicePaths = [
   "/invoice/list",
   "/invoice/abc123",
@@ -196,6 +203,11 @@ describe("appRouteTree — real route tree (U-066)", () => {
       "/organization/:publicId/edit",
       "/organization/create",
       "/organization/list",
+      "/payment-term/*",
+      "/payment-term/:publicId",
+      "/payment-term/:publicId/edit",
+      "/payment-term/create",
+      "/payment-term/list",
       "/profile",
       "/profile/appearance",
       "/profile/details",
@@ -674,11 +686,24 @@ describe("appRouteTree — real route tree (U-066)", () => {
     expect(branchHasLayout(branch, AppLayout)).toBe(true);
   });
 
+  it.each(paymentTermPaths)("%s matches under AppLayout", (path) => {
+    const branch = branchFor(path);
+    expect(branch).not.toBeNull();
+    expect(branchHasLayout(branch, AppLayout)).toBe(true);
+  });
+
   it("/sub-cost-code/abc123/edit resolves to the SubCostCodeEdit page route, not the /sub-cost-code/* splat", () => {
     const branch = branchFor("/sub-cost-code/abc123/edit");
     expect(branch).not.toBeNull();
     const last = branch!.at(-1)!;
     expect(last.route.path).toBe("/sub-cost-code/:publicId/edit");
+  });
+
+  it("/payment-term/abc123/edit resolves to the PaymentTermEdit page route, not the /payment-term/* splat", () => {
+    const branch = branchFor("/payment-term/abc123/edit");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/payment-term/:publicId/edit");
   });
 
   it("/sub-cost-code/abc123 resolves to the SubCostCodeView page route", () => {
@@ -820,6 +845,7 @@ describe("routed <-> nav reconciliation (U-077)", () => {
       "/invoice/list",
       "/labor/list",
       "/organization/list",
+      "/payment-term/list",
       "/profile",
       "/project/list",
       "/role/list",
