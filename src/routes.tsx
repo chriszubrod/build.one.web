@@ -110,6 +110,10 @@ import OrganizationList from "./pages/organizations/OrganizationList";
 import OrganizationView from "./pages/organizations/OrganizationView";
 import OrganizationEdit from "./pages/organizations/OrganizationEdit";
 import OrganizationCreate from "./pages/organizations/OrganizationCreate";
+import RoleList from "./pages/roles/RoleList";
+import RoleView from "./pages/roles/RoleView";
+import RoleEdit from "./pages/roles/RoleEdit";
+import RoleCreate from "./pages/roles/RoleCreate";
 import CustomerList from "./pages/customers/CustomerList";
 import CustomerView from "./pages/customers/CustomerView";
 import CustomerEdit from "./pages/customers/CustomerEdit";
@@ -236,6 +240,12 @@ export const appRouteTree = (
         <Route path="/organization/:publicId" element={<OrganizationView />} />
         <Route path="/organization/:publicId/edit" element={<OrganizationEdit />} />
         <Route path="/organization/*" element={<Navigate to="/organization/list" replace />} />
+
+        <Route path="/role/list" element={<RoleList />} />
+        <Route path="/role/create" element={<RoleCreate />} />
+        <Route path="/role/:publicId" element={<RoleView />} />
+        <Route path="/role/:publicId/edit" element={<RoleEdit />} />
+        <Route path="/role/*" element={<Navigate to="/role/list" replace />} />
 
         <Route path="/customer/list" element={<CustomerList />} />
         <Route path="/customer/create" element={<CustomerCreate />} />

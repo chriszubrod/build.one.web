@@ -106,6 +106,13 @@ const organizationPaths = [
   "/organization/abc123/edit",
 ] as const;
 
+const rolePaths = [
+  "/role/list",
+  "/role/create",
+  "/role/abc123",
+  "/role/abc123/edit",
+] as const;
+
 const subCostCodePaths = [
   "/sub-cost-code/list",
   "/sub-cost-code/create",
@@ -196,6 +203,11 @@ describe("appRouteTree — real route tree (U-066)", () => {
       "/profile/security",
       "/project/:publicId",
       "/project/list",
+      "/role/*",
+      "/role/:publicId",
+      "/role/:publicId/edit",
+      "/role/create",
+      "/role/list",
       "/sub-cost-code/*",
       "/sub-cost-code/:publicId",
       "/sub-cost-code/:publicId/edit",
@@ -583,6 +595,12 @@ describe("appRouteTree — real route tree (U-066)", () => {
     expect(branchHasLayout(branch, AppLayout)).toBe(true);
   });
 
+  it.each(rolePaths)("%s matches under AppLayout", (path) => {
+    const branch = branchFor(path);
+    expect(branch).not.toBeNull();
+    expect(branchHasLayout(branch, AppLayout)).toBe(true);
+  });
+
   describe("/organization/* redirect catches unknown organization children", () => {
     it.each(["/organization", "/organization/foo/bar"] as const)(
       "%s last match is /organization/* with redirect to list",
@@ -594,6 +612,21 @@ describe("appRouteTree — real route tree (U-066)", () => {
         const el = last.route.element as ReactElement<{ to: string }> | undefined;
         expect(el?.type).toBe(Navigate);
         expect(el?.props.to).toBe("/organization/list");
+      },
+    );
+  });
+
+  describe("/role/* redirect catches unknown role children", () => {
+    it.each(["/role", "/role/foo/bar"] as const)(
+      "%s last match is /role/* with redirect to list",
+      (path) => {
+        const branch = branchFor(path);
+        expect(branch).not.toBeNull();
+        const last = branch!.at(-1)!;
+        expect(last.route.path).toBe("/role/*");
+        const el = last.route.element as ReactElement<{ to: string }> | undefined;
+        expect(el?.type).toBe(Navigate);
+        expect(el?.props.to).toBe("/role/list");
       },
     );
   });
@@ -789,6 +822,7 @@ describe("routed <-> nav reconciliation (U-077)", () => {
       "/organization/list",
       "/profile",
       "/project/list",
+      "/role/list",
       "/sub-cost-code/list",
       "/time-entry/list",
       "/vendor-compliance",

@@ -1,18 +1,22 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { createEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { createEntity, invalidateEntity } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
 import type { Role } from "../../types/api";
+import { hasRolePermission } from "./rolePermissions";
 
 export default function RoleCreate() {
   const navigate = useNavigate();
+  const { data: me, isLoading: meLoading } = useCurrentUser();
+  const canCreate = hasRolePermission(me, "can_create"); // POST /api/v1/create/role
   const [form, setForm] = useState({ name: "" });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const queryClient = useQueryClient();
 
-  const onChange = (name: string, value: string) => {
-    setForm((prev) => ({ ...prev, [name]: value }));
-  };
+  const onChange = (name: string, value: string) => setForm((prev) => ({ ...prev, [name]: value }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,12 +24,25 @@ export default function RoleCreate() {
     setSaveError("");
     try {
       const created = await createEntity<Role>("/api/v1/create/role", { name: form.name });
+      await invalidateEntity(queryClient, { listPath: "/api/v1/get/roles" });
       navigate(`/role/${created.public_id}`);
     } catch (err: any) {
       setSaveError(err.message);
       setSaving(false);
     }
   };
+
+  if (meLoading) return <div className="page-loading">Loading...</div>;
+  if (!canCreate) {
+    return (
+      <div className="page">
+        <div className="page-error">You do not have permission to create roles.</div>
+        <button type="button" className="btn btn-secondary" onClick={() => navigate("/role/list")}>
+          Back to Roles
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="page">

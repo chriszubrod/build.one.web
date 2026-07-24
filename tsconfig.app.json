@@ -44,7 +44,6 @@
     "src/pages/projects/**",
     "src/pages/review-statuses/**",
     "src/pages/role-modules/**",
-    "src/pages/roles/**",
     "src/pages/taxpayers/**",
     "src/pages/user-modules/**",
     "src/pages/user-projects/**",

@@ -1,17 +1,24 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useEntityItem, deleteEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, deleteEntity, removeEntity } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
 import DetailView from "../../components/DetailView";
 import { entityCrumbs } from "../../components/Breadcrumb";
 import type { Role } from "../../types/api";
+import { hasRolePermission } from "./rolePermissions";
 
 export default function RoleView() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { item, loading, error } = useEntityItem<Role>(`/api/v1/get/role/${id}`);
+  const { data: me } = useCurrentUser();
+  const { item, loading, error } = useEntityItem<Role>(
+    `/api/v1/get/role/${publicId}`,
+  );
   const [deleting, setDeleting] = useState(false);
+  const queryClient = useQueryClient();
 
   if (loading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
@@ -21,7 +28,11 @@ export default function RoleView() {
     if (!confirm("Delete this role?")) return;
     setDeleting(true);
     try {
-      await deleteEntity(`/api/v1/delete/role/${id}`);
+      await deleteEntity(`/api/v1/delete/role/${publicId}`);
+      await removeEntity(queryClient, {
+        listPath: "/api/v1/get/roles",
+        itemPath: `/api/v1/get/role/${publicId}`,
+      });
       toast("Role deleted.");
       navigate("/role/list");
     } catch (err: any) {
@@ -30,12 +41,17 @@ export default function RoleView() {
     }
   };
 
+  // PUT /api/v1/update/role/:publicId — can_update
+  const canUpdate = hasRolePermission(me, "can_update");
+  // DELETE /api/v1/delete/role/:publicId — can_delete
+  const canDelete = hasRolePermission(me, "can_delete");
+
   return (
     <DetailView
       title={item.name}
-      editPath={`/role/${id}/edit`}
+      editPath={canUpdate ? `/role/${publicId}/edit` : undefined}
       breadcrumbs={entityCrumbs("Roles", "/role/list", item.name)}
-      onDelete={handleDelete}
+      onDelete={canDelete ? handleDelete : undefined}
       deleting={deleting}
       fields={[
         { label: "Name", value: item.name },

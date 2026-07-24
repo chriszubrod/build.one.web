@@ -1,39 +1,71 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useEntityItem, updateEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, updateEntity, invalidateEntity } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
 import type { Role } from "../../types/api";
+import { hasRolePermission } from "./rolePermissions";
 
 export default function RoleEdit() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
-  const { item, loading, error } = useEntityItem<Role>(`/api/v1/get/role/${id}`);
+  const { data: me, isLoading: meLoading } = useCurrentUser();
+  const canEdit = hasRolePermission(me, "can_update"); // PUT /api/v1/update/role/:publicId
+  const { item, loading, error } = useEntityItem<Role>(
+    `/api/v1/get/role/${publicId}`,
+  );
   const [form, setForm] = useState<Record<string, any> | null>(null);
+  // Which row seeded `form`. Router reuses this component across
+  // /role/:publicId/edit params, so seeding on `!form` alone would
+  // carry row A's values (and row_version) onto row B; keying the seed by
+  // public_id re-seeds on row change without clobbering in-progress edits on
+  // a background refetch of the same row.
+  const [formSeedId, setFormSeedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const queryClient = useQueryClient();
 
-  if (item && !form) {
-    setForm({ name: item.name, row_version: item.row_version });
+  if (item && formSeedId !== item.public_id) {
+    setForm({
+      name: item.name,
+      row_version: item.row_version,
+    });
+    setFormSeedId(item.public_id);
   }
 
-  if (loading) return <div className="page-loading">Loading...</div>;
+  if (loading || meLoading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
-  if (!form) return null;
+  if (!item || !form) return null;
 
-  const onChange = (name: string, value: string) => {
+  if (!canEdit) {
+    return (
+      <div className="page">
+        <div className="page-error">You do not have permission to edit this role.</div>
+        <button type="button" className="btn btn-secondary" onClick={() => navigate(`/role/${publicId}`)}>
+          Back to Role
+        </button>
+      </div>
+    );
+  }
+
+  const onChange = (name: string, value: string) =>
     setForm((prev: any) => ({ ...prev, [name]: value }));
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setSaveError("");
     try {
-      await updateEntity(`/api/v1/update/role/${id}`, {
+      await updateEntity(`/api/v1/update/role/${publicId}`, {
         row_version: form.row_version,
         name: form.name,
       });
-      navigate(`/role/${id}`);
+      await invalidateEntity(queryClient, {
+        listPath: "/api/v1/get/roles",
+        itemPath: `/api/v1/get/role/${publicId}`,
+      });
+      navigate(`/role/${publicId}`);
     } catch (err: any) {
       setSaveError(err.message);
       setSaving(false);
@@ -48,7 +80,7 @@ export default function RoleEdit() {
         <FormField label="Name" name="name" value={form.name} onChange={onChange} required />
         <div className="form-actions">
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving..." : "Save"}</button>
-          <button type="button" className="btn btn-secondary" onClick={() => navigate(`/role/${id}`)}>Cancel</button>
+          <button type="button" className="btn btn-secondary" onClick={() => navigate(`/role/${publicId}`)}>Cancel</button>
         </div>
       </form>
     </div>

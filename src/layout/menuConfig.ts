@@ -1,4 +1,4 @@
-import { BookOpen, Briefcase, Building2, Calculator, CircleDollarSign, ClipboardCheck, Clock, FileMinus, FileText, Hammer, HardHat, Hash, Layers, Network, Receipt, ShieldCheck, Store, Tags, User, UserCog, Users } from "lucide-react";
+import { BookOpen, Briefcase, Building2, Calculator, CircleDollarSign, ClipboardCheck, Clock, FileMinus, FileText, Hammer, HardHat, Hash, KeyRound, Layers, Network, Receipt, ShieldCheck, Store, Tags, User, UserCog, Users } from "lucide-react";
 import type { ComponentType } from "react";
 import { Modules, type ModuleName } from "../shared/modules";
 import { hasModulePermission } from "../shared/permissions";
@@ -244,6 +244,16 @@ export const MENU_ENTRIES: MenuEntry[] = [
     permission: "can_read",
     section: "reference",
     priority: 185,
+  },
+  {
+    id: "roles",
+    label: "Roles",
+    icon: KeyRound,
+    route: "/role/list",
+    module: Modules.ROLES,
+    permission: "can_read",
+    section: "reference",
+    priority: 195,
   },
   {
     id: "docs",
