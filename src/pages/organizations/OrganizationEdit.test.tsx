@@ -4,7 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useNavigate, type NavigateFunction } from "react-router-dom";
 import OrganizationEdit from "./OrganizationEdit";
-import { entityItemKey } from "../../hooks/useEntity";
+import { assertGuardSurvivesSameRowRefetch } from "../../__testutils__/formSeedGuardHarness";
+import { flushUntil as waitForCondition } from "../../__testutils__/flush";
 import type { CurrentUser, Organization } from "../../types/api";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -79,12 +80,10 @@ function NavCapture() {
   return null;
 }
 
-function renderOrganizationEdit(root: Root, queryClient?: QueryClient) {
-  const client =
-    queryClient ??
-    new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
+function renderOrganizationEdit(root: Root) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   act(() => {
     root.render(
       createElement(
@@ -120,15 +119,6 @@ async function flushMicrotasks() {
   });
 }
 
-async function waitForCondition(check: () => boolean) {
-  await act(async () => {
-    for (let i = 0; i < 50; i++) {
-      await vi.advanceTimersByTimeAsync(0);
-      await Promise.resolve();
-      if (check()) return;
-    }
-  });
-}
 
 function nameInput(): HTMLInputElement | null {
   return container.querySelector("#name");
@@ -246,43 +236,24 @@ describe("OrganizationEdit form re-seed on route param change (U-145)", () => {
   });
 
   it("does not clobber in-progress edits on same-publicId background refetch", async () => {
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
+    await assertGuardSurvivesSameRowRefetch({
+      container,
+      root,
+      component: createElement(OrganizationEdit),
+      routePath: "/organization/:publicId/edit",
+      initialEntry: "/organization/org-a/edit",
+      itemPath: ORG_A_GET_PATH,
+      mockGetOne,
+      fieldSelector: "#name",
+      seededValue: "row A",
+      editedValue: "user edited name",
+      refreshedRow: sampleOrganization({
+        row_version: "rv-a-refreshed",
+        name: "server refreshed name",
+        website: "https://refreshed.example",
+      }),
+      untouched: { selector: "#website", expected: "https://a.example" },
     });
-
-    renderOrganizationEdit(root, queryClient);
-    await flushMicrotasks();
-    await waitForRowAForm();
-
-    const editedName = "user edited name";
-    const input = nameInput();
-    expect(input).not.toBeNull();
-
-    await act(async () => {
-      input!.value = editedName;
-      input!.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    expect(nameInput()?.value).toBe(editedName);
-
-    mockGetOne.mockImplementation((path: string) => {
-      if (path === ORG_A_GET_PATH) {
-        return Promise.resolve(
-          sampleOrganization({
-            row_version: "rv-a-refreshed",
-            name: "server refreshed name",
-            website: "https://refreshed.example",
-          }),
-        );
-      }
-      return Promise.reject(new Error(`unexpected getOne: ${path}`));
-    });
-
-    await act(async () => {
-      await queryClient.invalidateQueries({ queryKey: entityItemKey(ORG_A_GET_PATH) });
-      await flushMicrotasks();
-    });
-
-    expect(nameInput()?.value).toBe(editedName);
   });
 
   it("refuse-renders the form without Organizations can_update", async () => {

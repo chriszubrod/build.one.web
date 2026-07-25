@@ -4,7 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useNavigate, type NavigateFunction } from "react-router-dom";
 import CompanyEdit from "./CompanyEdit";
-import { entityItemKey } from "../../hooks/useEntity";
+import { assertGuardSurvivesSameRowRefetch } from "../../__testutils__/formSeedGuardHarness";
+import { flushUntil as waitForCondition } from "../../__testutils__/flush";
 import type { CurrentUser, Company } from "../../types/api";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -79,12 +80,10 @@ function NavCapture() {
   return null;
 }
 
-function renderCompanyEdit(root: Root, queryClient?: QueryClient) {
-  const client =
-    queryClient ??
-    new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
+function renderCompanyEdit(root: Root) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   act(() => {
     root.render(
       createElement(
@@ -120,15 +119,6 @@ async function flushMicrotasks() {
   });
 }
 
-async function waitForCondition(check: () => boolean) {
-  await act(async () => {
-    for (let i = 0; i < 50; i++) {
-      await vi.advanceTimersByTimeAsync(0);
-      await Promise.resolve();
-      if (check()) return;
-    }
-  });
-}
 
 function nameInput(): HTMLInputElement | null {
   return container.querySelector("#name");
@@ -245,43 +235,24 @@ describe("CompanyEdit form re-seed on route param change (U-143)", () => {
   });
 
   it("does not clobber in-progress edits on same-publicId background refetch", async () => {
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
+    await assertGuardSurvivesSameRowRefetch({
+      container,
+      root,
+      component: createElement(CompanyEdit),
+      routePath: "/company/:publicId/edit",
+      initialEntry: "/company/co-a/edit",
+      itemPath: CO_A_GET_PATH,
+      mockGetOne,
+      fieldSelector: "#name",
+      seededValue: "row A",
+      editedValue: "user edited name",
+      refreshedRow: sampleCompany({
+        row_version: "rv-a-refreshed",
+        name: "server refreshed name",
+        website: "https://refreshed.example",
+      }),
+      untouched: { selector: "#website", expected: "https://a.example" },
     });
-
-    renderCompanyEdit(root, queryClient);
-    await flushMicrotasks();
-    await waitForRowAForm();
-
-    const editedName = "user edited name";
-    const input = nameInput();
-    expect(input).not.toBeNull();
-
-    await act(async () => {
-      input!.value = editedName;
-      input!.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    expect(nameInput()?.value).toBe(editedName);
-
-    mockGetOne.mockImplementation((path: string) => {
-      if (path === CO_A_GET_PATH) {
-        return Promise.resolve(
-          sampleCompany({
-            row_version: "rv-a-refreshed",
-            name: "server refreshed name",
-            website: "https://refreshed.example",
-          }),
-        );
-      }
-      return Promise.reject(new Error(`unexpected getOne: ${path}`));
-    });
-
-    await act(async () => {
-      await queryClient.invalidateQueries({ queryKey: entityItemKey(CO_A_GET_PATH) });
-      await flushMicrotasks();
-    });
-
-    expect(nameInput()?.value).toBe(editedName);
   });
 
   it("refuse-renders the form without Companies can_update", async () => {

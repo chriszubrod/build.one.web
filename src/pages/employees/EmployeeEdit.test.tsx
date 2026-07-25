@@ -4,7 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useNavigate, type NavigateFunction } from "react-router-dom";
 import EmployeeEdit from "./EmployeeEdit";
-import { entityItemKey } from "../../hooks/useEntity";
+import { assertGuardSurvivesSameRowRefetch } from "../../__testutils__/formSeedGuardHarness";
+import { flushUntil as waitForCondition } from "../../__testutils__/flush";
 import type { CurrentUser, Employee } from "../../types/api";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -82,12 +83,10 @@ function NavCapture() {
   return null;
 }
 
-function renderEmployeeEdit(root: Root, queryClient?: QueryClient) {
-  const client =
-    queryClient ??
-    new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
+function renderEmployeeEdit(root: Root) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   act(() => {
     root.render(
       createElement(
@@ -123,15 +122,6 @@ async function flushMicrotasks() {
   });
 }
 
-async function waitForCondition(check: () => boolean) {
-  await act(async () => {
-    for (let i = 0; i < 50; i++) {
-      await vi.advanceTimersByTimeAsync(0);
-      await Promise.resolve();
-      if (check()) return;
-    }
-  });
-}
 
 function firstnameInput(): HTMLInputElement | null {
   return container.querySelector<HTMLInputElement>("#firstname");
@@ -139,15 +129,6 @@ function firstnameInput(): HTMLInputElement | null {
 
 function lastnameInput(): HTMLInputElement | null {
   return container.querySelector<HTMLInputElement>("#lastname");
-}
-
-function setInputValue(input: HTMLInputElement, value: string) {
-  const nativeSetter = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    "value",
-  )!.set!;
-  nativeSetter.call(input, value);
-  input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 let container: HTMLDivElement;
@@ -254,51 +235,24 @@ describe("EmployeeEdit form re-seed on route param change (U-151)", () => {
   });
 
   it("does not clobber in-progress edits on same-publicId background refetch", async () => {
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
+    await assertGuardSurvivesSameRowRefetch({
+      container,
+      root,
+      component: createElement(EmployeeEdit),
+      routePath: "/employee/:publicId/edit",
+      initialEntry: "/employee/employee-a/edit",
+      itemPath: EMPLOYEE_A_GET_PATH,
+      mockGetOne,
+      fieldSelector: "#firstname",
+      seededValue: "row",
+      editedValue: "user edited name",
+      refreshedRow: sampleEmployee({
+        row_version: "rv-a-refreshed",
+        firstname: "server refreshed name",
+        lastname: "server refreshed last",
+      }),
+      untouched: { selector: "#lastname", expected: "A" },
     });
-
-    renderEmployeeEdit(root, queryClient);
-    await flushMicrotasks();
-    await waitForRow("A");
-
-    const editedFirstname = "user edited name";
-    const input = firstnameInput();
-    expect(input).not.toBeNull();
-
-    await act(async () => {
-      setInputValue(input!, editedFirstname);
-    });
-    await flushMicrotasks();
-    expect(firstnameInput()?.value).toBe(editedFirstname);
-
-    const getOneCallsBeforeRefetch = mockGetOne.mock.calls.length;
-
-    mockGetOne.mockImplementation((path: string) => {
-      if (path === EMPLOYEE_A_GET_PATH) {
-        return Promise.resolve(
-          sampleEmployee({
-            row_version: "rv-a-refreshed",
-            firstname: "server refreshed name",
-          }),
-        );
-      }
-      return Promise.reject(new Error(`unexpected getOne: ${path}`));
-    });
-
-    await act(async () => {
-      await queryClient.invalidateQueries({ queryKey: entityItemKey(EMPLOYEE_A_GET_PATH) });
-      await flushMicrotasks();
-    });
-
-    expect(mockGetOne.mock.calls.length).toBeGreaterThan(getOneCallsBeforeRefetch);
-    expect(mockGetOne.mock.calls.at(-1)?.[0]).toBe(EMPLOYEE_A_GET_PATH);
-    await waitForCondition(() => {
-      const cached = queryClient.getQueryData<Employee>(entityItemKey(EMPLOYEE_A_GET_PATH));
-      return cached?.row_version === "rv-a-refreshed";
-    });
-
-    expect(firstnameInput()?.value).toBe(editedFirstname);
   });
 
   it("refuse-renders the form without Employees can_update", async () => {
