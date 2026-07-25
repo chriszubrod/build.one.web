@@ -1,11 +1,17 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { createEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { createEntity, invalidateEntity } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
+import TextareaField from "../../components/TextareaField";
 import type { Employee } from "../../types/api";
+import { hasEmployeePermission } from "./employeePermissions";
 
 export default function EmployeeCreate() {
   const navigate = useNavigate();
+  const { data: me, isLoading: meLoading } = useCurrentUser();
+  const canCreate = hasEmployeePermission(me, "can_create"); // POST /api/v1/create/employee
   const [form, setForm] = useState({
     firstname: "",
     lastname: "",
@@ -17,6 +23,7 @@ export default function EmployeeCreate() {
   });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const queryClient = useQueryClient();
 
   const onChange = (name: string, value: any) => {
     setForm((f) => ({ ...f, [name]: value }));
@@ -36,12 +43,25 @@ export default function EmployeeCreate() {
         is_active: form.is_active,
         notes: form.notes || null,
       });
+      await invalidateEntity(queryClient, { listPath: "/api/v1/get/employees" });
       navigate(`/employee/${created.public_id}`);
     } catch (err: any) {
       setSaveError(err.message);
       setSaving(false);
     }
   };
+
+  if (meLoading) return <div className="page-loading">Loading...</div>;
+  if (!canCreate) {
+    return (
+      <div className="page">
+        <div className="page-error">You do not have permission to create employees.</div>
+        <button type="button" className="btn btn-secondary" onClick={() => navigate("/employee/list")}>
+          Back to Employees
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="page">
@@ -63,10 +83,10 @@ export default function EmployeeCreate() {
             Active
           </label>
         </div>
-        <FormField label="Notes" name="notes" value={form.notes} onChange={onChange} multiline />
+        <TextareaField label="Notes" name="notes" value={form.notes} onChange={onChange} rows={4} />
         <div className="form-actions">
           <button type="submit" className="btn btn-primary" disabled={saving}>
-            {saving ? "Saving..." : "Create"}
+            {saving ? "Creating..." : "Create"}
           </button>
           <button type="button" className="btn btn-secondary" onClick={() => navigate("/employee/list")}>
             Cancel

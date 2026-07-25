@@ -80,6 +80,10 @@ import ContractLaborEdit from "./pages/contract-labor/ContractLaborEdit";
 import EmployeeLaborList from "./pages/employee-labor/EmployeeLaborList";
 import EmployeeLaborView from "./pages/employee-labor/EmployeeLaborView";
 import EmployeeLaborEdit from "./pages/employee-labor/EmployeeLaborEdit";
+import EmployeeList from "./pages/employees/EmployeeList";
+import EmployeeView from "./pages/employees/EmployeeView";
+import EmployeeEdit from "./pages/employees/EmployeeEdit";
+import EmployeeCreate from "./pages/employees/EmployeeCreate";
 
 import ExpenseCodingCockpit from "./pages/expense-coding/ExpenseCodingCockpit";
 import VendorComplianceDashboard from "./pages/vendor-compliance/VendorComplianceDashboard";
@@ -209,6 +213,12 @@ export const appRouteTree = (
         <Route path="/employee-labor/:publicId" element={<EmployeeLaborView />} />
         <Route path="/employee-labor/:publicId/edit" element={<EmployeeLaborEdit />} />
         <Route path="/employee-labor/*" element={<Navigate to="/employee-labor/list" replace />} />
+
+        <Route path="/employee/list" element={<EmployeeList />} />
+        <Route path="/employee/create" element={<EmployeeCreate />} />
+        <Route path="/employee/:publicId" element={<EmployeeView />} />
+        <Route path="/employee/:publicId/edit" element={<EmployeeEdit />} />
+        <Route path="/employee/*" element={<Navigate to="/employee/list" replace />} />
 
         <Route path="/vendor/list" element={<VendorList />} />
         <Route path="/vendor/create" element={<VendorCreate />} />

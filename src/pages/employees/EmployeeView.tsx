@@ -1,17 +1,24 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useEntityItem, deleteEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, deleteEntity, removeEntity } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
 import DetailView from "../../components/DetailView";
 import { entityCrumbs } from "../../components/Breadcrumb";
 import type { Employee } from "../../types/api";
+import { hasEmployeePermission } from "./employeePermissions";
 
 export default function EmployeeView() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { item, loading, error } = useEntityItem<Employee>(`/api/v1/get/employee/${id}`);
+  const { data: me } = useCurrentUser();
+  const { item, loading, error } = useEntityItem<Employee>(
+    `/api/v1/get/employee/${publicId}`,
+  );
   const [deleting, setDeleting] = useState(false);
+  const queryClient = useQueryClient();
 
   if (loading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
@@ -21,7 +28,11 @@ export default function EmployeeView() {
     if (!confirm("Delete this employee?")) return;
     setDeleting(true);
     try {
-      await deleteEntity(`/api/v1/delete/employee/${id}`);
+      await deleteEntity(`/api/v1/delete/employee/${publicId}`);
+      await removeEntity(queryClient, {
+        listPath: "/api/v1/get/employees",
+        itemPath: `/api/v1/get/employee/${publicId}`,
+      });
       toast("Employee deleted.");
       navigate("/employee/list");
     } catch (err: any) {
@@ -34,12 +45,17 @@ export default function EmployeeView() {
   const markupDisplay = item.markup ? `${(Number(item.markup) * 100).toFixed(0)}%` : "—";
   const rateDisplay = item.hourly_rate ? `$${item.hourly_rate}` : "—";
 
+  // PUT /api/v1/update/employee/:publicId — can_update
+  const canUpdate = hasEmployeePermission(me, "can_update");
+  // DELETE /api/v1/delete/employee/:publicId — can_delete
+  const canDelete = hasEmployeePermission(me, "can_delete");
+
   return (
     <DetailView
       title={fullName}
-      editPath={`/employee/${id}/edit`}
+      editPath={canUpdate ? `/employee/${publicId}/edit` : undefined}
       breadcrumbs={entityCrumbs("Employees", "/employee/list", fullName)}
-      onDelete={handleDelete}
+      onDelete={canDelete ? handleDelete : undefined}
       deleting={deleting}
       fields={[
         { label: "First Name", value: item.firstname },

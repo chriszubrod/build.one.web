@@ -1,19 +1,33 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useEntityItem, updateEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, updateEntity, invalidateEntity } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
+import TextareaField from "../../components/TextareaField";
 import type { Employee } from "../../types/api";
+import { hasEmployeePermission } from "./employeePermissions";
 
 export default function EmployeeEdit() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
-  const { item, loading, error } = useEntityItem<Employee>(`/api/v1/get/employee/${id}`);
+  const { data: me, isLoading: meLoading } = useCurrentUser();
+  const canEdit = hasEmployeePermission(me, "can_update"); // PUT /api/v1/update/employee/:publicId
+  const { item, loading, error } = useEntityItem<Employee>(
+    `/api/v1/get/employee/${publicId}`,
+  );
   const [form, setForm] = useState<Record<string, any> | null>(null);
+  // Which row seeded `form`. Router reuses this component across
+  // /employee/:publicId/edit params, so seeding on `!form` alone would
+  // carry row A's values (and row_version) onto row B; keying the seed by
+  // public_id re-seeds on row change without clobbering in-progress edits on
+  // a background refetch of the same row.
+  const [formSeedId, setFormSeedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const queryClient = useQueryClient();
 
-  // Hydrate form once on first load
-  if (item && !form) {
+  if (item && formSeedId !== item.public_id) {
     setForm({
       firstname: item.firstname,
       lastname: item.lastname,
@@ -24,11 +38,23 @@ export default function EmployeeEdit() {
       notes: item.notes ?? "",
       row_version: item.row_version,
     });
+    setFormSeedId(item.public_id);
   }
 
-  if (loading) return <div className="page-loading">Loading...</div>;
+  if (loading || meLoading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
-  if (!item || !form) return <div className="page-error">Employee not found.</div>;
+  if (!item || !form) return null;
+
+  if (!canEdit) {
+    return (
+      <div className="page">
+        <div className="page-error">You do not have permission to edit this employee.</div>
+        <button type="button" className="btn btn-secondary" onClick={() => navigate(`/employee/${publicId}`)}>
+          Back to Employee
+        </button>
+      </div>
+    );
+  }
 
   const onChange = (name: string, value: any) => {
     setForm((f) => (f ? { ...f, [name]: value } : f));
@@ -39,7 +65,7 @@ export default function EmployeeEdit() {
     setSaving(true);
     setSaveError("");
     try {
-      await updateEntity(`/api/v1/update/employee/${id}`, {
+      await updateEntity(`/api/v1/update/employee/${publicId}`, {
         row_version: form.row_version,
         firstname: form.firstname,
         lastname: form.lastname,
@@ -49,7 +75,11 @@ export default function EmployeeEdit() {
         is_active: form.is_active,
         notes: form.notes || null,
       });
-      navigate(`/employee/${id}`);
+      await invalidateEntity(queryClient, {
+        listPath: "/api/v1/get/employees",
+        itemPath: `/api/v1/get/employee/${publicId}`,
+      });
+      navigate(`/employee/${publicId}`);
     } catch (err: any) {
       setSaveError(err.message);
       setSaving(false);
@@ -76,12 +106,12 @@ export default function EmployeeEdit() {
             Active
           </label>
         </div>
-        <FormField label="Notes" name="notes" value={form.notes} onChange={onChange} multiline />
+        <TextareaField label="Notes" name="notes" value={form.notes} onChange={onChange} rows={4} />
         <div className="form-actions">
           <button type="submit" className="btn btn-primary" disabled={saving}>
             {saving ? "Saving..." : "Save"}
           </button>
-          <button type="button" className="btn btn-secondary" onClick={() => navigate(`/employee/${id}`)}>
+          <button type="button" className="btn btn-secondary" onClick={() => navigate(`/employee/${publicId}`)}>
             Cancel
           </button>
         </div>

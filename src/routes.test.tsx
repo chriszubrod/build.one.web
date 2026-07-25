@@ -78,6 +78,13 @@ const employeeLaborPaths = [
   "/employee-labor/abc123/edit",
 ] as const;
 
+const employeePaths = [
+  "/employee/list",
+  "/employee/create",
+  "/employee/abc123",
+  "/employee/abc123/edit",
+] as const;
+
 const vendorTypePaths = [
   "/vendor-type/list",
   "/vendor-type/create",
@@ -186,6 +193,11 @@ describe("appRouteTree — real route tree (U-066)", () => {
       "/employee-labor/:publicId/edit",
       "/employee-labor/create",
       "/employee-labor/list",
+      "/employee/*",
+      "/employee/:publicId",
+      "/employee/:publicId/edit",
+      "/employee/create",
+      "/employee/list",
       "/expense-coding",
       "/expense/*",
       "/expense/:publicId",
@@ -613,6 +625,12 @@ describe("appRouteTree — real route tree (U-066)", () => {
     expect(branchHasLayout(branch, AppLayout)).toBe(true);
   });
 
+  it.each(employeePaths)("%s matches under AppLayout", (path) => {
+    const branch = branchFor(path);
+    expect(branch).not.toBeNull();
+    expect(branchHasLayout(branch, AppLayout)).toBe(true);
+  });
+
   describe("/organization/* redirect catches unknown organization children", () => {
     it.each(["/organization", "/organization/foo/bar"] as const)(
       "%s last match is /organization/* with redirect to list",
@@ -639,6 +657,21 @@ describe("appRouteTree — real route tree (U-066)", () => {
         const el = last.route.element as ReactElement<{ to: string }> | undefined;
         expect(el?.type).toBe(Navigate);
         expect(el?.props.to).toBe("/role/list");
+      },
+    );
+  });
+
+  describe("/employee/* redirect catches unknown employee children", () => {
+    it.each(["/employee", "/employee/foo/bar"] as const)(
+      "%s last match is /employee/* with redirect to list",
+      (path) => {
+        const branch = branchFor(path);
+        expect(branch).not.toBeNull();
+        const last = branch!.at(-1)!;
+        expect(last.route.path).toBe("/employee/*");
+        const el = last.route.element as ReactElement<{ to: string }> | undefined;
+        expect(el?.type).toBe(Navigate);
+        expect(el?.props.to).toBe("/employee/list");
       },
     );
   });
@@ -840,6 +873,7 @@ describe("routed <-> nav reconciliation (U-077)", () => {
       "/customer/list",
       "/docs",
       "/employee-labor/list",
+      "/employee/list",
       "/expense-coding",
       "/expense/list",
       "/invoice/list",
