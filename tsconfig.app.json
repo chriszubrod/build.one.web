@@ -40,7 +40,6 @@
     "src/pages/modules/**",
     "src/pages/project-addresses/**",
     "src/pages/projects/**",
-    "src/pages/review-statuses/**",
     "src/pages/role-modules/**",
     "src/pages/taxpayers/**",
     "src/pages/user-modules/**",

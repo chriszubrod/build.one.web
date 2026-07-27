@@ -122,6 +122,10 @@ import RoleList from "./pages/roles/RoleList";
 import RoleView from "./pages/roles/RoleView";
 import RoleEdit from "./pages/roles/RoleEdit";
 import RoleCreate from "./pages/roles/RoleCreate";
+import ReviewStatusList from "./pages/review-statuses/ReviewStatusList";
+import ReviewStatusView from "./pages/review-statuses/ReviewStatusView";
+import ReviewStatusEdit from "./pages/review-statuses/ReviewStatusEdit";
+import ReviewStatusCreate from "./pages/review-statuses/ReviewStatusCreate";
 import CustomerList from "./pages/customers/CustomerList";
 import CustomerView from "./pages/customers/CustomerView";
 import CustomerEdit from "./pages/customers/CustomerEdit";
@@ -266,6 +270,12 @@ export const appRouteTree = (
         <Route path="/role/:publicId" element={<RoleView />} />
         <Route path="/role/:publicId/edit" element={<RoleEdit />} />
         <Route path="/role/*" element={<Navigate to="/role/list" replace />} />
+
+        <Route path="/review-status/list" element={<ReviewStatusList />} />
+        <Route path="/review-status/create" element={<ReviewStatusCreate />} />
+        <Route path="/review-status/:publicId" element={<ReviewStatusView />} />
+        <Route path="/review-status/:publicId/edit" element={<ReviewStatusEdit />} />
+        <Route path="/review-status/*" element={<Navigate to="/review-status/list" replace />} />
 
         <Route path="/customer/list" element={<CustomerList />} />
         <Route path="/customer/create" element={<CustomerCreate />} />

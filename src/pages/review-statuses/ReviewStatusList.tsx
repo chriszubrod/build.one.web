@@ -1,4 +1,6 @@
 import { useEntityList } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { hasReviewStatusPermission } from "./reviewStatusPermissions";
 import DataTable, { type Column } from "../../components/DataTable";
 import PageHeader from "../../components/PageHeader";
 import type { ReviewStatus } from "../../types/api";
@@ -26,13 +28,19 @@ const columns: Column<ReviewStatus>[] = [
 
 export default function ReviewStatusList() {
   const { items, loading, error } = useEntityList<ReviewStatus>("/api/v1/get/review-statuses");
+  const { data: me } = useCurrentUser();
 
   if (loading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
 
   return (
     <div className="page">
-      <PageHeader title="Review Statuses" count={items.length} createPath="/review-status/create" />
+      <PageHeader
+        title="Review Statuses"
+        count={items.length}
+        // POST /api/v1/create/review-status — can_create
+        createPath={hasReviewStatusPermission(me, "can_create") ? "/review-status/create" : undefined}
+      />
       <DataTable columns={columns} data={items} basePath="/review-status" />
     </div>
   );

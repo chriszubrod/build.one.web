@@ -1,11 +1,16 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { createEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { createEntity, invalidateEntity } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
 import type { ReviewStatus } from "../../types/api";
+import { hasReviewStatusPermission } from "./reviewStatusPermissions";
 
 export default function ReviewStatusCreate() {
   const navigate = useNavigate();
+  const { data: me, isLoading: meLoading } = useCurrentUser();
+  const canCreate = hasReviewStatusPermission(me, "can_create"); // POST /api/v1/create/review-status
   const [form, setForm] = useState({
     name: "",
     description: "",
@@ -17,6 +22,7 @@ export default function ReviewStatusCreate() {
   });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const queryClient = useQueryClient();
 
   const onChange = (name: string, value: string) => setForm((prev) => ({ ...prev, [name]: value }));
 
@@ -34,12 +40,25 @@ export default function ReviewStatusCreate() {
         is_declined: form.is_declined,
         is_active: form.is_active,
       });
+      await invalidateEntity(queryClient, { listPath: "/api/v1/get/review-statuses" });
       navigate(`/review-status/${created.public_id}`);
     } catch (err: any) {
       setSaveError(err.message);
       setSaving(false);
     }
   };
+
+  if (meLoading) return <div className="page-loading">Loading...</div>;
+  if (!canCreate) {
+    return (
+      <div className="page">
+        <div className="page-error">You do not have permission to create a review status.</div>
+        <button type="button" className="btn btn-secondary" onClick={() => navigate("/review-status/list")}>
+          Back to Review Statuses
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="page">

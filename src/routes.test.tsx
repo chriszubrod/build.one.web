@@ -120,6 +120,13 @@ const rolePaths = [
   "/role/abc123/edit",
 ] as const;
 
+const reviewStatusPaths = [
+  "/review-status/list",
+  "/review-status/create",
+  "/review-status/abc123",
+  "/review-status/abc123/edit",
+] as const;
+
 const subCostCodePaths = [
   "/sub-cost-code/list",
   "/sub-cost-code/create",
@@ -227,6 +234,11 @@ describe("appRouteTree — real route tree (U-066)", () => {
       "/profile/security",
       "/project/:publicId",
       "/project/list",
+      "/review-status/*",
+      "/review-status/:publicId",
+      "/review-status/:publicId/edit",
+      "/review-status/create",
+      "/review-status/list",
       "/role/*",
       "/role/:publicId",
       "/role/:publicId/edit",
@@ -631,6 +643,12 @@ describe("appRouteTree — real route tree (U-066)", () => {
     expect(branchHasLayout(branch, AppLayout)).toBe(true);
   });
 
+  it.each(reviewStatusPaths)("%s matches under AppLayout", (path) => {
+    const branch = branchFor(path);
+    expect(branch).not.toBeNull();
+    expect(branchHasLayout(branch, AppLayout)).toBe(true);
+  });
+
   describe("/organization/* redirect catches unknown organization children", () => {
     it.each(["/organization", "/organization/foo/bar"] as const)(
       "%s last match is /organization/* with redirect to list",
@@ -672,6 +690,21 @@ describe("appRouteTree — real route tree (U-066)", () => {
         const el = last.route.element as ReactElement<{ to: string }> | undefined;
         expect(el?.type).toBe(Navigate);
         expect(el?.props.to).toBe("/employee/list");
+      },
+    );
+  });
+
+  describe("/review-status/* redirect catches unknown review status children", () => {
+    it.each(["/review-status", "/review-status/foo/bar"] as const)(
+      "%s last match is /review-status/* with redirect to list",
+      (path) => {
+        const branch = branchFor(path);
+        expect(branch).not.toBeNull();
+        const last = branch!.at(-1)!;
+        expect(last.route.path).toBe("/review-status/*");
+        const el = last.route.element as ReactElement<{ to: string }> | undefined;
+        expect(el?.type).toBe(Navigate);
+        expect(el?.props.to).toBe("/review-status/list");
       },
     );
   });
@@ -882,6 +915,7 @@ describe("routed <-> nav reconciliation (U-077)", () => {
       "/payment-term/list",
       "/profile",
       "/project/list",
+      "/review-status/list",
       "/role/list",
       "/sub-cost-code/list",
       "/time-entry/list",

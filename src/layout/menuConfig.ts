@@ -1,4 +1,4 @@
-import { BookOpen, Briefcase, Building2, Calculator, CalendarClock, CircleDollarSign, ClipboardCheck, Clock, FileMinus, FileText, Hammer, HardHat, Hash, IdCard, KeyRound, Layers, Network, Receipt, ShieldCheck, Store, Tags, User, UserCog, Users } from "lucide-react";
+import { BookOpen, Briefcase, Building2, Calculator, CalendarClock, CircleDollarSign, ClipboardCheck, Clock, FileMinus, FileText, Hammer, HardHat, Hash, IdCard, KeyRound, Layers, ListChecks, Network, Receipt, ShieldCheck, Store, Tags, User, UserCog, Users } from "lucide-react";
 import type { ComponentType } from "react";
 import { Modules, type ModuleName } from "../shared/modules";
 import { hasModulePermission } from "../shared/permissions";
@@ -277,13 +277,23 @@ export const MENU_ENTRIES: MenuEntry[] = [
     priority: 199,
   },
   {
+    id: "review-statuses",
+    label: "Review Statuses",
+    icon: ListChecks,
+    route: "/review-status/list",
+    module: Modules.REVIEW_STATUSES,
+    permission: "can_read",
+    section: "reference",
+    priority: 200,
+  },
+  {
     id: "docs",
     label: "Docs",
     icon: BookOpen,
     route: "/docs",
     module: null, // no module — gated by requiresAdmin below
     section: "reference",
-    priority: 200,
+    priority: 300,
     requiresAdmin: true, // system admins only
   },
 ];

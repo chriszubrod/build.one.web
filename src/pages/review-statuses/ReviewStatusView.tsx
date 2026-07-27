@@ -1,17 +1,24 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useEntityItem, deleteEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, deleteEntity, removeEntity } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
 import DetailView from "../../components/DetailView";
 import { entityCrumbs } from "../../components/Breadcrumb";
 import type { ReviewStatus } from "../../types/api";
+import { hasReviewStatusPermission } from "./reviewStatusPermissions";
 
 export default function ReviewStatusView() {
-  const { id } = useParams<{ id: string }>();
+  const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { item, loading, error } = useEntityItem<ReviewStatus>(`/api/v1/get/review-status/${id}`);
+  const { data: me } = useCurrentUser();
+  const { item, loading, error } = useEntityItem<ReviewStatus>(
+    `/api/v1/get/review-status/${publicId}`,
+  );
   const [deleting, setDeleting] = useState(false);
+  const queryClient = useQueryClient();
 
   if (loading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
@@ -21,7 +28,11 @@ export default function ReviewStatusView() {
     if (!confirm("Delete this review status?")) return;
     setDeleting(true);
     try {
-      await deleteEntity(`/api/v1/delete/review-status/${id}`);
+      await deleteEntity(`/api/v1/delete/review-status/${publicId}`);
+      await removeEntity(queryClient, {
+        listPath: "/api/v1/get/review-statuses",
+        itemPath: `/api/v1/get/review-status/${publicId}`,
+      });
       toast("Review status deleted.");
       navigate("/review-status/list");
     } catch (err: any) {
@@ -30,12 +41,17 @@ export default function ReviewStatusView() {
     }
   };
 
+  // PUT /api/v1/update/review-status/:publicId — can_update
+  const canUpdate = hasReviewStatusPermission(me, "can_update");
+  // DELETE /api/v1/delete/review-status/:publicId — can_delete
+  const canDelete = hasReviewStatusPermission(me, "can_delete");
+
   return (
     <DetailView
       title={item.name}
-      editPath={`/review-status/${id}/edit`}
+      editPath={canUpdate ? `/review-status/${publicId}/edit` : undefined}
       breadcrumbs={entityCrumbs("Review Statuses", "/review-status/list", item.name)}
-      onDelete={handleDelete}
+      onDelete={canDelete ? handleDelete : undefined}
       deleting={deleting}
       fields={[
         { label: "Name", value: item.name },
