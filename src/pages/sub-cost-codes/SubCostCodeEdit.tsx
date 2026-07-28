@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEntityItem, useEntityList, updateEntity, invalidateEntity } from "../../hooks/useEntity";
+import { useEntityItem, useEntityList, updateEntity, invalidateEntity, invalidateLookups } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
 import SelectField from "../../components/SelectField";
@@ -91,6 +91,7 @@ export default function SubCostCodeEdit() {
         listPath: "/api/v1/get/sub-cost-codes",
         itemPath: `/api/v1/get/sub-cost-code/${publicId}`,
       });
+      await invalidateLookups(queryClient);
       navigate(`/sub-cost-code/${publicId}`);
     } catch (err: any) {
       setSaveError(err.message);

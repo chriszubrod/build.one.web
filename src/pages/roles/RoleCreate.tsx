@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { createEntity, invalidateEntity } from "../../hooks/useEntity";
+import { createEntity, invalidateEntity, invalidateLookups } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
 import type { Role } from "../../types/api";
@@ -25,6 +25,7 @@ export default function RoleCreate() {
     try {
       const created = await createEntity<Role>("/api/v1/create/role", { name: form.name });
       await invalidateEntity(queryClient, { listPath: "/api/v1/get/roles" });
+      await invalidateLookups(queryClient);
       navigate(`/role/${created.public_id}`);
     } catch (err: any) {
       setSaveError(err.message);

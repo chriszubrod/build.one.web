@@ -53,6 +53,7 @@ vi.mock("../../hooks/useEntity", () => ({
   deleteEntity: vi.fn(),
   invalidateEntity: vi.fn(),
   removeEntity: vi.fn(),
+  invalidateLookups: vi.fn(),
 }));
 
 function sampleEmployee(overrides: Partial<Employee> = {}): Employee {

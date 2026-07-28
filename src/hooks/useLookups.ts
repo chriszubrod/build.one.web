@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { rawRequest } from "../api/client";
+import { lookupsKey } from "./useEntity";
 import type { Lookups } from "../types/api";
 
 /**
@@ -8,7 +9,7 @@ import type { Lookups } from "../types/api";
  */
 export function useLookups(include: string) {
   const { data, isLoading } = useQuery<Lookups>({
-    queryKey: ["lookups", include],
+    queryKey: [...lookupsKey(), include],
     queryFn: async () => {
       const res = await rawRequest<{ data: Lookups }>(
         `/api/v1/lookups?include=${include}`,

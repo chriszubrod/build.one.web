@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { createEntity, invalidateEntity } from "../../hooks/useEntity";
+import { createEntity, invalidateEntity, invalidateLookups } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
 import TextareaField from "../../components/TextareaField";
@@ -44,6 +44,7 @@ export default function EmployeeCreate() {
         notes: form.notes || null,
       });
       await invalidateEntity(queryClient, { listPath: "/api/v1/get/employees" });
+      await invalidateLookups(queryClient);
       navigate(`/employee/${created.public_id}`);
     } catch (err: any) {
       setSaveError(err.message);

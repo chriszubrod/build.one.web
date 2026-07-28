@@ -21,6 +21,7 @@ const mockUpdateEntity = vi.fn();
 const mockDeleteEntity = vi.fn();
 const mockInvalidateEntity = vi.fn();
 const mockRemoveEntity = vi.fn();
+const mockInvalidateLookups = vi.fn();
 const mockUseEntityItem = vi.fn();
 
 vi.mock("react-router-dom", async (importOriginal) => {
@@ -62,6 +63,7 @@ vi.mock("../../hooks/useEntity", () => ({
   deleteEntity: (...args: unknown[]) => mockDeleteEntity(...args),
   invalidateEntity: (...args: unknown[]) => mockInvalidateEntity(...args),
   removeEntity: (...args: unknown[]) => mockRemoveEntity(...args),
+  invalidateLookups: (...args: unknown[]) => mockInvalidateLookups(...args),
 }));
 
 function sampleVendorType(overrides: Partial<VendorType> = {}): VendorType {
@@ -115,6 +117,7 @@ beforeEach(() => {
   mockDeleteEntity.mockResolvedValue(undefined);
   mockInvalidateEntity.mockResolvedValue(undefined);
   mockRemoveEntity.mockResolvedValue(undefined);
+  mockInvalidateLookups.mockResolvedValue(undefined);
   mockUseEntityItem.mockReturnValue({
     item: sampleVendorType(),
     loading: false,
@@ -136,7 +139,7 @@ afterEach(() => {
 });
 
 describe("vendor-type cache invalidation", () => {
-  it("create invalidates list only", async () => {
+  it("create invalidates list and lookups", async () => {
     renderPage(createElement(VendorTypeCreate), "/vendor-type/create", "/vendor-type/create");
 
     const form = container.querySelector("form");
@@ -149,9 +152,10 @@ describe("vendor-type cache invalidation", () => {
     await flushUntil(() => mockInvalidateEntity.mock.calls.length > 0);
 
     expect(mockInvalidateEntity).toHaveBeenCalledWith(expect.anything(), { listPath: LIST_PATH });
+    expect(mockInvalidateLookups).toHaveBeenCalledTimes(1);
   });
 
-  it("edit invalidates list and item", async () => {
+  it("edit invalidates list, item and lookups", async () => {
     renderPage(
       createElement(VendorTypeEdit),
       `/vendor-type/${PUBLIC_ID}/edit`,
@@ -171,9 +175,10 @@ describe("vendor-type cache invalidation", () => {
       listPath: LIST_PATH,
       itemPath: ITEM_PATH,
     });
+    expect(mockInvalidateLookups).toHaveBeenCalledTimes(1);
   });
 
-  it("delete removes list and item from cache", async () => {
+  it("delete removes list and item, and invalidates lookups", async () => {
     vi.stubGlobal("confirm", vi.fn(() => true));
 
     renderPage(
@@ -199,6 +204,7 @@ describe("vendor-type cache invalidation", () => {
       expect.anything(),
       expect.objectContaining({ itemPath: expect.anything() }),
     );
+    expect(mockInvalidateLookups).toHaveBeenCalledTimes(1);
 
     vi.unstubAllGlobals();
   });

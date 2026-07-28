@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEntityItem, deleteEntity, removeEntity } from "../../hooks/useEntity";
+import { useEntityItem, deleteEntity, removeEntity, invalidateLookups } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
 import DetailView from "../../components/DetailView";
@@ -31,6 +31,7 @@ export default function PaymentTermView() {
         listPath: "/api/v1/get/payment-terms",
         itemPath: `/api/v1/get/payment-term/${publicId}`,
       });
+      await invalidateLookups(queryClient);
       toast("Payment term deleted.");
       navigate("/payment-term/list");
     } catch (err: any) {

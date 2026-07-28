@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEntityItem, deleteEntity, removeEntity } from "../../hooks/useEntity";
+import { useEntityItem, deleteEntity, removeEntity, invalidateLookups } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
 import DetailView from "../../components/DetailView";
@@ -33,6 +33,7 @@ export default function RoleView() {
         listPath: "/api/v1/get/roles",
         itemPath: `/api/v1/get/role/${publicId}`,
       });
+      await invalidateLookups(queryClient);
       toast("Role deleted.");
       navigate("/role/list");
     } catch (err: any) {

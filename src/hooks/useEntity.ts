@@ -12,6 +12,26 @@ export const entityListKey = (listPath: string) => ["list", listPath] as const;
 export const entityItemKey = (itemPath: string) => ["item", itemPath] as const;
 
 /**
+ * The shared HEAD of every useLookups key — a PREFIX, not a registered key.
+ * Unlike the two builders above, no query is registered under ["lookups"]
+ * alone: useLookups spreads this and appends its include string, so the
+ * registered keys are ["lookups", include]. That is exactly what makes one
+ * partial-match invalidation reach every include-combination at once.
+ */
+export const lookupsKey = () => ["lookups"] as const;
+
+/**
+ * Invalidate every React Query cache entry registered by useLookups.
+ * useLookups registers dropdown payloads under ["lookups", include]; React Query
+ * filters default to exact:false, so this PARTIAL key match invalidates every
+ * include-combination in one call; refetchType defaults to active, so mounted
+ * dropdowns refetch immediately and unmounted ones refetch on next mount.
+ */
+export async function invalidateLookups(queryClient: QueryClient): Promise<void> {
+  await queryClient.invalidateQueries({ queryKey: lookupsKey() });
+}
+
+/**
  * Invalidate the React Query cache entries a create/update touched, using the
  * SAME key shapes the read hooks register under (entityListKey/entityItemKey).
  * Always invalidates the list; invalidates the item only when itemPath is given

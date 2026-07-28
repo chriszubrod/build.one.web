@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEntityItem, updateEntity, invalidateEntity } from "../../hooks/useEntity";
+import { useEntityItem, updateEntity, invalidateEntity, invalidateLookups } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
 import type { VendorType } from "../../types/api";
@@ -59,6 +59,7 @@ export default function VendorTypeEdit() {
         listPath: "/api/v1/get/vendor-types",
         itemPath: `/api/v1/get/vendor-type/${publicId}`,
       });
+      await invalidateLookups(queryClient);
       navigate(`/vendor-type/${publicId}`);
     } catch (err: any) {
       setSaveError(err.message);

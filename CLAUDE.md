@@ -78,6 +78,7 @@ For each entity migration:
 4. Add sidebar link (automatic via modules lookup)
 5. Verify end-to-end with live API
 6. Check if any new API endpoints are needed (dropdowns, relationships)
+7. Reconcile the caches a mutation dirties — `invalidateEntity` / `removeEntity` for the entity list+item, plus `invalidateLookups` if the entity backs a `/api/v1/lookups` key. The authoritative key set is the **field list of the `Lookups` interface** in `src/types/api.ts` (mirrors the API's `VALID_LOOKUPS`) — read it there rather than trusting a copy in prose, which drifts silently when a 13th key is added.
 
 ## Dev Server
 

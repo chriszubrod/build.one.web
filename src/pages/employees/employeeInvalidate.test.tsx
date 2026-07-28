@@ -3,17 +3,18 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import PaymentTermCreate from "./PaymentTermCreate";
-import PaymentTermEdit from "./PaymentTermEdit";
-import PaymentTermView from "./PaymentTermView";
+import EmployeeCreate from "./EmployeeCreate";
+import EmployeeEdit from "./EmployeeEdit";
+import EmployeeView from "./EmployeeView";
+import { setInputValue } from "../../__testutils__/domEvents";
 import { flushUntil } from "../../__testutils__/flush";
-import type { CurrentUser, PaymentTerm } from "../../types/api";
+import type { CurrentUser, Employee } from "../../types/api";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const PUBLIC_ID = "abc123";
-const LIST_PATH = "/api/v1/get/payment-terms";
-const ITEM_PATH = `/api/v1/get/payment-term/${PUBLIC_ID}`;
+const LIST_PATH = "/api/v1/get/employees";
+const ITEM_PATH = `/api/v1/get/employee/${PUBLIC_ID}`;
 
 const mockNavigate = vi.fn();
 const mockCreateEntity = vi.fn();
@@ -66,18 +67,21 @@ vi.mock("../../hooks/useEntity", () => ({
   invalidateLookups: (...args: unknown[]) => mockInvalidateLookups(...args),
 }));
 
-function samplePaymentTerm(overrides: Partial<PaymentTerm> = {}): PaymentTerm {
+function sampleEmployee(overrides: Partial<Employee> = {}): Employee {
   return {
     id: 1,
     public_id: PUBLIC_ID,
     row_version: "rv-1",
     created_datetime: null,
     modified_datetime: null,
-    name: "Net 30",
-    description: "Default payment term",
-    due_days: 30,
-    discount_days: 10,
-    discount_percent: 2,
+    firstname: "Jane",
+    lastname: "Smith",
+    email: "jane@example.com",
+    hourly_rate: "75.00",
+    markup: "0.50",
+    is_active: true,
+    is_deleted: false,
+    notes: null,
     ...overrides,
   };
 }
@@ -115,14 +119,14 @@ beforeEach(() => {
   vi.clearAllMocks();
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   mockUseCurrentUser.mockReturnValue({ data: adminUser(), isLoading: false });
-  mockCreateEntity.mockResolvedValue(samplePaymentTerm());
+  mockCreateEntity.mockResolvedValue(sampleEmployee());
   mockUpdateEntity.mockResolvedValue(undefined);
   mockDeleteEntity.mockResolvedValue(undefined);
   mockInvalidateEntity.mockResolvedValue(undefined);
   mockRemoveEntity.mockResolvedValue(undefined);
   mockInvalidateLookups.mockResolvedValue(undefined);
   mockUseEntityItem.mockReturnValue({
-    item: samplePaymentTerm(),
+    item: sampleEmployee(),
     loading: false,
     error: "",
     reload: vi.fn(),
@@ -141,9 +145,12 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("payment-term cache invalidation", () => {
+describe("employee cache invalidation", () => {
   it("create invalidates list and lookups", async () => {
-    renderPage(createElement(PaymentTermCreate), "/payment-term/create", "/payment-term/create");
+    renderPage(createElement(EmployeeCreate), "/employee/create", "/employee/create");
+
+    setInputValue(container.querySelector('input[name="firstname"]') as HTMLInputElement, "Jane");
+    setInputValue(container.querySelector('input[name="lastname"]') as HTMLInputElement, "Smith");
 
     const form = container.querySelector("form");
     expect(form).toBeTruthy();
@@ -160,9 +167,9 @@ describe("payment-term cache invalidation", () => {
 
   it("edit invalidates list, item and lookups", async () => {
     renderPage(
-      createElement(PaymentTermEdit),
-      `/payment-term/${PUBLIC_ID}/edit`,
-      "/payment-term/:publicId/edit",
+      createElement(EmployeeEdit),
+      `/employee/${PUBLIC_ID}/edit`,
+      "/employee/:publicId/edit",
     );
 
     const form = container.querySelector("form");
@@ -185,9 +192,9 @@ describe("payment-term cache invalidation", () => {
     vi.stubGlobal("confirm", vi.fn(() => true));
 
     renderPage(
-      createElement(PaymentTermView),
-      `/payment-term/${PUBLIC_ID}`,
-      "/payment-term/:publicId",
+      createElement(EmployeeView),
+      `/employee/${PUBLIC_ID}`,
+      "/employee/:publicId",
     );
 
     const deleteButton = container.querySelector(".btn-danger") as HTMLButtonElement;

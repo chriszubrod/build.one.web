@@ -3,17 +3,18 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import PaymentTermCreate from "./PaymentTermCreate";
-import PaymentTermEdit from "./PaymentTermEdit";
-import PaymentTermView from "./PaymentTermView";
+import VendorCreate from "./VendorCreate";
+import VendorEdit from "./VendorEdit";
+import VendorView from "./VendorView";
+import { setInputValue } from "../../__testutils__/domEvents";
 import { flushUntil } from "../../__testutils__/flush";
-import type { CurrentUser, PaymentTerm } from "../../types/api";
+import type { Vendor } from "../../types/api";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const PUBLIC_ID = "abc123";
-const LIST_PATH = "/api/v1/get/payment-terms";
-const ITEM_PATH = `/api/v1/get/payment-term/${PUBLIC_ID}`;
+const LIST_PATH = "/api/v1/get/vendors";
+const ITEM_PATH = `/api/v1/get/vendor/${PUBLIC_ID}`;
 
 const mockNavigate = vi.fn();
 const mockCreateEntity = vi.fn();
@@ -36,24 +37,12 @@ vi.mock("../../components/Toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
 
-function adminUser(): CurrentUser {
-  return {
-    is_admin: true,
-    modules: [],
-    auth: { public_id: "a", username: "admin" },
-    user: { id: 1, public_id: "u", firstname: "A", lastname: "D" },
-    role: null,
-    accessible_project_ids: [],
-  };
-}
-
-const mockUseCurrentUser = vi.fn(() => ({
-  data: adminUser(),
-  isLoading: false,
+vi.mock("../../hooks/useLookups", () => ({
+  useLookups: () => ({ data: {}, loading: false }),
 }));
 
-vi.mock("../../hooks/useCurrentUser", () => ({
-  useCurrentUser: () => mockUseCurrentUser(),
+vi.mock("../../components/InlineContacts", () => ({
+  default: () => null,
 }));
 
 vi.mock("../../hooks/useEntity", () => ({
@@ -66,18 +55,23 @@ vi.mock("../../hooks/useEntity", () => ({
   invalidateLookups: (...args: unknown[]) => mockInvalidateLookups(...args),
 }));
 
-function samplePaymentTerm(overrides: Partial<PaymentTerm> = {}): PaymentTerm {
+function sampleVendor(overrides: Partial<Vendor> = {}): Vendor {
   return {
     id: 1,
     public_id: PUBLIC_ID,
     row_version: "rv-1",
     created_datetime: null,
     modified_datetime: null,
-    name: "Net 30",
-    description: "Default payment term",
-    due_days: 30,
-    discount_days: 10,
-    discount_percent: 2,
+    name: "Acme Supply",
+    abbreviation: "ACME",
+    taxpayer_id: null,
+    vendor_type_id: null,
+    is_draft: false,
+    is_deleted: false,
+    is_contract_labor: false,
+    notes: null,
+    hourly_rate: null,
+    markup: null,
     ...overrides,
   };
 }
@@ -114,15 +108,14 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  mockUseCurrentUser.mockReturnValue({ data: adminUser(), isLoading: false });
-  mockCreateEntity.mockResolvedValue(samplePaymentTerm());
+  mockCreateEntity.mockResolvedValue(sampleVendor());
   mockUpdateEntity.mockResolvedValue(undefined);
   mockDeleteEntity.mockResolvedValue(undefined);
   mockInvalidateEntity.mockResolvedValue(undefined);
   mockRemoveEntity.mockResolvedValue(undefined);
   mockInvalidateLookups.mockResolvedValue(undefined);
   mockUseEntityItem.mockReturnValue({
-    item: samplePaymentTerm(),
+    item: sampleVendor(),
     loading: false,
     error: "",
     reload: vi.fn(),
@@ -141,9 +134,12 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("payment-term cache invalidation", () => {
+describe("vendor cache invalidation", () => {
   it("create invalidates list and lookups", async () => {
-    renderPage(createElement(PaymentTermCreate), "/payment-term/create", "/payment-term/create");
+    renderPage(createElement(VendorCreate), "/vendor/create", "/vendor/create");
+
+    const nameInput = container.querySelector('input[name="name"]') as HTMLInputElement;
+    setInputValue(nameInput, "Acme Supply");
 
     const form = container.querySelector("form");
     expect(form).toBeTruthy();
@@ -160,9 +156,9 @@ describe("payment-term cache invalidation", () => {
 
   it("edit invalidates list, item and lookups", async () => {
     renderPage(
-      createElement(PaymentTermEdit),
-      `/payment-term/${PUBLIC_ID}/edit`,
-      "/payment-term/:publicId/edit",
+      createElement(VendorEdit),
+      `/vendor/${PUBLIC_ID}/edit`,
+      "/vendor/:publicId/edit",
     );
 
     const form = container.querySelector("form");
@@ -185,9 +181,9 @@ describe("payment-term cache invalidation", () => {
     vi.stubGlobal("confirm", vi.fn(() => true));
 
     renderPage(
-      createElement(PaymentTermView),
-      `/payment-term/${PUBLIC_ID}`,
-      "/payment-term/:publicId",
+      createElement(VendorView),
+      `/vendor/${PUBLIC_ID}`,
+      "/vendor/:publicId",
     );
 
     const deleteButton = container.querySelector(".btn-danger") as HTMLButtonElement;

@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEntityItem, deleteEntity, removeEntity } from "../../hooks/useEntity";
+import { useEntityItem, deleteEntity, removeEntity, invalidateLookups } from "../../hooks/useEntity";
 import { useToast } from "../../components/Toast";
 import DetailView from "../../components/DetailView";
 import { entityCrumbs } from "../../components/Breadcrumb";
@@ -26,6 +26,7 @@ export default function CustomerView() {
     try {
       await deleteEntity(`/api/v1/delete/customer/${publicId}`);
       await removeEntity(queryClient, { listPath: "/api/v1/get/customers", itemPath: `/api/v1/get/customer/${publicId}` });
+      await invalidateLookups(queryClient);
       toast("Customer deleted.");
       navigate("/customer/list");
     } catch (err: any) {

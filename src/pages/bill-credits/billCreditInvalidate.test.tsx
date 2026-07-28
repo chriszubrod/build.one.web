@@ -23,6 +23,7 @@ const mockPut = vi.fn();
 const mockDel = vi.fn();
 const mockInvalidateEntity = vi.fn();
 const mockRemoveEntity = vi.fn();
+const mockInvalidateLookups = vi.fn();
 const mockUseEntityItem = vi.fn();
 
 vi.mock("react-router-dom", async (importOriginal) => {
@@ -91,6 +92,7 @@ vi.mock("../../hooks/useEntity", () => ({
   useEntityItem: (path: string) => mockUseEntityItem(path),
   invalidateEntity: (...args: unknown[]) => mockInvalidateEntity(...args),
   removeEntity: (...args: unknown[]) => mockRemoveEntity(...args),
+  invalidateLookups: (...args: unknown[]) => mockInvalidateLookups(...args),
 }));
 
 function sampleBillCredit(overrides: Partial<BillCredit> = {}): BillCredit {
@@ -212,6 +214,7 @@ describe("bill-credit cache invalidation", () => {
     await flushUntil(() => mockInvalidateEntity.mock.calls.length > 0);
 
     expect(mockInvalidateEntity).toHaveBeenCalledWith(expect.anything(), { listPath: LIST_PATH });
+    expect(mockInvalidateLookups).not.toHaveBeenCalled();
   });
 
   it("edit invalidates list and item", async () => {
@@ -238,6 +241,7 @@ describe("bill-credit cache invalidation", () => {
       listPath: LIST_PATH,
       itemPath: ITEM_PATH,
     });
+    expect(mockInvalidateLookups).not.toHaveBeenCalled();
   });
 
   it("complete invalidates list and item after the completion POST", async () => {
@@ -285,6 +289,7 @@ describe("bill-credit cache invalidation", () => {
       listPath: LIST_PATH,
       itemPath: ITEM_PATH,
     });
+    expect(mockInvalidateLookups).not.toHaveBeenCalled();
 
     vi.unstubAllGlobals();
   });

@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { createEntity, invalidateEntity } from "../../hooks/useEntity";
+import { createEntity, invalidateEntity, invalidateLookups } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
 import type { VendorType } from "../../types/api";
@@ -30,6 +30,7 @@ export default function VendorTypeCreate() {
         description: form.description || null,
       });
       await invalidateEntity(queryClient, { listPath: "/api/v1/get/vendor-types" });
+      await invalidateLookups(queryClient);
       navigate(`/vendor-type/${created.public_id}`);
     } catch (err: any) {
       setSaveError(err.message);

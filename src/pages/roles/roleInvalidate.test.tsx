@@ -3,17 +3,18 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import PaymentTermCreate from "./PaymentTermCreate";
-import PaymentTermEdit from "./PaymentTermEdit";
-import PaymentTermView from "./PaymentTermView";
+import RoleCreate from "./RoleCreate";
+import RoleEdit from "./RoleEdit";
+import RoleView from "./RoleView";
+import { setInputValue } from "../../__testutils__/domEvents";
 import { flushUntil } from "../../__testutils__/flush";
-import type { CurrentUser, PaymentTerm } from "../../types/api";
+import type { CurrentUser, Role } from "../../types/api";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const PUBLIC_ID = "abc123";
-const LIST_PATH = "/api/v1/get/payment-terms";
-const ITEM_PATH = `/api/v1/get/payment-term/${PUBLIC_ID}`;
+const LIST_PATH = "/api/v1/get/roles";
+const ITEM_PATH = `/api/v1/get/role/${PUBLIC_ID}`;
 
 const mockNavigate = vi.fn();
 const mockCreateEntity = vi.fn();
@@ -66,18 +67,14 @@ vi.mock("../../hooks/useEntity", () => ({
   invalidateLookups: (...args: unknown[]) => mockInvalidateLookups(...args),
 }));
 
-function samplePaymentTerm(overrides: Partial<PaymentTerm> = {}): PaymentTerm {
+function sampleRole(overrides: Partial<Role> = {}): Role {
   return {
     id: 1,
     public_id: PUBLIC_ID,
     row_version: "rv-1",
     created_datetime: null,
     modified_datetime: null,
-    name: "Net 30",
-    description: "Default payment term",
-    due_days: 30,
-    discount_days: 10,
-    discount_percent: 2,
+    name: "Project Manager",
     ...overrides,
   };
 }
@@ -115,14 +112,14 @@ beforeEach(() => {
   vi.clearAllMocks();
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   mockUseCurrentUser.mockReturnValue({ data: adminUser(), isLoading: false });
-  mockCreateEntity.mockResolvedValue(samplePaymentTerm());
+  mockCreateEntity.mockResolvedValue(sampleRole());
   mockUpdateEntity.mockResolvedValue(undefined);
   mockDeleteEntity.mockResolvedValue(undefined);
   mockInvalidateEntity.mockResolvedValue(undefined);
   mockRemoveEntity.mockResolvedValue(undefined);
   mockInvalidateLookups.mockResolvedValue(undefined);
   mockUseEntityItem.mockReturnValue({
-    item: samplePaymentTerm(),
+    item: sampleRole(),
     loading: false,
     error: "",
     reload: vi.fn(),
@@ -141,9 +138,12 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("payment-term cache invalidation", () => {
+describe("role cache invalidation", () => {
   it("create invalidates list and lookups", async () => {
-    renderPage(createElement(PaymentTermCreate), "/payment-term/create", "/payment-term/create");
+    renderPage(createElement(RoleCreate), "/role/create", "/role/create");
+
+    const nameInput = container.querySelector('input[name="name"]') as HTMLInputElement;
+    setInputValue(nameInput, "Project Manager");
 
     const form = container.querySelector("form");
     expect(form).toBeTruthy();
@@ -160,9 +160,9 @@ describe("payment-term cache invalidation", () => {
 
   it("edit invalidates list, item and lookups", async () => {
     renderPage(
-      createElement(PaymentTermEdit),
-      `/payment-term/${PUBLIC_ID}/edit`,
-      "/payment-term/:publicId/edit",
+      createElement(RoleEdit),
+      `/role/${PUBLIC_ID}/edit`,
+      "/role/:publicId/edit",
     );
 
     const form = container.querySelector("form");
@@ -185,9 +185,9 @@ describe("payment-term cache invalidation", () => {
     vi.stubGlobal("confirm", vi.fn(() => true));
 
     renderPage(
-      createElement(PaymentTermView),
-      `/payment-term/${PUBLIC_ID}`,
-      "/payment-term/:publicId",
+      createElement(RoleView),
+      `/role/${PUBLIC_ID}`,
+      "/role/:publicId",
     );
 
     const deleteButton = container.querySelector(".btn-danger") as HTMLButtonElement;

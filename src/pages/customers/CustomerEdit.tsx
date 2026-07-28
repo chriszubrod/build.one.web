@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEntityItem, updateEntity, invalidateEntity } from "../../hooks/useEntity";
+import { useEntityItem, updateEntity, invalidateEntity, invalidateLookups } from "../../hooks/useEntity";
 import FormField from "../../components/FormField";
 import InlineContacts from "../../components/InlineContacts";
 import type { Customer } from "../../types/api";
@@ -37,6 +37,7 @@ export default function CustomerEdit() {
         phone: form.phone,
       });
       await invalidateEntity(queryClient, { listPath: "/api/v1/get/customers", itemPath: `/api/v1/get/customer/${publicId}` });
+      await invalidateLookups(queryClient);
       navigate(`/customer/${publicId}`);
     } catch (err: any) {
       setSaveError(err.message);

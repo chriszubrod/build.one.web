@@ -59,6 +59,7 @@ vi.mock("../../hooks/useEntity", () => ({
   deleteEntity: vi.fn(),
   invalidateEntity: vi.fn(),
   removeEntity: vi.fn(),
+  invalidateLookups: vi.fn(),
 }));
 
 function sampleSubCostCode(overrides: Partial<SubCostCode> = {}): SubCostCode {

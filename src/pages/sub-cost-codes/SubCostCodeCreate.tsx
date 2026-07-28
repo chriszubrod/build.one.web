@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { createEntity, useEntityList, invalidateEntity } from "../../hooks/useEntity";
+import { createEntity, useEntityList, invalidateEntity, invalidateLookups } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
 import SelectField from "../../components/SelectField";
@@ -32,6 +32,7 @@ export default function SubCostCodeCreate() {
         cost_code_public_id: form.cost_code_public_id,
       });
       await invalidateEntity(queryClient, { listPath: "/api/v1/get/sub-cost-codes" });
+      await invalidateLookups(queryClient);
       navigate(`/sub-cost-code/${created.public_id}`);
     } catch (err: any) {
       setSaveError(err.message);

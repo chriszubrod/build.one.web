@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { createEntity, invalidateEntity } from "../../hooks/useEntity";
+import { createEntity, invalidateEntity, invalidateLookups } from "../../hooks/useEntity";
 import FormField from "../../components/FormField";
 import type { Customer } from "../../types/api";
 
@@ -25,6 +25,7 @@ export default function CustomerCreate() {
         phone: form.phone,
       });
       await invalidateEntity(queryClient, { listPath: "/api/v1/get/customers" });
+      await invalidateLookups(queryClient);
       navigate(`/customer/${created.public_id}`);
     } catch (err: any) {
       setSaveError(err.message);
