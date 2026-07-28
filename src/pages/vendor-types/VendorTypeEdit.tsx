@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useEntityItem, updateEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, updateEntity, invalidateEntity } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
 import type { VendorType } from "../../types/api";
@@ -15,6 +16,7 @@ export default function VendorTypeEdit() {
   const [form, setForm] = useState<Record<string, any> | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const queryClient = useQueryClient();
 
   if (item && !form) {
     setForm({
@@ -52,6 +54,10 @@ export default function VendorTypeEdit() {
         row_version: form.row_version,
         name: form.name || null,
         description: form.description || null,
+      });
+      await invalidateEntity(queryClient, {
+        listPath: "/api/v1/get/vendor-types",
+        itemPath: `/api/v1/get/vendor-type/${publicId}`,
       });
       navigate(`/vendor-type/${publicId}`);
     } catch (err: any) {

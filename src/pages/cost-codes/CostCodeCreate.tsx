@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { createEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { createEntity, invalidateEntity } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
 import type { CostCode } from "../../types/api";
@@ -13,6 +14,7 @@ export default function CostCodeCreate() {
   const [form, setForm] = useState({ number: "", name: "", description: "" });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const queryClient = useQueryClient();
 
   const onChange = (name: string, value: string) => setForm((prev) => ({ ...prev, [name]: value }));
 
@@ -26,6 +28,7 @@ export default function CostCodeCreate() {
         name: form.name,
         description: form.description || null,
       });
+      await invalidateEntity(queryClient, { listPath: "/api/v1/get/cost-codes" });
       navigate(`/cost-code/${created.public_id}`);
     } catch (err: any) {
       setSaveError(err.message);

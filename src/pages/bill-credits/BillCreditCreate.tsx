@@ -1,6 +1,8 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { post } from "../../api/client";
+import { invalidateEntity } from "../../hooks/useEntity";
 import { useLookups } from "../../hooks/useLookups";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { hasBillCreditPermission } from "./billCreditPermissions";
@@ -24,6 +26,7 @@ export default function BillCreditCreate() {
   });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const queryClient = useQueryClient();
 
   const onChange = (name: string, value: string) => setForm((prev) => ({ ...prev, [name]: value }));
 
@@ -40,6 +43,7 @@ export default function BillCreditCreate() {
         memo: form.memo || null,
         is_draft: true,
       });
+      await invalidateEntity(queryClient, { listPath: "/api/v1/get/bill-credits" });
       navigate(`/bill-credit/${created.public_id}/edit`);
     } catch (err: any) {
       setSaveError(err.message);

@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useEntityItem, useEntityList, updateEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, useEntityList, updateEntity, invalidateEntity } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
 import SelectField from "../../components/SelectField";
@@ -23,6 +24,7 @@ export default function SubCostCodeEdit() {
   const [formSeedId, setFormSeedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const queryClient = useQueryClient();
 
   if (item && !costCodesLoading && formSeedId !== item.public_id) {
     setForm({
@@ -84,6 +86,10 @@ export default function SubCostCodeEdit() {
         description: form.description || null,
         cost_code_public_id: form.cost_code_public_id,
         aliases: form.aliases || null,
+      });
+      await invalidateEntity(queryClient, {
+        listPath: "/api/v1/get/sub-cost-codes",
+        itemPath: `/api/v1/get/sub-cost-code/${publicId}`,
       });
       navigate(`/sub-cost-code/${publicId}`);
     } catch (err: any) {

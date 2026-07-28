@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, createElement, type ComponentType } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import CostCodeView from "./CostCodeView";
 import CostCodeEdit from "./CostCodeEdit";
@@ -50,6 +51,8 @@ vi.mock("../../hooks/useEntity", () => ({
   useEntityItem: (path: string) => mockUseEntityItem(path),
   updateEntity: vi.fn(),
   deleteEntity: vi.fn(),
+  invalidateEntity: vi.fn(),
+  removeEntity: vi.fn(),
 }));
 
 function sampleCostCode(overrides: Partial<CostCode> = {}): CostCode {
@@ -107,12 +110,16 @@ describe("cost-code route param -> fetch path", () => {
           MemoryRouter,
           { initialEntries: [initialEntry] },
           createElement(
-            Routes,
-            null,
-            createElement(Route, {
-              path: routePath,
-              element: createElement(Component),
-            }),
+            QueryClientProvider,
+            { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
+            createElement(
+              Routes,
+              null,
+              createElement(Route, {
+                path: routePath,
+                element: createElement(Component),
+              }),
+            ),
           ),
         ),
       );

@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { createEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { createEntity, invalidateEntity } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
 import type { PaymentTerm } from "../../types/api";
@@ -19,6 +20,7 @@ export default function PaymentTermCreate() {
   });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const queryClient = useQueryClient();
 
   const onChange = (name: string, value: string) => {
     setForm((prev) => ({ ...prev, [name]: value }));
@@ -36,6 +38,7 @@ export default function PaymentTermCreate() {
         discount_days: form.discount_days !== "" ? Number(form.discount_days) : null,
         discount_percent: form.discount_percent !== "" ? Number(form.discount_percent) : null,
       });
+      await invalidateEntity(queryClient, { listPath: "/api/v1/get/payment-terms" });
       navigate(`/payment-term/${created.public_id}`);
     } catch (err: any) {
       setSaveError(err.message);

@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { useEntityItem } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, invalidateEntity } from "../../hooks/useEntity";
 import { put, post, del, getList } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
@@ -58,6 +59,7 @@ export default function BillCreditEdit() {
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const queryClient = useQueryClient();
 
   // Load line items
   useEffect(() => {
@@ -162,6 +164,10 @@ export default function BillCreditEdit() {
       }
       setLineItems(savedItems);
       setOrigLineItemPublicIds(savedItems.map((li) => li.public_id!));
+      await invalidateEntity(queryClient, {
+        listPath: "/api/v1/get/bill-credits",
+        itemPath: `/api/v1/get/bill-credit/${id}`,
+      });
       return true;
     } catch (err: any) {
       setSaveError(err.message);
@@ -185,6 +191,10 @@ export default function BillCreditEdit() {
     setCompleting(true);
     try {
       await post(`/api/v1/complete/bill-credit/${id}`, {});
+      await invalidateEntity(queryClient, {
+        listPath: "/api/v1/get/bill-credits",
+        itemPath: `/api/v1/get/bill-credit/${id}`,
+      });
       navigate(`/bill-credit/${id}`);
     } catch (err: any) {
       setSaveError(err.message);

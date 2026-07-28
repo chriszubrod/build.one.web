@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useEntityItem, updateEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, updateEntity, invalidateEntity } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
 import type { PaymentTerm } from "../../types/api";
@@ -21,6 +22,7 @@ export default function PaymentTermEdit() {
   const [formSeedId, setFormSeedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const queryClient = useQueryClient();
 
   if (item && formSeedId !== item.public_id) {
     setForm({
@@ -65,6 +67,10 @@ export default function PaymentTermEdit() {
         due_days: form.due_days !== "" ? Number(form.due_days) : null,
         discount_days: form.discount_days !== "" ? Number(form.discount_days) : null,
         discount_percent: form.discount_percent !== "" ? Number(form.discount_percent) : null,
+      });
+      await invalidateEntity(queryClient, {
+        listPath: "/api/v1/get/payment-terms",
+        itemPath: `/api/v1/get/payment-term/${publicId}`,
       });
       navigate(`/payment-term/${publicId}`);
     } catch (err: any) {

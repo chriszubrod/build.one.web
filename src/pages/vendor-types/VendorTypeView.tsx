@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useEntityItem, deleteEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, deleteEntity, removeEntity } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
 import DetailView from "../../components/DetailView";
@@ -16,6 +17,7 @@ export default function VendorTypeView() {
   const canDelete = hasVendorTypePermission(me, "can_delete"); // DELETE /api/v1/delete/vendor-type/:publicId
   const { item, loading, error } = useEntityItem<VendorType>(`/api/v1/get/vendor-type/${publicId}`);
   const [deleting, setDeleting] = useState(false);
+  const queryClient = useQueryClient();
 
   if (loading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
@@ -26,6 +28,10 @@ export default function VendorTypeView() {
     setDeleting(true);
     try {
       await deleteEntity(`/api/v1/delete/vendor-type/${publicId}`);
+      await removeEntity(queryClient, {
+        listPath: "/api/v1/get/vendor-types",
+        itemPath: `/api/v1/get/vendor-type/${publicId}`,
+      });
       toast("Vendor type deleted.");
       navigate("/vendor-type/list");
     } catch (err: any) {

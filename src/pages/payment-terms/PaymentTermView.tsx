@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useEntityItem, deleteEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, deleteEntity, removeEntity } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
 import DetailView from "../../components/DetailView";
@@ -15,6 +16,7 @@ export default function PaymentTermView() {
   const { data: me } = useCurrentUser();
   const { item, loading, error } = useEntityItem<PaymentTerm>(`/api/v1/get/payment-term/${publicId}`);
   const [deleting, setDeleting] = useState(false);
+  const queryClient = useQueryClient();
 
   if (loading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
@@ -25,6 +27,10 @@ export default function PaymentTermView() {
     setDeleting(true);
     try {
       await deleteEntity(`/api/v1/delete/payment-term/${publicId}`);
+      await removeEntity(queryClient, {
+        listPath: "/api/v1/get/payment-terms",
+        itemPath: `/api/v1/get/payment-term/${publicId}`,
+      });
       toast("Payment term deleted.");
       navigate("/payment-term/list");
     } catch (err: any) {

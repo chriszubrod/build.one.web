@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useEntityItem, deleteEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, deleteEntity, removeEntity } from "../../hooks/useEntity";
 import { useLookups } from "../../hooks/useLookups";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
@@ -18,6 +19,7 @@ export default function EmployeeLaborView() {
   const { item, loading, error } = useEntityItem<EmployeeLabor>(`/api/v1/get/employee-labor/${publicId}`);
   const { data: lookups } = useLookups("employees,projects,sub_cost_codes");
   const [deleting, setDeleting] = useState(false);
+  const queryClient = useQueryClient();
 
   if (loading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
@@ -28,6 +30,16 @@ export default function EmployeeLaborView() {
     setDeleting(true);
     try {
       await deleteEntity(`/api/v1/delete/employee-labor/${publicId}`);
+      await removeEntity(queryClient, {
+        // Inert: EmployeeLaborList fetches via rawRequest + useEffect, so nothing is
+        // registered under this key. It stays for pattern symmetry, but note a plain
+        // useEntityList migration would NOT revive it — that list is per-period
+        // (`?billing_period_start=`) and entityListKey matches the whole path string,
+        // so the key would also have to become parameter-aware. removeQueries on the
+        // itemPath is the real fix.
+        listPath: "/api/v1/get/employee-labors",
+        itemPath: `/api/v1/get/employee-labor/${publicId}`,
+      });
       toast("EmployeeLabor deleted.");
       navigate("/employee-labor/list");
     } catch (err: any) {

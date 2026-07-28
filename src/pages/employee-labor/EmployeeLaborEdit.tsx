@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { useEntityItem, updateEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEntityItem, updateEntity, invalidateEntity } from "../../hooks/useEntity";
 import { useLookups } from "../../hooks/useLookups";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
@@ -27,6 +28,7 @@ export default function EmployeeLaborEdit() {
   const [formSeedId, setFormSeedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const queryClient = useQueryClient();
 
   if (item && formSeedId !== item.public_id) {
     // Resolve project_id → public_id via lookup (lookup carries no id, so we
@@ -94,6 +96,15 @@ export default function EmployeeLaborEdit() {
         markup: form.markup || null,
         total_amount: form.total_amount || null,
         status: form.status,
+      });
+      await invalidateEntity(queryClient, {
+        // Inert: EmployeeLaborList fetches via rawRequest + useEffect, so nothing is
+        // registered under this key. It stays for pattern symmetry, but note a plain
+        // useEntityList migration would NOT revive it — that list is per-period
+        // (`?billing_period_start=`) and entityListKey matches the whole path string,
+        // so the key would also have to become parameter-aware. itemPath is the real fix.
+        listPath: "/api/v1/get/employee-labors",
+        itemPath: `/api/v1/get/employee-labor/${publicId}`,
       });
       navigate(`/employee-labor/${publicId}`);
     } catch (err: any) {
