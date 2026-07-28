@@ -2,8 +2,9 @@ import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
 import { Folder, RefreshCw } from "lucide-react";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { ApiError, fetchWithRefresh, getOne, put } from "../../api/client";
+import { entityItemKey, invalidateEntity, removeEntity } from "../../hooks/useEntity";
 import { useToast } from "../../components/Toast";
 import PageHeader from "../../components/PageHeader";
 import SectionCard from "../../components/ui/SectionCard";
@@ -34,6 +35,7 @@ import CertificateOfInsuranceSheet from "./CertificateOfInsuranceSheet";
 import VendorFolderSheet from "./VendorFolderSheet";
 
 export const DASHBOARD_QUERY_KEY = ["vendor-compliance", "dashboard"] as const;
+const VENDOR_LIST_PATH = "/api/v1/get/vendors";
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
 const VERIFY_ENTITY_SEGMENT: Record<
@@ -81,15 +83,35 @@ async function openPdfBlob(path: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-async function setTrackCompliance(vendorPublicId: string, track: boolean) {
-  const v = await getOne<Vendor>(`/api/v1/get/vendor/${vendorPublicId}`);
-  await put(`/api/v1/update/vendor/${vendorPublicId}`, {
+async function setTrackCompliance(
+  queryClient: QueryClient,
+  vendorPublicId: string,
+  track: boolean,
+) {
+  const itemPath = `/api/v1/get/vendor/${vendorPublicId}`;
+  const v = await getOne<Vendor>(itemPath);
+  const updated = await put<Vendor>(`/api/v1/update/vendor/${vendorPublicId}`, {
     row_version: v.row_version,
     name: v.name,
     abbreviation: v.abbreviation,
     notes: v.notes,
     track_compliance: track,
   });
+
+  // SEED the item cache, don't just invalidate it: this page never mounts the vendor item
+  // query, so it is inactive — React Query would mark it stale but RETAIN the pre-update row,
+  // and VendorEdit seeds its form from that once (and never re-seeds) → stale row_version → 409.
+  // The list row is stale too, but nothing seeds a row_version from it, so invalidate is enough.
+  // No invalidateLookups: nothing here is lookup-visible — track_compliance isn't in any
+  // /api/v1/lookups payload, and name/abbreviation are round-tripped unchanged.
+  if (updated) {
+    queryClient.setQueryData(entityItemKey(itemPath), updated);
+    await invalidateEntity(queryClient, { listPath: VENDOR_LIST_PATH });
+  } else {
+    // 200 with data:null — the vendor was deleted between the GET and the PUT. Drop the ghost
+    // row rather than leaving a copy the next reader would trust.
+    await removeEntity(queryClient, { listPath: VENDOR_LIST_PATH, itemPath });
+  }
 }
 
 function coiHasCoverages(slot: VendorComplianceSlot): boolean {
@@ -205,7 +227,7 @@ export default function VendorComplianceDashboard() {
     const key = `unflag:${vendorPublicId}`;
     setBusyKey(key);
     try {
-      await setTrackCompliance(vendorPublicId, false);
+      await setTrackCompliance(queryClient, vendorPublicId, false);
       toast("Vendor removed from compliance tracking", "success");
       refreshDashboard();
     } catch (err) {
@@ -220,7 +242,7 @@ export default function VendorComplianceDashboard() {
     const key = `track:${vendorPublicId}`;
     setBusyKey(key);
     try {
-      await setTrackCompliance(vendorPublicId, true);
+      await setTrackCompliance(queryClient, vendorPublicId, true);
       toast("Vendor added to compliance tracking", "success");
       refreshDashboard();
     } catch (err) {
