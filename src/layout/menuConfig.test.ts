@@ -299,6 +299,7 @@ describe("canSeeEntry — RBAC gating", () => {
     ["payment-terms", "Bills"],
     ["employees", "Employees"],
     ["review-statuses", "Review Statuses"],
+    ["addresses", "Vendors"],
   ];
 
   it.each(ENTRY_MODULE_ROWS)("%s entry visible to a user with %s can_read", (entryId, moduleName) => {
@@ -361,7 +362,7 @@ describe("entriesInSection", () => {
 
   it("Reference section: Cost Codes is module-gated, Docs stays admin-only", () => {
     const admin = makeUser({ is_admin: true });
-    expect(entriesInSection("reference", admin).map((e) => e.id)).toEqual(["cost-codes", "sub-cost-codes", "companies", "organizations", "roles", "payment-terms", "employees", "review-statuses", "docs"]);
+    expect(entriesInSection("reference", admin).map((e) => e.id)).toEqual(["cost-codes", "sub-cost-codes", "companies", "organizations", "roles", "payment-terms", "employees", "review-statuses", "addresses", "docs"]);
     const withCostCodes = makeUser({
       modules: [makeModule(Modules.COST_CODES, { can_read: true })],
     });
@@ -378,6 +379,10 @@ describe("entriesInSection", () => {
       modules: [makeModule(Modules.REVIEW_STATUSES, { can_read: true })],
     });
     expect(entriesInSection("reference", withReviewStatuses).map((e) => e.id)).toEqual(["review-statuses"]);
+    const withVendors = makeUser({
+      modules: [makeModule(Modules.VENDORS, { can_read: true })],
+    });
+    expect(entriesInSection("reference", withVendors).map((e) => e.id)).toEqual(["addresses"]);
     const nonAdmin = makeUser({ role: "Field Crew" });
     expect(entriesInSection("reference", nonAdmin)).toEqual([]);
   });
@@ -488,7 +493,11 @@ describe("secondarySectionsForUser", () => {
     });
     const sections = secondarySectionsForUser(me);
     expect(sections.find((s) => s.section === "admin")).toBeUndefined();
-    expect(sections.find((s) => s.section === "reference")).toBeUndefined();
+    // Reference is non-empty here BY DESIGN (U-157), not a relaxed tripwire:
+    // Addresses lives in `reference` but gates on VENDORS, so this fixture's
+    // Vendors grant legitimately surfaces one reference entry. The empty-section
+    // filter is still pinned by the `admin` assertion above.
+    expect(sections.find((s) => s.section === "reference")?.entries.map((e) => e.id)).toEqual(["addresses"]);
     expect(sections.find((s) => s.section === "contacts")?.entries.map((e) => e.id)).toEqual([
       "vendors",
       "vendor-types",

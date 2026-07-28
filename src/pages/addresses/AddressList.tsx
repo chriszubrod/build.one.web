@@ -1,4 +1,6 @@
 import { useEntityList } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { hasAddressPermission } from "./addressPermissions";
 import DataTable, { type Column } from "../../components/DataTable";
 import PageHeader from "../../components/PageHeader";
 import type { Address } from "../../types/api";
@@ -12,13 +14,19 @@ const columns: Column<Address>[] = [
 
 export default function AddressList() {
   const { items, loading, error } = useEntityList<Address>("/api/v1/get/addresses");
+  const { data: me } = useCurrentUser();
 
   if (loading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
 
   return (
     <div className="page">
-      <PageHeader title="Addresses" count={items.length} createPath="/address/create" />
+      <PageHeader
+        title="Addresses"
+        count={items.length}
+        // POST /api/v1/create/address — VENDORS can_create
+        createPath={hasAddressPermission(me, "can_create") ? "/address/create" : undefined}
+      />
       <DataTable columns={columns} data={items} basePath="/address" />
     </div>
   );

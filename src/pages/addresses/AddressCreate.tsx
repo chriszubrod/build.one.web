@@ -1,14 +1,20 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { createEntity } from "../../hooks/useEntity";
+import { useQueryClient } from "@tanstack/react-query";
+import { createEntity, invalidateEntity } from "../../hooks/useEntity";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import FormField from "../../components/FormField";
 import type { Address } from "../../types/api";
+import { hasAddressPermission } from "./addressPermissions";
 
 export default function AddressCreate() {
   const navigate = useNavigate();
+  const { data: me, isLoading: meLoading } = useCurrentUser();
+  const canCreate = hasAddressPermission(me, "can_create"); // POST /api/v1/create/address
   const [form, setForm] = useState({ street_one: "", street_two: "", city: "", state: "", zip: "" });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const queryClient = useQueryClient();
 
   const onChange = (name: string, value: string) => setForm((prev) => ({ ...prev, [name]: value }));
 
@@ -24,12 +30,25 @@ export default function AddressCreate() {
         state: form.state,
         zip: form.zip,
       });
+      await invalidateEntity(queryClient, { listPath: "/api/v1/get/addresses" });
       navigate(`/address/${created.public_id}`);
     } catch (err: any) {
       setSaveError(err.message);
       setSaving(false);
     }
   };
+
+  if (meLoading) return <div className="page-loading">Loading...</div>;
+  if (!canCreate) {
+    return (
+      <div className="page">
+        <div className="page-error">You do not have permission to create addresses.</div>
+        <button type="button" className="btn btn-secondary" onClick={() => navigate("/address/list")}>
+          Back to Addresses
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="page">

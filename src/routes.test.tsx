@@ -127,6 +127,13 @@ const reviewStatusPaths = [
   "/review-status/abc123/edit",
 ] as const;
 
+const addressPaths = [
+  "/address/list",
+  "/address/create",
+  "/address/abc123",
+  "/address/abc123/edit",
+] as const;
+
 const subCostCodePaths = [
   "/sub-cost-code/list",
   "/sub-cost-code/create",
@@ -157,6 +164,11 @@ describe("appRouteTree — real route tree (U-066)", () => {
     expect(routePaths()).toEqual([
       "*",
       "/",
+      "/address/*",
+      "/address/:publicId",
+      "/address/:publicId/edit",
+      "/address/create",
+      "/address/list",
       "/bill-credit/*",
       "/bill-credit/:publicId",
       "/bill-credit/:publicId/edit",
@@ -752,6 +764,12 @@ describe("appRouteTree — real route tree (U-066)", () => {
     expect(branchHasLayout(branch, AppLayout)).toBe(true);
   });
 
+  it.each(addressPaths)("%s matches under AppLayout", (path) => {
+    const branch = branchFor(path);
+    expect(branch).not.toBeNull();
+    expect(branchHasLayout(branch, AppLayout)).toBe(true);
+  });
+
   it.each(paymentTermPaths)("%s matches under AppLayout", (path) => {
     const branch = branchFor(path);
     expect(branch).not.toBeNull();
@@ -763,6 +781,13 @@ describe("appRouteTree — real route tree (U-066)", () => {
     expect(branch).not.toBeNull();
     const last = branch!.at(-1)!;
     expect(last.route.path).toBe("/sub-cost-code/:publicId/edit");
+  });
+
+  it("/address/abc123/edit resolves to the AddressEdit page route, not the /address/* splat", () => {
+    const branch = branchFor("/address/abc123/edit");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/address/:publicId/edit");
   });
 
   it("/payment-term/abc123/edit resolves to the PaymentTermEdit page route, not the /payment-term/* splat", () => {
@@ -777,6 +802,13 @@ describe("appRouteTree — real route tree (U-066)", () => {
     expect(branch).not.toBeNull();
     const last = branch!.at(-1)!;
     expect(last.route.path).toBe("/sub-cost-code/:publicId");
+  });
+
+  it("/address/abc123 resolves to the AddressView page route", () => {
+    const branch = branchFor("/address/abc123");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/address/:publicId");
   });
 
   describe("/sub-cost-code/* redirect catches unknown sub cost code children", () => {
@@ -800,6 +832,21 @@ describe("appRouteTree — real route tree (U-066)", () => {
       const last = branch!.at(-1)!;
       expect(last.route.path).toBe("/sub-cost-code/*");
     });
+  });
+
+  describe("/address/* redirect catches unknown address children", () => {
+    it.each(["/address", "/address/nonsense/extra"] as const)(
+      "%s last match is /address/* with redirect to list",
+      (path) => {
+        const branch = branchFor(path);
+        expect(branch).not.toBeNull();
+        const last = branch!.at(-1)!;
+        expect(last.route.path).toBe("/address/*");
+        const el = last.route.element as ReactElement<{ to: string }> | undefined;
+        expect(el?.type).toBe(Navigate);
+        expect(el?.props.to).toBe("/address/list");
+      },
+    );
   });
 
   it.each(invoicePaths)("%s matches under AppLayout", (path) => {
@@ -897,6 +944,7 @@ describe("routed <-> nav reconciliation (U-077)", () => {
     // Hand-sorted to match navReachableRoutes()'s already-sorted output (it
     // derives from routePaths(), which sorts), same as the route-inventory pin.
     expect(navReachableRoutes()).toEqual([
+      "/address/list",
       "/bill-credit/list",
       "/bill/list",
       "/budget/list",

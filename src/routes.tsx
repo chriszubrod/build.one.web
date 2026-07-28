@@ -106,6 +106,11 @@ import SubCostCodeList from "./pages/sub-cost-codes/SubCostCodeList";
 import SubCostCodeView from "./pages/sub-cost-codes/SubCostCodeView";
 import SubCostCodeEdit from "./pages/sub-cost-codes/SubCostCodeEdit";
 import SubCostCodeCreate from "./pages/sub-cost-codes/SubCostCodeCreate";
+// Addresses — simple reference CRUD (U-157)
+import AddressList from "./pages/addresses/AddressList";
+import AddressView from "./pages/addresses/AddressView";
+import AddressEdit from "./pages/addresses/AddressEdit";
+import AddressCreate from "./pages/addresses/AddressCreate";
 import PaymentTermList from "./pages/payment-terms/PaymentTermList";
 import PaymentTermView from "./pages/payment-terms/PaymentTermView";
 import PaymentTermEdit from "./pages/payment-terms/PaymentTermEdit";
@@ -246,6 +251,12 @@ export const appRouteTree = (
         <Route path="/sub-cost-code/:publicId" element={<SubCostCodeView />} />
         <Route path="/sub-cost-code/:publicId/edit" element={<SubCostCodeEdit />} />
         <Route path="/sub-cost-code/*" element={<Navigate to="/sub-cost-code/list" replace />} />
+
+        <Route path="/address/list" element={<AddressList />} />
+        <Route path="/address/create" element={<AddressCreate />} />
+        <Route path="/address/:publicId" element={<AddressView />} />
+        <Route path="/address/:publicId/edit" element={<AddressEdit />} />
+        <Route path="/address/*" element={<Navigate to="/address/list" replace />} />
 
         <Route path="/payment-term/list" element={<PaymentTermList />} />
         <Route path="/payment-term/create" element={<PaymentTermCreate />} />

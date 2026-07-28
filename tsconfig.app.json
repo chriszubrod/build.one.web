@@ -24,7 +24,6 @@
   "include": ["src"],
   "exclude": [
     "src/pages/Dashboard.tsx",
-    "src/pages/addresses/**",
     "src/pages/address-types/**",
     "src/pages/bill-credits/**",
     "src/pages/contract-labor/ContractLaborCreate.tsx",

@@ -1,4 +1,4 @@
-import { BookOpen, Briefcase, Building2, Calculator, CalendarClock, CircleDollarSign, ClipboardCheck, Clock, FileMinus, FileText, Hammer, HardHat, Hash, IdCard, KeyRound, Layers, ListChecks, Network, Receipt, ShieldCheck, Store, Tags, User, UserCog, Users } from "lucide-react";
+import { BookOpen, Briefcase, Building2, Calculator, CalendarClock, CircleDollarSign, ClipboardCheck, Clock, FileMinus, FileText, Hammer, HardHat, Hash, IdCard, KeyRound, Layers, ListChecks, MapPin, Network, Receipt, ShieldCheck, Store, Tags, User, UserCog, Users } from "lucide-react";
 import type { ComponentType } from "react";
 import { Modules, type ModuleName } from "../shared/modules";
 import { hasModulePermission } from "../shared/permissions";
@@ -285,6 +285,20 @@ export const MENU_ENTRIES: MenuEntry[] = [
     permission: "can_read",
     section: "reference",
     priority: 200,
+  },
+  {
+    // address API router gates on the shared Vendors module (no separate module).
+    // Deliberately in `reference`, not `contacts` with the other Vendors-gated
+    // entries — Addresses is reference data, not a contact. First VENDORS-gated
+    // reference entry, so a Vendors-only non-admin now gets a Reference section.
+    id: "addresses",
+    label: "Addresses",
+    icon: MapPin,
+    route: "/address/list",
+    module: Modules.VENDORS,
+    permission: "can_read",
+    section: "reference",
+    priority: 205,
   },
   {
     id: "docs",
