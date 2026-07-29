@@ -5563,3 +5563,74 @@ a.buildone-record-header-link:hover .buildone-record-name {
 .docs-markdown a {
   color: var(--color-accent);
 }
+
+/* Form-friendly variant of .detail-row / .detail-fields — used on BillCreate
+ * and BillEdit so their inputs sit inside the same "label-on-left, value-on-
+ * right, thin divider between rows" shell that BillView uses for read-only
+ * fields. FormField / SelectField / DateField / TextareaField all render a
+ * `.form-group > label + input` (or select/textarea), so the override on
+ * `.detail-fields-form .form-group` is enough to turn each field into a
+ * horizontal row without touching the components themselves. */
+.detail-fields-form .form-group {
+  display: flex;
+  align-items: center;
+  padding: 10px 0;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--color-border);
+  gap: var(--space-md);
+}
+.detail-fields-form .form-group:last-child {
+  border-bottom: none;
+}
+.detail-fields-form .form-group > label {
+  width: 180px;
+  flex-shrink: 0;
+  margin-bottom: 0;
+  font-size: var(--font-size-footnote);
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+.detail-fields-form .form-group > input,
+.detail-fields-form .form-group > select,
+.detail-fields-form .form-group > textarea {
+  /* Cap width so header inputs don't stretch across the full card. Left-
+   * aligned after the label, empty space to the right — matches the
+   * "value column" density on BillView, where "Walker Lumber & Hardware"
+   * doesn't stretch the whole row either. */
+  flex: 0 1 auto;
+  width: 100%;
+  max-width: 440px;
+  min-width: 0;
+}
+
+/* Editable line-items table on BillCreate + BillEdit. Extends the read-only
+ * .data-table BillView uses so the two visual surfaces match (same column
+ * header caps, same divider color, same padding rhythm) — but each cell
+ * hosts a form input instead of static text. Compact per-cell padding so
+ * a full row of 10 fields fits the card width without shrinking inputs
+ * too aggressively. */
+.line-items-edit-table td {
+  padding: 6px var(--space-sm);
+  vertical-align: middle;
+}
+.line-items-edit-table th {
+  padding: 8px var(--space-sm);
+}
+.line-items-edit-table input[type="text"],
+.line-items-edit-table input[type="number"],
+.line-items-edit-table select {
+  width: 100%;
+  padding: 4px 6px;
+  font-size: var(--font-size-footnote);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  box-sizing: border-box;
+}
+.line-items-edit-table input[type="checkbox"] {
+  margin: 0;
+}
+.line-items-edit-table .inline-li-computed {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

@@ -99,8 +99,8 @@ export default function BillView() {
       editPath={`/bill/${publicId}/edit`}
       breadcrumbs={entityCrumbs("Bills", "/bill/list", item.bill_number)}
       fields={[
-        { label: "Bill Number", value: item.bill_number },
         { label: "Vendor", value: vendorMap.get(item.vendor_id) ?? item.vendor_id },
+        { label: "Bill Number", value: item.bill_number },
         { label: "Bill Date", value: fmtDate(item.bill_date) },
         { label: "Due Date", value: fmtDate(item.due_date) },
         { label: "Total Amount", value: fmtMoney(item.total_amount) },

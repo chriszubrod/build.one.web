@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { post, uploadFile } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
@@ -9,6 +9,7 @@ import FormField from "../../components/FormField";
 import DateField from "../../components/DateField";
 import TextareaField from "../../components/TextareaField";
 import SelectField from "../../components/SelectField";
+import Breadcrumb, { entityCrumbs } from "../../components/Breadcrumb";
 import type { Bill } from "../../types/api";
 import { hasBillPermission } from "./billPermissions";
 
@@ -69,8 +70,18 @@ export default function BillCreate() {
     bill_number: "",
     memo: "",
   });
-  const [line, setLine] = useState<LineItemDraft>(EMPTY_LINE);
+  // Multiple line items. Start with one empty row; user can + Add / × Remove.
+  // Empty rows (no user-entered fields — see isLinePopulated) are silently
+  // dropped at submit time, matching the "hasLineData" behavior used before
+  // multi-line support landed.
+  const [lines, setLines] = useState<LineItemDraft[]>([EMPTY_LINE]);
   const [file, setFile] = useState<File | null>(null);
+  // Browser blob URL for rendering the selected PDF in an iframe pre-upload.
+  // Built + revoked via useEffect below so we don't leak object URLs across
+  // successive selections.
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // Three mutually-exclusive in-flight actions collapsed into one state.
   // null = idle. The button labels + disabled gates branch off this value
   // instead of three separate booleans.
@@ -83,69 +94,188 @@ export default function BillCreate() {
   // because we don't render off of it and need to read it synchronously
   // inside onSubmit.
   const pendingActionRef = useRef<"save" | "submit" | "complete" | null>(null);
+  // Auto-calc DueDate from PaymentTerm.due_days + BillDate BY DEFAULT.
+  // Flip to false the moment the user hand-edits DueDate, so their manual
+  // value isn't clobbered by a later BillDate change. Picking a new
+  // PaymentTerm resets the flag — that's the "re-arm auto-calc" gesture.
+  const dueDateAutoRef = useRef(true);
 
-  const onChange = (name: string, value: string) =>
+  // Preselect "Due on receipt" once lookups load, unless the user has already
+  // picked a term. Idempotent — the guard on `form.payment_term_public_id`
+  // stops the default from re-applying after the user clears the field.
+  useEffect(() => {
+    if (!lookups.payment_terms || form.payment_term_public_id) return;
+    const defaultTerm = lookups.payment_terms.find(
+      (pt) => (pt.name || "").toLowerCase() === "due on receipt",
+    );
+    if (defaultTerm) {
+      setForm((prev) => ({ ...prev, payment_term_public_id: defaultTerm.public_id }));
+    }
+  }, [lookups.payment_terms, form.payment_term_public_id]);
+
+  // Auto-calc DueDate = BillDate + PaymentTerm.due_days whenever either
+  // input changes AND the user hasn't manually edited DueDate since the
+  // last PaymentTerm pick. `due_days === null` (unset on the term) → skip.
+  useEffect(() => {
+    if (!dueDateAutoRef.current) return;
+    if (!form.bill_date || !form.payment_term_public_id || !lookups.payment_terms) return;
+    const term = lookups.payment_terms.find((pt) => pt.public_id === form.payment_term_public_id);
+    if (!term || term.due_days === null || term.due_days === undefined) return;
+    // Parse the ISO date at local midnight to avoid a UTC-boundary off-by-one
+    // when the browser's timezone is west of UTC (e.g. Central shifts a
+    // midnight-UTC parse back a day).
+    const bd = new Date(form.bill_date + "T00:00:00");
+    if (isNaN(bd.getTime())) return;
+    const dd = new Date(bd.getTime() + term.due_days * 86400000);
+    const y = dd.getFullYear();
+    const m = String(dd.getMonth() + 1).padStart(2, "0");
+    const d = String(dd.getDate()).padStart(2, "0");
+    const iso = `${y}-${m}-${d}`;
+    if (iso !== form.due_date) {
+      setForm((prev) => ({ ...prev, due_date: iso }));
+    }
+  }, [form.bill_date, form.payment_term_public_id, form.due_date, lookups.payment_terms]);
+
+  const onChange = (name: string, value: string) => {
+    // Manual DueDate edit turns auto-calc OFF; picking a new PaymentTerm
+    // re-arms it. Anything else leaves the flag alone.
+    if (name === "due_date") {
+      dueDateAutoRef.current = false;
+    } else if (name === "payment_term_public_id") {
+      dueDateAutoRef.current = true;
+    }
     setForm((prev) => ({ ...prev, [name]: value }));
+  };
 
-  const updateLine = (key: keyof LineItemDraft, value: string | boolean) => {
-    setLine((prev) => computeBillLine({ ...prev, [key]: value } as LineItemDraft));
+  const updateLine = (index: number, key: keyof LineItemDraft, value: string | boolean) => {
+    setLines((prev) =>
+      prev.map((li, i) =>
+        i === index ? computeBillLine({ ...li, [key]: value } as LineItemDraft) : li,
+      ),
+    );
+  };
+
+  const addLine = () => setLines((prev) => [...prev, { ...EMPTY_LINE }]);
+
+  const removeLine = (index: number) =>
+    setLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
+
+  // A line "has user data" iff the user entered anything in one of the
+  // action-relevant fields. Defaults (quantity="1", is_billable=true) don't
+  // count — otherwise every fresh row would look populated. Empty rows are
+  // silently dropped at submit time per the (a) call.
+  const isLinePopulated = (li: LineItemDraft): boolean =>
+    li.project_public_id !== "" ||
+    li.sub_cost_code_id !== "" ||
+    li.description !== "" ||
+    li.rate !== "";
+
+  // Build (and revoke) a blob URL for the selected PDF so we can preview it
+  // in an iframe before upload. Cleanup runs on file change / unmount, so a
+  // second selection doesn't leak the first URL.
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  const acceptFile = (f: File | null): boolean => {
+    if (!f) return false;
+    if (f.type !== "application/pdf") {
+      setSaveError("Only PDF files are allowed.");
+      return false;
+    }
+    setSaveError("");
+    setFile(f);
+    return true;
   };
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null;
-    if (f && f.type !== "application/pdf") {
-      setSaveError("Only PDF files are allowed.");
+    if (!acceptFile(f)) {
       setFile(null);
       e.target.value = "";
-      return;
     }
-    setSaveError("");
-    setFile(f);
   };
 
-  // Only include `line_*` fields in the POST body when the user has
-  // actually filled the card in. Otherwise let the server create a bare
-  // placeholder line item (today's behaviour for empty creates).
-  const hasLineData =
-    line.project_public_id !== "" ||
-    line.sub_cost_code_id !== "" ||
-    line.description !== "" ||
-    line.rate !== "";
+  const handleDragOver = (e: DragEvent) => {
+    e.preventDefault();
+    setDragOver(true);
+  };
+  const handleDragLeave = (e: DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+  };
+  const handleDrop = (e: DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const dropped = e.dataTransfer.files?.[0];
+    if (dropped) acceptFile(dropped);
+  };
 
-  // Submit For Review needs a project on the line item so the API's
-  // recipient resolver can find PMs/Owners. Without it the notification
-  // would queue empty (the K06988 bug). Tooltip explains.
-  const canSubmitForReview = !!line.project_public_id;
-  // Complete needs both project + SCC because the post-complete outbox
-  // pushes the line to SharePoint (per-project folder), the project's
-  // Excel workbook (per-SCC section), and QBO (line.item maps via SCC).
-  // Missing either → dead-letter rows; gate to prevent.
-  const canCompleteFromHere = !!line.project_public_id && !!line.sub_cost_code_id;
+  // Drop empty rows (per the (a) call). Everything downstream — buildBody,
+  // the additional-line POST loop, gates, and totals — operates on this
+  // filtered list. `hasLineData` is now "is any row populated?".
+  const populatedLines = lines.filter(isLinePopulated);
+  const hasLineData = populatedLines.length > 0;
+
+  // Submit For Review needs at least one populated line with a project so
+  // the API's recipient resolver can find PMs/Owners (K06988 bug on empty
+  // resolution). Any populated line with a project is enough — a bill can
+  // legitimately span multiple projects, and the resolver walks all of them.
+  const canSubmitForReview = populatedLines.some((li) => !!li.project_public_id);
+
+  // Complete needs EVERY populated line to have both project AND SCC —
+  // completion enqueues one SharePoint upload per project and one Excel row
+  // per SCC; missing either dead-letters that outbox row. Requires at least
+  // one populated line so there's anything to complete.
+  const canCompleteFromHere =
+    hasLineData &&
+    populatedLines.every((li) => !!li.project_public_id && !!li.sub_cost_code_id);
+
+  // Bill.TotalAmount = sum of all populated lines' amounts. Server writes
+  // this to the header; per-line values live on the individual BLIs. Empty
+  // rows contribute nothing (they're already filtered out).
+  const totalAmount = populatedLines.reduce(
+    (sum, li) => sum + (li.amount !== "" ? Number(li.amount) : 0),
+    0,
+  );
 
   const buildBody = (submitForReview: boolean) => {
+    // First populated line becomes the inline `line_*` summary — the
+    // API's create endpoint takes ONE summary and auto-creates the
+    // corresponding BillLineItem (the one the attachment links to).
+    // Any additional populated lines get POSTed separately after the
+    // bill is created (see handleSubmit).
+    const first = populatedLines[0];
     const body: Record<string, unknown> = {
       vendor_public_id: form.vendor_public_id,
       payment_term_public_id: form.payment_term_public_id || null,
       bill_date: form.bill_date,
       due_date: form.due_date,
       bill_number: form.bill_number,
-      // TotalAmount is the sum of line.amount values (one line here).
-      total_amount: hasLineData ? Number(line.amount || 0) : null,
+      // Sum across ALL populated lines — the header value reflects the
+      // full bill, not just the summary line.
+      total_amount: hasLineData ? totalAmount : null,
       memo: form.memo || null,
       is_draft: true,
       submit_for_review: submitForReview,
     };
-    if (hasLineData) {
-      body.line_description = line.description || null;
-      body.line_quantity = line.quantity !== "" ? Number(line.quantity) : null;
-      body.line_rate = line.rate !== "" ? Number(line.rate) : null;
-      body.line_amount = line.amount !== "" ? Number(line.amount) : null;
-      body.line_markup = line.markup !== "" ? Number(line.markup) : null;
-      body.line_price = line.price !== "" ? Number(line.price) : null;
-      body.line_is_billable = line.is_billable;
+    if (first) {
+      body.line_description = first.description || null;
+      body.line_quantity = first.quantity !== "" ? Number(first.quantity) : null;
+      body.line_rate = first.rate !== "" ? Number(first.rate) : null;
+      body.line_amount = first.amount !== "" ? Number(first.amount) : null;
+      body.line_markup = first.markup !== "" ? Number(first.markup) : null;
+      body.line_price = first.price !== "" ? Number(first.price) : null;
+      body.line_is_billable = first.is_billable;
       body.line_sub_cost_code_id =
-        line.sub_cost_code_id !== "" ? Number(line.sub_cost_code_id) : null;
-      body.line_project_public_id = line.project_public_id || null;
+        first.sub_cost_code_id !== "" ? Number(first.sub_cost_code_id) : null;
+      body.line_project_public_id = first.project_public_id || null;
     }
     return body;
   };
@@ -168,6 +298,49 @@ export default function BillCreate() {
         ...buildBody(submitForReview),
         attachment_public_id: attachment.public_id,
       });
+
+      // Additional populated lines beyond the inline summary. Each one is
+      // its own POST — the API has no batch-create-with-lines endpoint. If
+      // any of them fails, the bill still exists (with its summary line and
+      // attachment); we redirect to /edit with a toast and let the user
+      // finish there. Reversing the bill would need a server transaction we
+      // don't have and would lose the attachment upload work.
+      const additionalLines = populatedLines.slice(1);
+      const failedLineNumbers: number[] = [];
+      for (let i = 0; i < additionalLines.length; i++) {
+        const li = additionalLines[i];
+        try {
+          await post("/api/v1/create/bill_line_item", {
+            bill_public_id: created.public_id,
+            sub_cost_code_id:
+              li.sub_cost_code_id !== "" ? Number(li.sub_cost_code_id) : null,
+            project_public_id: li.project_public_id || null,
+            description: li.description || null,
+            quantity: li.quantity !== "" ? Number(li.quantity) : null,
+            rate: li.rate !== "" ? Number(li.rate) : null,
+            amount: li.amount !== "" ? Number(li.amount) : null,
+            is_billable: li.is_billable,
+            markup: li.markup !== "" ? Number(li.markup) : null,
+            price: li.price !== "" ? Number(li.price) : null,
+          });
+        } catch {
+          // +2 because populatedLines[0] is line #1 (summary), so
+          // additionalLines[0] is line #2, etc. Human-readable numbering.
+          failedLineNumbers.push(i + 2);
+        }
+      }
+      if (failedLineNumbers.length > 0) {
+        toast(
+          `Bill saved. ` +
+            `${failedLineNumbers.length === 1 ? "Line" : "Lines"} ` +
+            `${failedLineNumbers.join(", ")} failed to save — ` +
+            `add ${failedLineNumbers.length === 1 ? "it" : "them"} on the edit page.`,
+          "error",
+        );
+        navigate(`/bill/${created.public_id}/edit`);
+        return;
+      }
+
       if (action === "complete") {
         try {
           // /complete/bill returns 202 (background); navigate immediately,
@@ -210,9 +383,10 @@ export default function BillCreate() {
 
   return (
     <div className="page form-page-wide">
+      <Breadcrumb crumbs={entityCrumbs("Bills", "/bill/list", "Create")} />
       <div className="page-header"><h1>Create Bill</h1></div>
       <form
-        className="form-card"
+        className="detail-card"
         onSubmit={(e) => {
           e.preventDefault();
           // pendingActionRef is set by whichever button initiated the
@@ -231,8 +405,11 @@ export default function BillCreate() {
       >
         {saveError && <div className="form-error">{saveError}</div>}
 
-        <div className="form-header-grid">
-          <FormField label="Bill Number" name="bill_number" value={form.bill_number} onChange={onChange} required />
+        {/* Header fields as label-left / input-right rows, matching BillView's
+            .detail-row shape. The .detail-fields-form class flips each
+            enclosed .form-group (rendered by FormField/SelectField/etc.) to
+            a horizontal layout with a thin divider between rows. */}
+        <div className="detail-fields-form">
           <SelectField
             label="Vendor"
             name="vendor_public_id"
@@ -241,6 +418,7 @@ export default function BillCreate() {
             options={(lookups.vendors ?? []).map((v) => ({ value: v.public_id, label: v.name }))}
             required
           />
+          <FormField label="Bill Number" name="bill_number" value={form.bill_number} onChange={onChange} required />
           <DateField label="Bill Date" name="bill_date" value={form.bill_date} onChange={onChange} required />
           <DateField label="Due Date" name="due_date" value={form.due_date} onChange={onChange} required />
           <SelectField
@@ -250,28 +428,7 @@ export default function BillCreate() {
             onChange={onChange}
             options={(lookups.payment_terms ?? []).map((pt) => ({ value: pt.public_id, label: pt.name }))}
           />
-          <div className="full-width">
-            <TextareaField label="Memo" name="memo" value={form.memo} onChange={onChange} />
-          </div>
-          <div className="full-width">
-            <div className="form-group">
-              <label>
-                PDF Attachment <span style={{ color: "#c00" }}>*</span>
-              </label>
-              <input
-                type="file"
-                accept="application/pdf"
-                onChange={onFileChange}
-                required
-                disabled={busy}
-              />
-              {file && (
-                <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
-                  Selected: {file.name} ({Math.round(file.size / 1024)} KB)
-                </div>
-              )}
-            </div>
-          </div>
+          <TextareaField label="Memo" name="memo" value={form.memo} onChange={onChange} />
         </div>
 
         {/* ─── Line Item Details (optional) ────────────────────────────── */}
@@ -282,99 +439,127 @@ export default function BillCreate() {
               Optional — fill in to enable Submit for Review.
             </span>
           </div>
-          <div className="li-card">
-            <div className="li-card-row">
-              <div className="li-card-field" style={{ flex: 2 }}>
-                <label>Project</label>
-                <select
-                  className="inline-li-input"
-                  value={line.project_public_id}
-                  onChange={(e) => updateLine("project_public_id", e.target.value)}
-                >
-                  <option value="">—</option>
-                  {projectOptions.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="li-card-field" style={{ flex: 2 }}>
-                <label>Sub Cost Code</label>
-                <select
-                  className="inline-li-input"
-                  value={line.sub_cost_code_id}
-                  onChange={(e) => updateLine("sub_cost_code_id", e.target.value)}
-                >
-                  <option value="">—</option>
-                  {sccOptions.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="li-card-field" style={{ flex: 2 }}>
-                <label>Description</label>
-                <input
-                  className="inline-li-input"
-                  value={line.description}
-                  onChange={(e) => updateLine("description", e.target.value)}
-                />
-              </div>
-            </div>
+          <table className="data-table line-items-edit-table">
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Sub Cost Code</th>
+                <th>Project</th>
+                <th style={{ textAlign: "right" }}>Qty</th>
+                <th style={{ textAlign: "right" }}>Rate</th>
+                <th style={{ textAlign: "right" }}>Amount</th>
+                <th style={{ textAlign: "right" }}>Markup</th>
+                <th style={{ textAlign: "right" }}>Price</th>
+                <th style={{ textAlign: "center" }}>Billable</th>
+                <th aria-label="Actions"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((li, index) => (
+                <tr key={index}>
+                  <td>
+                    <input
+                      className="inline-li-input"
+                      value={li.description}
+                      onChange={(e) => updateLine(index, "description", e.target.value)}
+                    />
+                  </td>
+                  <td>
+                    <select
+                      className="inline-li-input"
+                      value={li.sub_cost_code_id}
+                      onChange={(e) => updateLine(index, "sub_cost_code_id", e.target.value)}
+                    >
+                      <option value="">—</option>
+                      {sccOptions.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <select
+                      className="inline-li-input"
+                      value={li.project_public_id}
+                      onChange={(e) => updateLine(index, "project_public_id", e.target.value)}
+                    >
+                      <option value="">—</option>
+                      {projectOptions.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td style={{ textAlign: "right" }}>
+                    <input
+                      className="inline-li-input"
+                      type="number"
+                      step="any"
+                      value={li.quantity}
+                      onChange={(e) => updateLine(index, "quantity", e.target.value)}
+                    />
+                  </td>
+                  <td style={{ textAlign: "right" }}>
+                    <input
+                      className="inline-li-input"
+                      type="number"
+                      step="any"
+                      value={li.rate}
+                      onChange={(e) => updateLine(index, "rate", e.target.value)}
+                    />
+                  </td>
+                  <td style={{ textAlign: "right" }} className="inline-li-computed">
+                    {fmtMoney(li.amount)}
+                  </td>
+                  <td style={{ textAlign: "right" }}>
+                    <input
+                      className="inline-li-input"
+                      type="number"
+                      step="any"
+                      placeholder="0.10"
+                      value={li.markup}
+                      onChange={(e) => updateLine(index, "markup", e.target.value)}
+                    />
+                  </td>
+                  <td style={{ textAlign: "right" }} className="inline-li-computed">
+                    {fmtMoney(li.price)}
+                  </td>
+                  <td style={{ textAlign: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={li.is_billable}
+                      onChange={(e) => updateLine(index, "is_billable", e.target.checked)}
+                    />
+                  </td>
+                  <td style={{ textAlign: "center" }}>
+                    {lines.length > 1 && (
+                      <button
+                        type="button"
+                        className="inline-li-remove"
+                        onClick={() => removeLine(index)}
+                        title="Remove this line"
+                        aria-label={`Remove line ${index + 1}`}
+                      >
+                        &times;
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
 
-            <div className="li-card-row">
-              <div className="li-card-field">
-                <label>Qty</label>
-                <input
-                  className="inline-li-input"
-                  type="number"
-                  step="any"
-                  value={line.quantity}
-                  onChange={(e) => updateLine("quantity", e.target.value)}
-                />
-              </div>
-              <div className="li-card-field">
-                <label>Rate</label>
-                <input
-                  className="inline-li-input"
-                  type="number"
-                  step="any"
-                  value={line.rate}
-                  onChange={(e) => updateLine("rate", e.target.value)}
-                />
-              </div>
-              <div className="li-card-field">
-                <label>Amount</label>
-                <span className="inline-li-computed">{fmtMoney(line.amount)}</span>
-              </div>
-              <div className="li-card-field">
-                <label className="li-card-checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={line.is_billable}
-                    onChange={(e) => updateLine("is_billable", e.target.checked)}
-                  />
-                  Billable
-                </label>
-              </div>
-              <div className="li-card-field">
-                <label>Markup</label>
-                <input
-                  className="inline-li-input"
-                  type="number"
-                  step="any"
-                  placeholder="0.10"
-                  value={line.markup}
-                  onChange={(e) => updateLine("markup", e.target.value)}
-                />
-              </div>
-              <div className="li-card-field">
-                <label>Price</label>
-                <span className="inline-li-computed">{fmtMoney(line.price)}</span>
-              </div>
-            </div>
+          <div style={{ marginTop: 8 }}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={addLine}
+              disabled={busy}
+            >
+              + Add Line
+            </button>
           </div>
 
           <div style={{ marginTop: 8, textAlign: "right", fontSize: 14 }}>
-            Total Amount: <strong>{fmtMoney(line.amount)}</strong>
+            Total Amount: <strong>{fmtMoney(String(totalAmount))}</strong>
           </div>
         </div>
 
@@ -423,6 +608,65 @@ export default function BillCreate() {
             >
               {busyAction === "complete" ? "Completing..." : "Complete Bill"}
             </button>
+          )}
+        </div>
+
+        {/* Attachment section — full-width at the bottom of the card. Actions
+            live ABOVE this block so the user doesn't have to page past the
+            PDF preview to reach Submit / Complete. */}
+        <div className="pdf-viewer">
+          <h3 className="line-items-heading">
+            Attachment <span style={{ color: "#c00" }}>*</span>
+          </h3>
+          {previewUrl ? (
+            <>
+              <iframe
+                src={`${previewUrl}#view=FitH&navpanes=0`}
+                title="Bill PDF preview"
+              />
+              <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
+                {file?.name} ({file ? Math.round(file.size / 1024) : 0} KB)
+                {" · "}
+                <button
+                  type="button"
+                  className="drop-zone-browse"
+                  onClick={() => setFile(null)}
+                  disabled={busy}
+                >
+                  Change file
+                </button>
+              </div>
+            </>
+          ) : (
+            <div
+              className={`drop-zone ${dragOver ? "drop-zone-active" : ""}`}
+              onDragOver={handleDragOver}
+              onDragEnter={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
+              <span className="drop-zone-icon">📄</span>
+              <p className="drop-zone-text">Drop the PDF here</p>
+              <p className="drop-zone-subtext">
+                or{" "}
+                <button
+                  type="button"
+                  className="drop-zone-browse"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={busy}
+                >
+                  browse files
+                </button>
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/pdf"
+                style={{ display: "none" }}
+                onChange={onFileChange}
+                disabled={busy}
+              />
+            </div>
           )}
         </div>
       </form>

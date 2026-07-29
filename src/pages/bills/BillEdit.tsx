@@ -21,6 +21,7 @@ import TextareaField from "../../components/TextareaField";
 import SelectField from "../../components/SelectField";
 import LineItemAttachment from "../../components/LineItemAttachment";
 import ReviewTimeline from "../../components/ReviewTimeline";
+import Breadcrumb from "../../components/Breadcrumb";
 import type { Bill, BillLineItem } from "../../types/api";
 
 interface LineItemRow {
@@ -372,13 +373,28 @@ export default function BillEdit() {
 
   return (
     <div className="page form-page-wide">
-      <div className="page-header"><h1>Edit Bill {item?.bill_number}</h1></div>
-      <form className="form-card" onSubmit={handleSubmit}>
+      <Breadcrumb
+        crumbs={[
+          { label: "Bills", path: "/bill/list" },
+          { label: item?.bill_number || "…", path: `/bill/${publicId}` },
+          { label: "Edit" },
+        ]}
+      />
+      <div className="page-header">
+        <h1>Edit Bill {item?.bill_number}</h1>
+        <div className="page-header-spacer" />
+        {form && (
+          <span className={`status-badge ${form.is_draft ? "draft" : "finalized"}`}>
+            {form.is_draft ? "Draft" : "Finalized"}
+          </span>
+        )}
+      </div>
+      <form className="detail-card" onSubmit={handleSubmit}>
         {saveError && <div className="form-error">{saveError}</div>}
 
         {publicId && <ReviewTimeline parentType="bill" parentPublicId={publicId} />}
 
-        <div className="form-header-grid">
+        <div className="detail-fields-form">
           <FormField label="Bill Number" name="bill_number" value={form.bill_number} onChange={onChange} required />
           <SelectField
             label="Vendor"
@@ -417,86 +433,89 @@ export default function BillEdit() {
             </button>
           </div>
 
-          {lineItems.length === 0 && (
-            <div className="li-card empty-state">No line items. Click "+ Add Row" to start.</div>
-          )}
+          <table className="data-table line-items-edit-table">
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Sub Cost Code</th>
+                <th>Project</th>
+                <th style={{ textAlign: "right" }}>Qty</th>
+                <th style={{ textAlign: "right" }}>Rate</th>
+                <th style={{ textAlign: "right" }}>Amount</th>
+                <th style={{ textAlign: "right" }}>Markup</th>
+                <th style={{ textAlign: "right" }}>Price</th>
+                <th style={{ textAlign: "center" }}>Billable</th>
+                <th>Attachment</th>
+                <th aria-label="Actions"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {lineItems.length === 0 && (
+                <tr>
+                  <td colSpan={11} className="empty-state">
+                    No line items. Click "+ Add Row" to start.
+                  </td>
+                </tr>
+              )}
+              {lineItems.map((li, idx) => {
+                const updateField = (key: string, value: any) => {
+                  const updated = lineItems.map((item, i) => i === idx ? { ...item, [key]: value } : item);
+                  setLineItems(updated.map(computeLineItem));
+                };
+                const removeRow = () => setLineItems(lineItems.filter((_, i) => i !== idx));
+                const sccOptions = fullSubCostCodes.map((s) => ({ value: String(s.id), label: s.number ? `${s.number} — ${s.name}` : s.name }));
+                const projectOptions = fullProjects.map((p) => ({ value: p.public_id, label: p.name }));
 
-          {lineItems.map((li, idx) => {
-            const updateField = (key: string, value: any) => {
-              const updated = lineItems.map((item, i) => i === idx ? { ...item, [key]: value } : item);
-              setLineItems(updated.map(computeLineItem));
-            };
-            const removeRow = () => setLineItems(lineItems.filter((_, i) => i !== idx));
-            const sccOptions = fullSubCostCodes.map((s) => ({ value: String(s.id), label: s.number ? `${s.number} — ${s.name}` : s.name }));
-            const projectOptions = fullProjects.map((p) => ({ value: p.public_id, label: p.name }));
-
-            return (
-              <div className="li-card" key={li.public_id ?? idx}>
-                <div className="li-card-header">
-                  <span className="li-card-num">#{idx + 1}</span>
-                  <button type="button" className="inline-li-remove" onClick={removeRow} title="Remove">&times;</button>
-                </div>
-
-                <div className="li-card-row">
-                  <div className="li-card-field" style={{ flex: 2 }}>
-                    <label>Project</label>
-                    <select className="inline-li-input" value={li.project_public_id} onChange={(e) => updateField("project_public_id", e.target.value)}>
-                      <option value="">—</option>
-                      {projectOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
-                  </div>
-                  <div className="li-card-field" style={{ flex: 2 }}>
-                    <label>Sub Cost Code</label>
-                    <select className="inline-li-input" value={li.sub_cost_code_id} onChange={(e) => updateField("sub_cost_code_id", e.target.value)}>
-                      <option value="">—</option>
-                      {sccOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
-                  </div>
-                  <div className="li-card-field" style={{ flex: 2 }}>
-                    <label>Description</label>
-                    <input className="inline-li-input" value={li.description} onChange={(e) => updateField("description", e.target.value)} />
-                  </div>
-                </div>
-
-                <div className="li-card-row">
-                  <div className="li-card-field">
-                    <label>Qty</label>
-                    <input className="inline-li-input" type="number" step="any" value={li.quantity} onChange={(e) => updateField("quantity", e.target.value)} />
-                  </div>
-                  <div className="li-card-field">
-                    <label>Rate</label>
-                    <input className="inline-li-input" type="number" step="any" value={li.rate} onChange={(e) => updateField("rate", e.target.value)} />
-                  </div>
-                  <div className="li-card-field">
-                    <label>Amount</label>
-                    <span className="inline-li-computed">{fmtMoney(li.amount)}</span>
-                  </div>
-                  <div className="li-card-field">
-                    <label className="li-card-checkbox-label">
+                return (
+                  <tr key={li.public_id ?? idx}>
+                    <td>
+                      <input className="inline-li-input" value={li.description} onChange={(e) => updateField("description", e.target.value)} />
+                    </td>
+                    <td>
+                      <select className="inline-li-input" value={li.sub_cost_code_id} onChange={(e) => updateField("sub_cost_code_id", e.target.value)}>
+                        <option value="">—</option>
+                        {sccOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <select className="inline-li-input" value={li.project_public_id} onChange={(e) => updateField("project_public_id", e.target.value)}>
+                        <option value="">—</option>
+                        {projectOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      <input className="inline-li-input" type="number" step="any" value={li.quantity} onChange={(e) => updateField("quantity", e.target.value)} />
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      <input className="inline-li-input" type="number" step="any" value={li.rate} onChange={(e) => updateField("rate", e.target.value)} />
+                    </td>
+                    <td style={{ textAlign: "right" }} className="inline-li-computed">
+                      {fmtMoney(li.amount)}
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      <input className="inline-li-input" type="number" step="any" placeholder="0.10" value={li.markup} onChange={(e) => updateField("markup", e.target.value)} />
+                    </td>
+                    <td style={{ textAlign: "right" }} className="inline-li-computed">
+                      {fmtMoney(li.price)}
+                    </td>
+                    <td style={{ textAlign: "center" }}>
                       <input type="checkbox" checked={li.is_billable} onChange={(e) => updateField("is_billable", e.target.checked)} />
-                      Billable
-                    </label>
-                  </div>
-                  <div className="li-card-field">
-                    <label>Markup</label>
-                    <input className="inline-li-input" type="number" step="any" placeholder="0.10" value={li.markup} onChange={(e) => updateField("markup", e.target.value)} />
-                  </div>
-                  <div className="li-card-field">
-                    <label>Price</label>
-                    <span className="inline-li-computed">{fmtMoney(li.price)}</span>
-                  </div>
-                  <div className="li-card-field">
-                    <label>Attachment</label>
-                    {li.public_id ? (
-                      <LineItemAttachment lineItemPublicId={li.public_id} entityType="bill" />
-                    ) : (
-                      <span className="text-muted" style={{ fontSize: 12 }}>Save first</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+                    </td>
+                    <td>
+                      {li.public_id ? (
+                        <LineItemAttachment lineItemPublicId={li.public_id} entityType="bill" />
+                      ) : (
+                        <span className="text-muted" style={{ fontSize: 12 }}>Save first</span>
+                      )}
+                    </td>
+                    <td style={{ textAlign: "center" }}>
+                      <button type="button" className="inline-li-remove" onClick={removeRow} title="Remove">&times;</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
 
         <div className="form-actions">
