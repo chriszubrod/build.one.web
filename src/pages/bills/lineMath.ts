@@ -26,10 +26,22 @@ export function sumLineAmounts(rows: { amount?: string | null }[]): number {
 }
 
 export function computeBillLine<T extends BillLineMathFields>(li: T): T {
-  const qty = li.quantity !== "" ? Number(li.quantity) : 0;
-  const rate = li.rate !== "" ? Number(li.rate) : 0;
+  const hasQty = li.quantity !== "";
+  const hasRate = li.rate !== "";
   const markup = li.markup !== "" ? Number(li.markup) : 0;
-  const amount = qty * rate;
+  // Derive amount = quantity * rate ONLY when BOTH are present (a unit×rate
+  // line). Otherwise preserve the existing amount. Lump-sum lines — most
+  // importantly QBO account-based expense lines — carry an Amount with a
+  // NULL/blank Quantity and Rate, and the Amount cell is display-only, so the
+  // stored amount IS the only correct value. Unconditionally recomputing
+  // 0 * 0 here silently zeroed those lines on load / edit / add-row and
+  // persisted $0 on the next save (money loss, U-167). See lineMath.test.ts.
+  const amount =
+    hasQty && hasRate
+      ? Number(li.quantity) * Number(li.rate)
+      : li.amount !== ""
+        ? Number(li.amount)
+        : 0;
   const price = amount * (1 + markup);
   return {
     ...li,
