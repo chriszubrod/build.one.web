@@ -10,7 +10,9 @@ export interface LineItemFieldDef {
   placeholder?: string;
 }
 
-interface InlineLineItemsProps<T extends Record<string, any>> {
+export type UidRow = Record<string, any> & { uid: string };
+
+interface InlineLineItemsProps<T extends UidRow> {
   fields: LineItemFieldDef[];
   items: T[];
   onChange: (items: T[]) => void;
@@ -19,14 +21,14 @@ interface InlineLineItemsProps<T extends Record<string, any>> {
   extraColumn?: { label: string; width?: string; render: (item: T, index: number) => React.ReactNode };
 }
 
-export default function InlineLineItems<T extends Record<string, any>>({
+export default function InlineLineItems<T extends UidRow>({
   fields,
   items,
   onChange,
   newItem,
   extraColumn,
 }: InlineLineItemsProps<T>) {
-  const [focusIdx, setFocusIdx] = useState<number | null>(null);
+  const [focusUid, setFocusUid] = useState<string | null>(null);
 
   const updateItem = (index: number, key: string, value: any) => {
     const updated = items.map((item, i) =>
@@ -36,8 +38,9 @@ export default function InlineLineItems<T extends Record<string, any>>({
   };
 
   const addRow = () => {
-    onChange([...items, newItem()]);
-    setFocusIdx(items.length);
+    const item = newItem();
+    onChange([...items, item]);
+    setFocusUid(item.uid);
   };
 
   const removeRow = (index: number) => {
@@ -69,8 +72,9 @@ export default function InlineLineItems<T extends Record<string, any>>({
             </tr>
           </thead>
           <tbody>
+            {/* Stable uid keys — index keys reuse DOM nodes across logically different rows after mid-list remove. */}
             {items.map((item, rowIdx) => (
-              <tr key={rowIdx}>
+              <tr key={item.uid}>
                 {fields.map((f) => (
                   <td key={f.key} style={{ textAlign: f.align ?? "left" }}>
                     {f.type === "computed" ? (
@@ -106,8 +110,8 @@ export default function InlineLineItems<T extends Record<string, any>>({
                         value={item[f.key] ?? ""}
                         onChange={(e) => updateItem(rowIdx, f.key, e.target.value)}
                         placeholder={f.placeholder}
-                        autoFocus={focusIdx === rowIdx && f === fields[0]}
-                        onFocus={() => setFocusIdx(null)}
+                        autoFocus={focusUid === item.uid && f === fields[0]}
+                        onFocus={() => setFocusUid(null)}
                         step={f.type === "number" ? "any" : undefined}
                       />
                     )}

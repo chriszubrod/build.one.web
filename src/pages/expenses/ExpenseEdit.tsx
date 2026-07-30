@@ -19,8 +19,10 @@ import InlineLineItems, { type LineItemFieldDef } from "../../components/InlineL
 import LineItemAttachment from "../../components/LineItemAttachment";
 import ReviewTimeline from "../../components/ReviewTimeline";
 import type { Expense, ExpenseLineItem } from "../../types/api";
+import { existingUidsByPublicId, newLineItemUid, persistedLineItemUid } from "../../shared/lineItemUid";
 
 interface LineItemRow {
+  uid: string;
   public_id?: string;
   row_version?: string;
   description: string;
@@ -48,6 +50,7 @@ const lineItemFields: LineItemFieldDef[] = [
 
 function newLineItem(): LineItemRow {
   return {
+    uid: newLineItemUid(),
     description: "", sub_cost_code_id: "", project_public_id: "",
     quantity: "", rate: "", amount: "", is_billable: true, markup: "", price: "",
   };
@@ -91,19 +94,23 @@ export default function ExpenseEdit() {
     getList<ExpenseLineItem>(`/api/v1/get/expense_line_items/expense/${item.id}`)
       .then((res) => {
         setOrigLineItemPublicIds(res.data.map((li) => li.public_id));
-        setLineItems(res.data.map((li) => ({
-          public_id: li.public_id,
-          row_version: li.row_version,
-          description: li.description ?? "",
-          sub_cost_code_id: li.sub_cost_code_id != null ? String(li.sub_cost_code_id) : "",
-          project_public_id: "",
-          quantity: li.quantity != null ? String(li.quantity) : "",
-          rate: li.rate ?? "",
-          amount: li.amount ?? "",
-          is_billable: li.is_billable ?? true,
-          markup: li.markup ?? "",
-          price: li.price ?? "",
-        })));
+        setLineItems((prev) => {
+          const existing = existingUidsByPublicId(prev);
+          return res.data.map((li) => ({
+            uid: existing.get(li.public_id) ?? persistedLineItemUid(li.public_id),
+            public_id: li.public_id,
+            row_version: li.row_version,
+            description: li.description ?? "",
+            sub_cost_code_id: li.sub_cost_code_id != null ? String(li.sub_cost_code_id) : "",
+            project_public_id: "",
+            quantity: li.quantity != null ? String(li.quantity) : "",
+            rate: li.rate ?? "",
+            amount: li.amount ?? "",
+            is_billable: li.is_billable ?? true,
+            markup: li.markup ?? "",
+            price: li.price ?? "",
+          }));
+        });
       })
       .catch(() => {});
   }, [item]);

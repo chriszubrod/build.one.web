@@ -18,7 +18,7 @@ import { flushUntil } from "./flush";
  *   3. the spec must ASSERT that both happened before asserting survival.
  */
 
-const WITNESS_ID = "refetch-witness";
+export const WITNESS_ID = "refetch-witness";
 
 /**
  * Propagation witness: subscribes to the SAME query key through the SAME
@@ -32,7 +32,7 @@ const WITNESS_ID = "refetch-witness";
  * root sharing only the QueryClient could flush independently, which would
  * break the "the page saw it too" inference.
  */
-function RefetchWitness({ itemPath }: { itemPath: string }) {
+export function RefetchWitness({ itemPath }: { itemPath: string }) {
   const { item } = useEntityItem<{ row_version: string }>(itemPath);
   return createElement("span", { id: WITNESS_ID }, item?.row_version ?? "");
 }

@@ -11,8 +11,10 @@ import InlineLineItems, { type LineItemFieldDef } from "../../components/InlineL
 import LineItemAttachment from "../../components/LineItemAttachment";
 import ReviewTimeline from "../../components/ReviewTimeline";
 import type { Invoice, InvoiceLineItem } from "../../types/api";
+import { existingUidsByPublicId, newLineItemUid, persistedLineItemUid } from "../../shared/lineItemUid";
 
 interface LineItemRow {
+  uid: string;
   public_id?: string;
   row_version?: string;
   source_type: string;
@@ -52,6 +54,7 @@ const lineItemFields: LineItemFieldDef[] = [
 
 function newLineItem(): LineItemRow {
   return {
+    uid: newLineItemUid(),
     source_type: "Manual",
     description: "",
     sub_cost_code_id: "",
@@ -84,21 +87,25 @@ export default function InvoiceEdit() {
     getList<InvoiceLineItem>(`/api/v1/get/invoice_line_items/invoice/${item.id}`)
       .then((res) => {
         setOrigLineItems(res.data);
-        setLineItems(res.data.map((li) => ({
-          public_id: li.public_id,
-          row_version: li.row_version,
-          source_type: li.source_type ?? "Manual",
-          description: li.description ?? "",
-          sub_cost_code_id: li.sub_cost_code_id != null ? String(li.sub_cost_code_id) : "",
-          bill_line_item_id: li.bill_line_item_id != null ? String(li.bill_line_item_id) : "",
-          expense_line_item_id: li.expense_line_item_id != null ? String(li.expense_line_item_id) : "",
-          bill_credit_line_item_id: li.bill_credit_line_item_id != null ? String(li.bill_credit_line_item_id) : "",
-          quantity: li.quantity != null ? String(li.quantity) : "",
-          rate: li.rate ?? "",
-          amount: li.amount ?? "",
-          markup: li.markup ?? "",
-          price: li.price ?? "",
-        })));
+        setLineItems((prev) => {
+          const existing = existingUidsByPublicId(prev);
+          return res.data.map((li) => ({
+            uid: existing.get(li.public_id) ?? persistedLineItemUid(li.public_id),
+            public_id: li.public_id,
+            row_version: li.row_version,
+            source_type: li.source_type ?? "Manual",
+            description: li.description ?? "",
+            sub_cost_code_id: li.sub_cost_code_id != null ? String(li.sub_cost_code_id) : "",
+            bill_line_item_id: li.bill_line_item_id != null ? String(li.bill_line_item_id) : "",
+            expense_line_item_id: li.expense_line_item_id != null ? String(li.expense_line_item_id) : "",
+            bill_credit_line_item_id: li.bill_credit_line_item_id != null ? String(li.bill_credit_line_item_id) : "",
+            quantity: li.quantity != null ? String(li.quantity) : "",
+            rate: li.rate ?? "",
+            amount: li.amount ?? "",
+            markup: li.markup ?? "",
+            price: li.price ?? "",
+          }));
+        });
       })
       .catch(() => {});
   }, [item]);

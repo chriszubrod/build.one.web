@@ -1,10 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act, createElement } from "react";
+import { act, createElement, Fragment } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import ExpenseEdit from "./ExpenseEdit";
 import type { Expense } from "../../types/api";
+import { setInputValue } from "../../__testutils__/domEvents";
+import { flushUntil } from "../../__testutils__/flush";
+import { RefetchWitness, WITNESS_ID } from "../../__testutils__/formSeedGuardHarness";
+import {
+  inlineLineItemInput,
+  inlineLineItemInputForValue,
+  inlineLineItemRows,
+} from "../../__testutils__/lineItemsDom";
+import { entityItemKey } from "../../hooks/useEntity";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -92,6 +101,23 @@ function sampleExpense(overrides: Partial<Expense> = {}): Expense {
     is_draft: true,
     is_credit: false,
     ...overrides,
+  };
+}
+
+/** Slim list-row shape returned by GET expense line items in these specs. */
+function expenseLineItemFixture(publicId: string, description: string, amount: string) {
+  const suffix = publicId.replace(/^li-/, "");
+  return {
+    public_id: publicId,
+    row_version: `rv-${suffix}`,
+    description,
+    sub_cost_code_id: null,
+    quantity: null,
+    rate: null,
+    amount,
+    is_billable: true,
+    markup: null,
+    price: null,
   };
 }
 
@@ -434,6 +460,249 @@ describe("ExpenseEdit line-item delete tracking", () => {
     });
 
     expect(mockDel).toHaveBeenCalledWith("/api/v1/delete/expense_line_item/li-a");
+  });
+});
+
+describe("ExpenseEdit line-item row identity (stable uid keys)", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  function renderWithQueryClient(): QueryClient {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    act(() => {
+      root.render(
+        createElement(
+          MemoryRouter,
+          { initialEntries: ["/expense/exp-1/edit"] },
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(
+              Fragment,
+              null,
+              createElement(RefetchWitness, { itemPath: EXPENSE_GET_PATH }),
+              createElement(
+                Routes,
+                null,
+                createElement(Route, {
+                  path: "/expense/:publicId/edit",
+                  element: createElement(ExpenseEdit),
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+    });
+    return queryClient;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === EXPENSE_GET_PATH) {
+        return Promise.resolve(sampleExpense({ is_draft: true }));
+      }
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+
+    mockGetList.mockResolvedValue({
+      data: [
+        expenseLineItemFixture("li-1", "Line One", "10"),
+        expenseLineItemFixture("li-2", "Line Two", "20"),
+        expenseLineItemFixture("li-3", "Line Three", "30"),
+        expenseLineItemFixture("li-4", "Line Four", "40"),
+      ],
+      count: 4,
+    });
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    document.body.removeChild(container);
+    vi.useRealTimers();
+  });
+
+  function lineItemDataRows(): HTMLTableRowElement[] {
+    return inlineLineItemRows(container);
+  }
+
+  function rowDescriptionInput(row: HTMLTableRowElement): HTMLInputElement {
+    return inlineLineItemInput(row);
+  }
+
+  function rowDescriptionInputForValue(value: string): HTMLInputElement {
+    return inlineLineItemInputForValue(container, value);
+  }
+
+  async function waitForFourLineItems() {
+    await flushUntil(() => inlineLineItemRows(container).length === 4);
+    expect(lineItemDataRows()).toHaveLength(4);
+  }
+
+  it("mid-list remove keeps each surviving line's description on its logical row", async () => {
+    renderExpenseEdit(root);
+    await waitForFourLineItems();
+    await flushMicrotasks();
+
+    let rows = lineItemDataRows();
+    const inputLineTwo = rowDescriptionInput(rows[1]!);
+    const inputLineThree = rowDescriptionInput(rows[2]!);
+    const inputLineFour = rowDescriptionInput(rows[3]!);
+    setInputValue(inputLineFour, "Edited on last line");
+    inputLineFour.focus();
+
+    const firstRemove = rows[0]!.querySelector('button[title="Remove"]') as HTMLButtonElement;
+    await act(async () => {
+      firstRemove.click();
+      await flushMicrotasks();
+    });
+
+    rows = lineItemDataRows();
+    expect(rows).toHaveLength(3);
+
+    const descriptions = rows.map((r) => rowDescriptionInput(r).value);
+    expect(descriptions).not.toContain("Line One");
+    expect(descriptions).toEqual(["Line Two", "Line Three", "Edited on last line"]);
+
+    // Controlled `.value` always matches state; stable uid keys preserve input node identity.
+    expect(rowDescriptionInputForValue("Line Two")).toBe(inputLineTwo);
+    expect(rowDescriptionInputForValue("Line Three")).toBe(inputLineThree);
+    expect(rowDescriptionInputForValue("Edited on last line")).toBe(inputLineFour);
+
+    expect(document.activeElement).toBe(rowDescriptionInputForValue("Edited on last line"));
+  });
+
+  it("same-row background refetch does not remount persisted line-item rows", async () => {
+    const refreshedRowVersion = "rv-after-refetch";
+    const queryClient = renderWithQueryClient();
+    await waitForFourLineItems();
+    await flushMicrotasks();
+
+    const rowsBefore = lineItemDataRows();
+    const inputsBefore = rowsBefore.map((row) => rowDescriptionInput(row));
+
+    const callsBefore = mockGetOne.mock.calls.length;
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === EXPENSE_GET_PATH) {
+        return Promise.resolve(
+          sampleExpense({ is_draft: true, row_version: refreshedRowVersion }),
+        );
+      }
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: entityItemKey(EXPENSE_GET_PATH) });
+    });
+    await flushUntil(
+      () => container.querySelector(`#${WITNESS_ID}`)?.textContent === refreshedRowVersion,
+    );
+
+    expect(mockGetOne.mock.calls.length).toBeGreaterThan(callsBefore);
+    expect(mockGetOne.mock.calls.at(-1)?.[0]).toBe(EXPENSE_GET_PATH);
+    expect(container.querySelector(`#${WITNESS_ID}`)?.textContent).toBe(refreshedRowVersion);
+
+    const rowsAfter = lineItemDataRows();
+    expect(rowsAfter).toHaveLength(4);
+    const inputsAfter = rowsAfter.map((row) => rowDescriptionInput(row));
+    // Re-hydrate with re-minted uids remounts every row; controlled inputs keep
+    // .value but new DOM nodes — reference equality is the load-bearing check.
+    for (let i = 0; i < inputsBefore.length; i++) {
+      expect(inputsAfter[i]).toBe(inputsBefore[i]);
+    }
+  });
+
+  it("created-in-session saved line keeps its DOM node across a subsequent same-row refetch", async () => {
+    const savedPublicId = "li-session-new";
+    const savedDescription = "New line in session";
+    const refreshedExpenseRowVersion = "rv-after-refetch";
+
+    mockGetList.mockResolvedValue({ data: [], count: 0 });
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/expense/exp-1") {
+        return Promise.resolve(sampleExpense({ row_version: "rv-2", is_draft: true }));
+      }
+      return Promise.reject(new Error("unexpected put: " + path));
+    });
+    mockPost.mockImplementation((path: string) => {
+      if (path === "/api/v1/create/expense_line_item") {
+        return Promise.resolve({
+          public_id: savedPublicId,
+          row_version: "rv-li-session-new",
+        });
+      }
+      return Promise.reject(new Error("unexpected post: " + path));
+    });
+
+    const queryClient = renderWithQueryClient();
+    await waitForCondition(() => container.textContent?.includes("Complete Expense") ?? false);
+    await flushMicrotasks();
+
+    const addRowBtn = Array.from(container.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("Add Row"),
+    );
+    expect(addRowBtn).toBeDefined();
+    await act(async () => {
+      addRowBtn!.click();
+      await flushMicrotasks();
+    });
+
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+    const row = inlineLineItemRows(container)[0]!;
+    const descriptionInput = inlineLineItemInput(row);
+    setInputValue(descriptionInput, savedDescription);
+
+    const saveBtn = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent?.trim() === "Save",
+    ) as HTMLButtonElement | undefined;
+    expect(saveBtn).toBeDefined();
+    await act(async () => {
+      saveBtn!.click();
+      await flushMicrotasks();
+    });
+
+    const inputAfterSave = inlineLineItemInputForValue(container, savedDescription);
+    expect(inputAfterSave).toBe(descriptionInput);
+
+    const listCallsBefore = mockGetList.mock.calls.length;
+    mockGetList.mockResolvedValue({
+      data: [
+        expenseLineItemFixture(savedPublicId, savedDescription, "5"),
+      ],
+      count: 1,
+    });
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === EXPENSE_GET_PATH) {
+        return Promise.resolve(
+          sampleExpense({ is_draft: true, row_version: refreshedExpenseRowVersion }),
+        );
+      }
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: entityItemKey(EXPENSE_GET_PATH) });
+    });
+    await flushUntil(
+      () => container.querySelector(`#${WITNESS_ID}`)?.textContent === refreshedExpenseRowVersion,
+    );
+
+    expect(container.querySelector(`#${WITNESS_ID}`)?.textContent).toBe(refreshedExpenseRowVersion);
+    expect(mockGetList.mock.calls.length).toBeGreaterThan(listCallsBefore);
+
+    // Controlled inputs keep .value after re-hydrate; only stable uid keys preserve the node.
+    expect(inlineLineItemInputForValue(container, savedDescription)).toBe(inputAfterSave);
   });
 });
 
