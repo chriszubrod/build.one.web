@@ -5,7 +5,7 @@ import { useEntityItem, deleteEntity, entityItemKey } from "../../hooks/useEntit
 import { useAutoSave } from "../../hooks/useAutoSave";
 import { useSyncedToken } from "../../hooks/useSyncedToken";
 import { useToast } from "../../components/Toast";
-import { put, post, del, getList, getOne } from "../../api/client";
+import { put, post, del, getList, getOne, ApiError } from "../../api/client";
 import { useCompletionPolling } from "../../hooks/useCompletionPolling";
 import CompletionStatusBar from "../../components/CompletionStatusBar";
 import { useViewAttachmentObjectUrl } from "../../hooks/useViewAttachmentObjectUrl";
@@ -73,6 +73,87 @@ function newLineItem(): LineItemRow {
   };
 }
 
+interface BliaLink {
+  public_id: string;
+  attachment_id: number | null;
+}
+
+const ATTACHMENT_PRESERVE_ERROR =
+  "Could not preserve this bill's attachment — nothing was saved and the line was not removed.";
+
+/** U-171: null only on a definitive 404 (the line has no link); other errors propagate. */
+async function getBliaLinkForLine(lineItemPublicId: string): Promise<BliaLink | null> {
+  try {
+    return await getOne<BliaLink>(
+      `/api/v1/get/bill-line-item-attachment/by-bill-line-item/${lineItemPublicId}`,
+    );
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+/**
+ * U-171: a bill's shared PDF is linked to ONE line item, so removing that line would orphan
+ * the document. Before any line delete, re-home the link (create-before-delete) onto a
+ * surviving line. Idempotent-create returns an existing row if the target already has a
+ * link, so we only target a truly link-free (404) survivor and verify the returned
+ * attachment_id. Any failure throws → saveAll's catch aborts with nothing written and the
+ * line not removed.
+ */
+async function rehomeAttachmentsBeforeLineDeletes(
+  removedIds: string[],
+  survivingIds: string[],
+): Promise<void> {
+  if (removedIds.length === 0) return;
+
+  for (const removedId of removedIds) {
+    const link = await getBliaLinkForLine(removedId);
+    // A missing link, or a link with no attachment_id (the column is nullable), has
+    // nothing to preserve — never dereference attachment_id blindly (would GET /id/null).
+    if (!link?.attachment_id) continue;
+
+    // Scan survivors once. A survivor that already carries THIS attachment means the
+    // document is already preserved — a retry after a partial failure, or a post-U-166
+    // one-BLIA-per-line bill — so just drop the old link. Otherwise remember the first
+    // truly link-free (404) survivor as the re-home target.
+    let alreadyPreserved = false;
+    let target: string | null = null;
+    for (const sid of survivingIds) {
+      const sLink = await getBliaLinkForLine(sid);
+      if (sLink === null) {
+        if (target === null) target = sid;
+        continue;
+      }
+      if (sLink.attachment_id === link.attachment_id) {
+        alreadyPreserved = true;
+        break;
+      }
+    }
+
+    if (alreadyPreserved) {
+      await del(`/api/v1/delete/bill-line-item-attachment/${link.public_id}`);
+      continue;
+    }
+    // No survivor holds it and none is link-free → re-homing would orphan the document.
+    // Abort rather than fall through to the delete loop and remove the line with its link
+    // still attached (which would FK-547 / leave a dangling BLIA row).
+    if (target === null) throw new Error(ATTACHMENT_PRESERVE_ERROR);
+
+    const att = await getOne<{ public_id: string }>(`/api/v1/get/attachment/id/${link.attachment_id}`);
+    const created = await post<BliaLink>("/api/v1/create/bill-line-item-attachment", {
+      bill_line_item_public_id: target,
+      attachment_public_id: att.public_id,
+    });
+    // Idempotent-create returns an existing row if target already had ANY link — verify
+    // it is OUR attachment or we would silently drop the document on the delete below.
+    if (created.attachment_id !== link.attachment_id) {
+      throw new Error(ATTACHMENT_PRESERVE_ERROR);
+    }
+    await del(`/api/v1/delete/bill-line-item-attachment/${link.public_id}`);
+  }
+}
+
 export default function BillEdit() {
   const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
@@ -120,23 +201,12 @@ export default function BillEdit() {
   // Load line items
   useEffect(() => {
     if (!item || fullProjects.length === 0) return;
+    let cancelled = false;
     getList<BillLineItem>(`/api/v1/get/bill_line_items/bill/${item.id}`)
-      .then((res) => {
+      .then(async (res) => {
+        if (cancelled) return;
         setOrigLineItemPublicIds(res.data.map((li) => li.public_id));
         setAttachmentPublicId(null);
-        // Fetch attachment from first line item (one attachment shared across all)
-        if (res.data.length > 0) {
-          const firstLi = res.data[0];
-          getOne<{ attachment_id: number }>(`/api/v1/get/bill-line-item-attachment/by-bill-line-item/${firstLi.public_id}`)
-            .then((blia) => {
-              if (blia.attachment_id) {
-                getOne<{ public_id: string }>(`/api/v1/get/attachment/id/${blia.attachment_id}`)
-                  .then((att) => setAttachmentPublicId(att.public_id))
-                  .catch(() => {});
-              }
-            })
-            .catch(() => {});
-        }
         setLineItems(res.data.map((li) => {
           const project = fullProjects.find((p) => p.id === li.project_id) ?? null;
           // A stored project absent from the scoped list keeps its numeric id here so a
@@ -160,10 +230,32 @@ export default function BillEdit() {
         }));
         persistedLineTotalRef.current = sumLineAmounts(res.data);
         setLineItemsLoaded(true);
+
+        // U-171: the shared PDF may live on ANY line, not res.data[0]. Probe in order,
+        // AFTER setLineItemsLoaded so the Save button is never delayed. `cancelled` guards
+        // the longer async chain against a previous bill's attachment landing on this one.
+        for (const li of res.data) {
+          if (cancelled) return;
+          try {
+            const blia = await getBliaLinkForLine(li.public_id);
+            if (cancelled || !blia?.attachment_id) continue;
+            const att = await getOne<{ public_id: string }>(
+              `/api/v1/get/attachment/id/${blia.attachment_id}`,
+            );
+            if (cancelled) return;
+            setAttachmentPublicId(att.public_id);
+            break;
+          } catch {
+            // display-only — leave the pane empty and try the next line
+          }
+        }
       })
       .catch(() => {
-        setAttachmentPublicId(null);
+        if (!cancelled) setAttachmentPublicId(null);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [item, fullProjects]);
 
   // Init header form
@@ -282,6 +374,15 @@ export default function BillEdit() {
     setSaveError("");
     try {
       await flushAutoSave(); // flush clears headerDirtyRef when it runs; do not clear again after header PUT (mid-flight edits must stay dirty for debounce)
+
+      // U-171: re-home the shared attachment BEFORE the header PUT and any line delete —
+      // create-before-delete, so the document is never orphaned, and an abort here leaves
+      // the header and the deletes untouched (nothing written, the line not removed).
+      const survivingIds = lineItems.filter((li) => li.public_id).map((li) => li.public_id!);
+      const currentIds = new Set(survivingIds);
+      const removedIds = origLineItemPublicIds.filter((id) => !currentIds.has(id));
+      await rehomeAttachmentsBeforeLineDeletes(removedIds, survivingIds);
+
       // Save header — total_amount computed from line items
       const computedTotal = sumLineAmounts(lineItems);
       const updated = await put<Bill>(`/api/v1/update/bill/${publicId}`, {
@@ -314,12 +415,9 @@ export default function BillEdit() {
       // reconciliation refetch. ExpenseEdit / BillCreditEdit / BudgetEdit still
       // carry the un-fixed accumulate-then-commit shape — extract the shared
       // sync (TODO.md) rather than copying this loop a fourth time.
-      const currentIds = new Set(lineItems.filter((li) => li.public_id).map((li) => li.public_id));
-      for (const origId of origLineItemPublicIds) {
-        if (!currentIds.has(origId)) {
-          await del(`/api/v1/delete/bill_line_item/${origId}`);
-          setOrigLineItemPublicIds((prev) => prev.filter((id) => id !== origId));
-        }
+      for (const origId of removedIds) {
+        await del(`/api/v1/delete/bill_line_item/${origId}`);
+        setOrigLineItemPublicIds((prev) => prev.filter((id) => id !== origId));
       }
 
       const stampRow = (uid: string, patch: Partial<LineItemRow>) =>

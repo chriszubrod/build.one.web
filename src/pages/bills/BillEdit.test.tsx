@@ -700,3 +700,152 @@ describe("BillEdit saveAll incremental line-item sync (U-170)", () => {
     expect(headerBodies[0].total_amount).toBe(150);
   });
 });
+
+describe("BillEdit shared-attachment re-homing on line delete (U-171)", () => {
+  const ATT_ID = 55;
+
+  // Wire the mocks for a bill whose lines carry the given BLIA links.
+  // blia: line public_id -> { linkId, attachmentId } (has a link) or null (404, link-free).
+  function setup(
+    lines: BillLineItem[],
+    blia: Record<string, { linkId: string; attachmentId: number | null } | null>,
+  ) {
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === BILL_GET_PATH) return Promise.resolve(sampleBill());
+      const m = path.match(
+        /^\/api\/v1\/get\/bill-line-item-attachment\/by-bill-line-item\/(.+)$/,
+      );
+      if (m) {
+        const link = blia[m[1]];
+        return link
+          ? Promise.resolve({ public_id: link.linkId, attachment_id: link.attachmentId })
+          : Promise.reject(new ApiError(404, "Not found"));
+      }
+      if (path === `/api/v1/get/attachment/id/${ATT_ID}`) {
+        return Promise.resolve({ public_id: "att-55" });
+      }
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+    mockGetList.mockImplementation((path: string) => {
+      if (path === "/api/v1/get/vendors")
+        return Promise.resolve({ data: [{ id: 1, public_id: "v-1", name: "V" }], count: 1 });
+      if (path === "/api/v1/get/payment-terms")
+        return Promise.resolve({ data: [{ id: 1, public_id: "pt-1" }], count: 1 });
+      if (path === "/api/v1/get/sub-cost-codes")
+        return Promise.resolve({
+          data: [{ id: 1, public_id: "scc-1", name: "SCC", number: "01" }],
+          count: 1,
+        });
+      if (path === "/api/v1/get/projects")
+        return Promise.resolve({ data: [VISIBLE_PROJECT], count: 1 });
+      if (path === BILL_LINE_ITEMS_PATH) return Promise.resolve(lineItemsListResponse(lines));
+      return Promise.reject(new Error(`unexpected getList: ${path}`));
+    });
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/bill/bill-1")
+        return Promise.resolve(sampleBill({ row_version: "brv-2" }));
+      if (path.startsWith("/api/v1/update/bill_line_item/"))
+        return Promise.resolve({ public_id: path.split("/").pop()!, row_version: "rv-1b" });
+      return Promise.reject(new Error(`unexpected put: ${path}`));
+    });
+  }
+
+  const twoLines = () => [
+    sampleLineItem({ id: 11, public_id: "li-A", project_id: VISIBLE_PROJECT.id, description: "line-A" }),
+    sampleLineItem({ id: 12, public_id: "li-B", project_id: VISIBLE_PROJECT.id, description: "line-B" }),
+  ];
+
+  async function removeFirstRow() {
+    await flushUntil(() => lineItemRows().length === 2);
+    const removeButtons = container.querySelectorAll('button[title="Remove"]');
+    await act(async () => {
+      removeButtons[0].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushUntil(() => lineItemRows().length === 1);
+  }
+
+  const called = (mock: typeof mockPost, p: string) =>
+    mock.mock.calls.some((c) => c[0] === p);
+
+  it("re-homes the shared attachment to a surviving line BEFORE deleting the first line (create-before-delete)", async () => {
+    setup(twoLines(), { "li-A": { linkId: "blia-A", attachmentId: ATT_ID }, "li-B": null });
+    mockPost.mockImplementation((path: string) =>
+      path === "/api/v1/create/bill-line-item-attachment"
+        ? Promise.resolve({ public_id: "blia-new", attachment_id: ATT_ID })
+        : Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    renderBillEdit();
+    await removeFirstRow();
+    await clickSave();
+
+    const rehome = mockPost.mock.calls.filter(
+      (c) => c[0] === "/api/v1/create/bill-line-item-attachment",
+    );
+    expect(rehome).toHaveLength(1);
+    expect((rehome[0][1] as Record<string, unknown>).bill_line_item_public_id).toBe("li-B");
+    expect((rehome[0][1] as Record<string, unknown>).attachment_public_id).toBe("att-55");
+    expect(called(mockDel, "/api/v1/delete/bill-line-item-attachment/blia-A")).toBe(true);
+    expect(called(mockDel, "/api/v1/delete/bill_line_item/li-A")).toBe(true);
+
+    // create-before-delete: the rehome POST is invoked before the old-link DELETE.
+    const postOrder =
+      mockPost.mock.invocationCallOrder[
+        mockPost.mock.calls.findIndex((c) => c[0] === "/api/v1/create/bill-line-item-attachment")
+      ];
+    const delOrder =
+      mockDel.mock.invocationCallOrder[
+        mockDel.mock.calls.findIndex(
+          (c) => c[0] === "/api/v1/delete/bill-line-item-attachment/blia-A",
+        )
+      ];
+    expect(postOrder).toBeLessThan(delOrder);
+  });
+
+  it("does NOT abort the save when the removed line's link has a null attachment_id (defect a)", async () => {
+    setup(twoLines(), { "li-A": { linkId: "blia-A", attachmentId: null }, "li-B": null });
+    mockPost.mockImplementation((path: string) =>
+      Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    renderBillEdit();
+    await removeFirstRow();
+    await clickSave();
+
+    expect(called(mockPost, "/api/v1/create/bill-line-item-attachment")).toBe(false);
+    expect(called(mockDel, "/api/v1/delete/bill_line_item/li-A")).toBe(true);
+    expect(container.textContent).not.toContain("Could not preserve");
+  });
+
+  it("drops the old link WITHOUT re-creating when a survivor already holds the same attachment (defect b, retry-safe)", async () => {
+    setup(twoLines(), {
+      "li-A": { linkId: "blia-A", attachmentId: ATT_ID },
+      "li-B": { linkId: "blia-B", attachmentId: ATT_ID },
+    });
+    mockPost.mockImplementation((path: string) =>
+      Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    renderBillEdit();
+    await removeFirstRow();
+    await clickSave();
+
+    expect(called(mockPost, "/api/v1/create/bill-line-item-attachment")).toBe(false);
+    expect(called(mockDel, "/api/v1/delete/bill-line-item-attachment/blia-A")).toBe(true);
+    expect(called(mockDel, "/api/v1/delete/bill_line_item/li-A")).toBe(true);
+    expect(container.textContent).not.toContain("Could not preserve");
+  });
+
+  it("locates the shared attachment on a NON-first line via the in-order probe (not res.data[0])", async () => {
+    setup(twoLines(), { "li-A": null, "li-B": { linkId: "blia-B", attachmentId: ATT_ID } });
+    mockPost.mockRejectedValue(new Error("unexpected post"));
+
+    renderBillEdit();
+    await flushUntil(() =>
+      mockGetOne.mock.calls.some((c) => c[0] === `/api/v1/get/attachment/id/${ATT_ID}`),
+    );
+    expect(
+      mockGetOne.mock.calls.some((c) => c[0] === `/api/v1/get/attachment/id/${ATT_ID}`),
+    ).toBe(true);
+  });
+});
