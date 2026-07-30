@@ -2,6 +2,12 @@
 
 Pending work, deferred decisions, known issues. Check off as done; prune anything stale.
 
+## Bills post-hoc — U-175 spawned follow-ups (2026-07-30)
+
+- [ ] **InlineLineItems index-key (ONE shared-component unit)** — `src/components/InlineLineItems.tsx:73` renders `<tr key={rowIdx}>`; Expense/BillCredit/Invoice Edit all route rows through it, so removing a non-last line reuses a DOM node across logically-different rows (focus/input on the wrong row) on all three at once. Fix once: key on a stable item id (`public_id ?? client-uid`). `BudgetEdit.tsx:383` (`key={li.public_id ?? \`new-${idx}\`}`) is a separate variant (new rows still index-key). RENDERING defect — distinct from the per-page saveAll retry-safety defect the U-170 board note tracks.
+- [ ] **BillEdit due-date parity** — U-175 removed BillCreate's due-date auto-calc + editable field (now `due_date = bill_date`, read-only, per Bill.DueDate = BillDate). BillEdit still has its own due-date handling → Create and Edit now contradict. Bring BillEdit into parity or decide the intended model.
+- [ ] **Shared uid minter** — BillCreate's `newLine()` and BillEdit's `newLineUid()` both mint `li-uid-${++n}` independently; extract one shared minter (do it when the InlineLineItems unit lands so all line-row pages share it).
+
 ---
 
 ## Bills redesign (f73a3fd) — post-hoc `/code-review` follow-ups (2026-07-29)
