@@ -18,10 +18,11 @@ interface AttachmentResponse {
   content_type: string | null;
 }
 
-// Local shape for the single placeholder line item entered alongside the
-// bill header. Same field names as BillEdit's LineItemRow so the compute
-// helpers + downstream POST payload line up.
+// Local shape for the line items entered alongside the bill header. Same
+// field names as BillEdit's LineItemRow so the compute helpers + downstream
+// POST payload line up.
 interface LineItemDraft {
+  uid: string;
   project_public_id: string;
   sub_cost_code_id: string;
   description: string;
@@ -33,7 +34,14 @@ interface LineItemDraft {
   is_billable: boolean;
 }
 
-const EMPTY_LINE: LineItemDraft = {
+// Every row carries a client-minted `uid` so the rendered rows can be keyed on
+// identity rather than array index — removing a non-last row otherwise makes
+// React reuse a DOM node across two logically-different lines, landing focus
+// and in-progress input on the wrong one. Same convention as BillEdit's
+// newLineItem(). The uid is render-local: it is never sent to the API.
+let nextLineUid = 0;
+const newLine = (): LineItemDraft => ({
+  uid: `li-uid-${++nextLineUid}`,
   project_public_id: "",
   sub_cost_code_id: "",
   description: "",
@@ -43,7 +51,7 @@ const EMPTY_LINE: LineItemDraft = {
   markup: "",
   price: "",
   is_billable: true,
-};
+});
 
 function fmtMoney(v: string): string {
   if (!v) return "$0.00";
@@ -66,7 +74,6 @@ export default function BillCreate() {
     vendor_public_id: "",
     payment_term_public_id: "",
     bill_date: "",
-    due_date: "",
     bill_number: "",
     memo: "",
   });
@@ -74,7 +81,7 @@ export default function BillCreate() {
   // Empty rows (no user-entered fields — see isLinePopulated) are silently
   // dropped at submit time, matching the "hasLineData" behavior used before
   // multi-line support landed.
-  const [lines, setLines] = useState<LineItemDraft[]>([EMPTY_LINE]);
+  const [lines, setLines] = useState<LineItemDraft[]>(() => [newLine()]);
   const [file, setFile] = useState<File | null>(null);
   // Browser blob URL for rendering the selected PDF in an iframe pre-upload.
   // Built + revoked via useEffect below so we don't leak object URLs across
@@ -106,12 +113,6 @@ export default function BillCreate() {
     setBusyAction(null);
     inFlightRef.current = false;
   };
-  // Auto-calc DueDate from PaymentTerm.due_days + BillDate BY DEFAULT.
-  // Flip to false the moment the user hand-edits DueDate, so their manual
-  // value isn't clobbered by a later BillDate change. Picking a new
-  // PaymentTerm resets the flag — that's the "re-arm auto-calc" gesture.
-  const dueDateAutoRef = useRef(true);
-
   // Preselect "Due on receipt" once lookups load, unless the user has already
   // picked a term. Idempotent — the guard on `form.payment_term_public_id`
   // stops the default from re-applying after the user clears the field.
@@ -125,39 +126,8 @@ export default function BillCreate() {
     }
   }, [lookups.payment_terms, form.payment_term_public_id]);
 
-  // Auto-calc DueDate = BillDate + PaymentTerm.due_days whenever either
-  // input changes AND the user hasn't manually edited DueDate since the
-  // last PaymentTerm pick. `due_days === null` (unset on the term) → skip.
-  useEffect(() => {
-    if (!dueDateAutoRef.current) return;
-    if (!form.bill_date || !form.payment_term_public_id || !lookups.payment_terms) return;
-    const term = lookups.payment_terms.find((pt) => pt.public_id === form.payment_term_public_id);
-    if (!term || term.due_days === null || term.due_days === undefined) return;
-    // Parse the ISO date at local midnight to avoid a UTC-boundary off-by-one
-    // when the browser's timezone is west of UTC (e.g. Central shifts a
-    // midnight-UTC parse back a day).
-    const bd = new Date(form.bill_date + "T00:00:00");
-    if (isNaN(bd.getTime())) return;
-    const dd = new Date(bd.getTime() + term.due_days * 86400000);
-    const y = dd.getFullYear();
-    const m = String(dd.getMonth() + 1).padStart(2, "0");
-    const d = String(dd.getDate()).padStart(2, "0");
-    const iso = `${y}-${m}-${d}`;
-    if (iso !== form.due_date) {
-      setForm((prev) => ({ ...prev, due_date: iso }));
-    }
-  }, [form.bill_date, form.payment_term_public_id, form.due_date, lookups.payment_terms]);
-
-  const onChange = (name: string, value: string) => {
-    // Manual DueDate edit turns auto-calc OFF; picking a new PaymentTerm
-    // re-arms it. Anything else leaves the flag alone.
-    if (name === "due_date") {
-      dueDateAutoRef.current = false;
-    } else if (name === "payment_term_public_id") {
-      dueDateAutoRef.current = true;
-    }
+  const onChange = (name: string, value: string) =>
     setForm((prev) => ({ ...prev, [name]: value }));
-  };
 
   const updateLine = (index: number, key: keyof LineItemDraft, value: string | boolean) => {
     setLines((prev) =>
@@ -167,7 +137,7 @@ export default function BillCreate() {
     );
   };
 
-  const addLine = () => setLines((prev) => [...prev, { ...EMPTY_LINE }]);
+  const addLine = () => setLines((prev) => [...prev, newLine()]);
 
   const removeLine = (index: number) =>
     setLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
@@ -284,7 +254,7 @@ export default function BillCreate() {
       vendor_public_id: form.vendor_public_id,
       payment_term_public_id: form.payment_term_public_id || null,
       bill_date: form.bill_date,
-      due_date: form.due_date,
+      due_date: form.bill_date,
       bill_number: form.bill_number,
       // Sum across ALL populated lines — the header value reflects the
       // full bill, not just the summary line.
@@ -388,7 +358,7 @@ export default function BillCreate() {
               vendor_public_id: form.vendor_public_id,
               payment_term_public_id: form.payment_term_public_id || undefined,
               bill_date: form.bill_date,
-              due_date: form.due_date,
+              due_date: form.bill_date,
               bill_number: form.bill_number,
               total_amount: sumLineAmounts(persistedLines),
               memo: form.memo || null,
@@ -510,7 +480,13 @@ export default function BillCreate() {
           />
           <FormField label="Bill Number" name="bill_number" value={form.bill_number} onChange={onChange} required />
           <DateField label="Bill Date" name="bill_date" value={form.bill_date} onChange={onChange} required />
-          <DateField label="Due Date" name="due_date" value={form.due_date} onChange={onChange} required />
+          {/* Read-only: dbo.CreateBill / dbo.UpdateBillById persist DueDate = BillDate and
+              ignore @DueDate, so an editable due date here would mislead the user. Payment
+              Term (PaymentTermId) is what actually drives when payment is owed. */}
+          <div className="form-group">
+            <label>Due Date</label>
+            <div id="due_date_display" className="form-value">{form.bill_date || "—"}</div>
+          </div>
           <SelectField
             label="Payment Term"
             name="payment_term_public_id"
@@ -546,7 +522,7 @@ export default function BillCreate() {
             </thead>
             <tbody>
               {lines.map((li, index) => (
-                <tr key={index}>
+                <tr key={li.uid}>
                   <td>
                     <input
                       className="inline-li-input"

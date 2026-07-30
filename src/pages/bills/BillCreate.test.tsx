@@ -35,7 +35,10 @@ vi.mock("../../hooks/useLookups", () => ({
   useLookups: () => ({
     data: {
       vendors: [{ public_id: "v-1", id: 1, name: "Acme" }],
-      payment_terms: [{ public_id: "pt-1", id: 1, name: "Due on receipt", due_days: 0 }],
+      payment_terms: [
+        { public_id: "pt-1", id: 1, name: "Due on receipt", due_days: 0 },
+        { public_id: "pt-30", id: 2, name: "Net 30", due_days: 30 },
+      ],
       projects: [
         { public_id: "p-1", id: 1, name: "Project One", abbreviation: "P1" },
         { public_id: "p-2", id: 2, name: "Project Two", abbreviation: "P2" },
@@ -144,16 +147,12 @@ function fillHeader() {
   selectChange(vendorSelect, "v-1");
   setInputValue(container.querySelector("#bill_number") as HTMLInputElement, "B-100");
   setInputValue(container.querySelector("#bill_date") as HTMLInputElement, "2026-01-15");
-  setInputValue(container.querySelector("#due_date") as HTMLInputElement, "2026-01-15");
 }
 
 function fillLineRow(rowIndex: number, description: string, projectPublicId: string) {
-  const rows = container.querySelectorAll("tbody tr");
-  const row = rows[rowIndex] as HTMLTableRowElement;
-  const cells = row.querySelectorAll("td");
-  const descInput = cells[0].querySelector("input") as HTMLInputElement;
-  setInputValue(descInput, description);
-  const projectSelect = cells[2].querySelector("select") as HTMLSelectElement;
+  setInputValue(descriptionInputAt(rowIndex), description);
+  const row = container.querySelectorAll("tbody tr")[rowIndex] as HTMLTableRowElement;
+  const projectSelect = row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
   selectChange(projectSelect, projectPublicId);
 }
 
@@ -169,6 +168,15 @@ function rateInputAt(rowIndex: number): HTMLInputElement {
 
 function fillLineRate(rowIndex: number, rate: string) {
   setInputValue(rateInputAt(rowIndex), rate);
+}
+
+/**
+ * The Description cell for a line row. Owns the column index for the same
+ * reason rateInputAt does — one place to fix when a column moves.
+ */
+function descriptionInputAt(rowIndex: number): HTMLInputElement {
+  const row = container.querySelectorAll("tbody tr")[rowIndex] as HTMLTableRowElement;
+  return row.querySelectorAll("td")[0].querySelector("input") as HTMLInputElement;
 }
 
 /** The body of the create/bill POST, asserted present. */
@@ -638,5 +646,75 @@ describe("BillCreate partial line failure and submit guard", () => {
 
     expect(mockPost.mock.calls.filter((c) => c[0] === "/api/v1/create/bill")).toHaveLength(1);
     expect(mockUploadFile).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("BillCreate line row keys", () => {
+  it("keeps the same DOM node and focus on a row after removing an earlier row", async () => {
+    renderPage();
+
+    await flushUntil(() => container.querySelector("tbody tr") !== null);
+    expect(container.querySelector("tbody tr")).toBeTruthy();
+
+    await act(async () => {
+      const addLine = findButton("+ Add Line");
+      addLine.click();
+      addLine.click();
+    });
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(3);
+
+    await act(async () => {
+      setInputValue(descriptionInputAt(0), "L1");
+      setInputValue(descriptionInputAt(1), "L2");
+      setInputValue(descriptionInputAt(2), "L3");
+    });
+
+    const row3DescInput = descriptionInputAt(2);
+    row3DescInput.focus();
+
+    // Under key={index} React reuses earlier <tr> nodes for the shifted-up rows
+    // and unmounts the last one, destroying the node that held "L3" and dropping
+    // focus. key={li.uid} keeps each surviving row's DOM identity stable.
+    await act(async () => {
+      (
+        container.querySelector('button[aria-label="Remove line 1"]') as HTMLButtonElement
+      ).click();
+    });
+
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(2);
+    expect(descriptionInputAt(1).value).toBe("L3");
+    expect(descriptionInputAt(1)).toBe(row3DescInput);
+    expect(document.activeElement).toBe(row3DescInput);
+  });
+});
+
+describe("BillCreate due date mirrors bill date", () => {
+  it("submits due_date equal to bill_date regardless of payment term due_days", async () => {
+    await arrangeOneLineBill();
+
+    await act(async () => {
+      selectChange(
+        container.querySelector("#payment_term_public_id") as HTMLSelectElement,
+        "pt-30",
+      );
+    });
+
+    // The read-only row shows the bill date itself — never bill_date + due_days.
+    expect(container.querySelector("#due_date_display")?.textContent).toBe("2026-01-15");
+
+    await act(async () => {
+      findButton("Save For Later").click();
+    });
+
+    await flushUntil(
+      () => mockPost.mock.calls.some((c) => c[0] === "/api/v1/create/bill"),
+    );
+
+    const body = createBillBody();
+    // Pin that the Net-30 term actually landed — otherwise "due_date wasn't
+    // shifted by 30 days" would pass for the wrong reason.
+    expect(body.payment_term_public_id).toBe("pt-30");
+    expect(body.bill_date).toBe("2026-01-15");
+    expect(body.due_date).toBe("2026-01-15");
   });
 });
