@@ -25,11 +25,23 @@ import Breadcrumb from "../../components/Breadcrumb";
 import type { Bill, BillLineItem } from "../../types/api";
 
 interface LineItemRow {
+  /** Stable client-side row identity, minted on load and on Add Row. saveAll stamps
+   * server-confirmed facts back by uid, never by array index: Save does not disable
+   * "+ Add Row" / remove, so a mid-loop remove shifts indices and an index-keyed
+   * stamp would write one row's public_id onto a different row. Also the React key,
+   * so a row does not remount (losing focus) the moment its public_id arrives.
+   * TimeEntryView.tsx has the same convention — extract it if a third page needs it. */
+  uid: string;
   public_id?: string;
   row_version?: string;
   description: string;
   sub_cost_code_id: string;
   project_public_id: string;
+  /** Set when the stored line references a project outside this actor's UserProject
+   * scope, so it is absent from /get/projects. project_public_id stays '' (we have no
+   * public_id for it), and this field is what distinguishes 'cannot render it' from
+   * 'user cleared it'. */
+  unresolved_project_id?: number;
   quantity: string;
   rate: string;
   amount: string;
@@ -37,6 +49,9 @@ interface LineItemRow {
   markup: string;
   price: string;
 }
+
+/** Display-only <select> value — never written to project_public_id or request bodies. */
+const UNRESOLVED_PROJECT_VALUE = "__unresolved_project__";
 
 function fmtMoney(v: string): string {
   if (!v) return "";
@@ -47,8 +62,12 @@ function fmtMoney(v: string): string {
 
 const computeLineItem = (li: LineItemRow): LineItemRow => computeBillLine(li);
 
+let nextLineUid = 0;
+const newLineUid = () => `li-uid-${++nextLineUid}`;
+
 function newLineItem(): LineItemRow {
   return {
+    uid: newLineUid(),
     description: "", sub_cost_code_id: "", project_public_id: "",
     quantity: "", rate: "", amount: "", is_billable: true, markup: "", price: "",
   };
@@ -119,13 +138,18 @@ export default function BillEdit() {
             .catch(() => {});
         }
         setLineItems(res.data.map((li) => {
-          const project = li.project_id ? fullProjects.find((p) => p.id === li.project_id) : null;
+          const project = fullProjects.find((p) => p.id === li.project_id) ?? null;
+          // A stored project absent from the scoped list keeps its numeric id here so a
+          // save cannot mistake "cannot render it" for "user cleared it".
+          const unresolvedProjectId = project ? undefined : (li.project_id ?? undefined);
           return computeLineItem({
+            uid: newLineUid(),
             public_id: li.public_id,
             row_version: li.row_version,
             description: li.description ?? "",
             sub_cost_code_id: li.sub_cost_code_id != null ? String(li.sub_cost_code_id) : "",
             project_public_id: project?.public_id ?? "",
+            unresolved_project_id: unresolvedProjectId,
             quantity: li.quantity != null ? String(li.quantity) : "",
             rate: li.rate ?? "",
             amount: li.amount ?? "",
@@ -274,20 +298,37 @@ export default function BillEdit() {
       rowVersion.set(updated.row_version);
       setForm((prev: any) => ({ ...prev, row_version: updated.row_version }));
 
-      // Sync line items: delete removed, update existing, create new
+      // Line-item sync (U-170). The retry-safety invariant is scoped to
+      // CONFIRMED progress — any mutation whose response we actually received:
+      // a retry never fails because of that progress (any remaining 409 is a
+      // real concurrency conflict, not a self-inflicted stale row_version or
+      // duplicate CREATE). So each confirmed fact is committed through a
+      // functional updater the instant it lands, never accumulated in a local
+      // array and written back in one shot after the loop — a blanket
+      // setLineItems(closureArray) would also clobber edits the user typed
+      // during the awaits. The ambiguous-response gap is known and tracked
+      // separately: if a PUT/POST commits server-side but the response is lost,
+      // setState never runs, so a retry re-sends a stale row_version (409) or
+      // re-creates the row (duplicate). That residual cannot be closed
+      // client-side without server-side idempotency keys or a post-failure
+      // reconciliation refetch. ExpenseEdit / BillCreditEdit / BudgetEdit still
+      // carry the un-fixed accumulate-then-commit shape — extract the shared
+      // sync (TODO.md) rather than copying this loop a fourth time.
       const currentIds = new Set(lineItems.filter((li) => li.public_id).map((li) => li.public_id));
       for (const origId of origLineItemPublicIds) {
         if (!currentIds.has(origId)) {
           await del(`/api/v1/delete/bill_line_item/${origId}`);
+          setOrigLineItemPublicIds((prev) => prev.filter((id) => id !== origId));
         }
       }
 
-      const savedItems: LineItemRow[] = [];
+      const stampRow = (uid: string, patch: Partial<LineItemRow>) =>
+        setLineItems((prev) => prev.map((r) => (r.uid === uid ? { ...r, ...patch } : r)));
+
       for (const li of lineItems) {
         const body = {
           bill_public_id: publicId!,
           sub_cost_code_id: li.sub_cost_code_id !== "" ? Number(li.sub_cost_code_id) : null,
-          project_public_id: li.project_public_id || null,
           description: li.description || null,
           quantity: li.quantity !== "" ? Number(li.quantity) : null,
           rate: li.rate !== "" ? Number(li.rate) : null,
@@ -295,6 +336,14 @@ export default function BillEdit() {
           is_billable: li.is_billable,
           markup: li.markup !== "" ? Number(li.markup) : null,
           price: li.price !== "" ? Number(li.price) : null,
+          // entities/bill_line_item/business/service.py:188 — API assigns ProjectId only when
+          // project_public_id is not None, so OMITTING the key preserves the stored project.
+          // Scope-invisible projects have no public_id to send; sending one 400s. An explicit
+          // user clear still sends null. Omitting (rather than null) is forward-safe if the
+          // API later makes null mean "clear" (U-172).
+          ...(li.unresolved_project_id == null
+            ? { project_public_id: li.project_public_id || null }
+            : {}),
         };
 
         if (li.public_id) {
@@ -302,14 +351,20 @@ export default function BillEdit() {
             ...body,
             row_version: li.row_version!,
           });
-          savedItems.push({ ...li, row_version: result.row_version });
+          stampRow(li.uid, { row_version: result.row_version });
         } else {
           const result = await post<BillLineItem>("/api/v1/create/bill_line_item", body);
-          savedItems.push({ ...li, public_id: result.public_id, row_version: result.row_version });
+          stampRow(li.uid, { public_id: result.public_id, row_version: result.row_version });
+          // Register the new id as server-known at once: if the user removes this
+          // row before the next save, the delete loop above must still see it, or
+          // the line is orphaned server-side. Append is idempotent because the
+          // load effect can re-run mid-save and re-seed the list from the server
+          // (which, post-POST, already contains this id).
+          setOrigLineItemPublicIds((prev) =>
+            prev.includes(result.public_id) ? prev : [...prev, result.public_id],
+          );
         }
       }
-      setLineItems(savedItems);
-      setOrigLineItemPublicIds(savedItems.map((li) => li.public_id!));
       persistedLineTotalRef.current = computedTotal;
       return true;
     } catch (err: any) {
@@ -368,8 +423,18 @@ export default function BillEdit() {
   // UserProject. With no project on any line item, no PMs are found and the
   // notification ships BCC-only with a blank body — the exact bug that
   // motivated moving Submit off the create path. Gate the button until at
-  // least one line item carries a project.
-  const hasProjectOnLineItem = lineItems.some((li) => !!li.project_public_id);
+  // least one line item carries a project — including scope-invisible projects
+  // tracked via unresolved_project_id, which still have a stored ProjectId.
+  const hasProjectOnLineItem = lineItems.some(
+    (li) => !!li.project_public_id || li.unresolved_project_id != null,
+  );
+
+  // Hoisted out of the line-item map: these depend on neither the row nor its
+  // index, and the sub-cost-code catalog is ~500 rows — rebuilding both per row
+  // per render meant N×(500+P) allocations on every keystroke in the table.
+  // Same shape BillCreate computes once in its component body.
+  const sccOptions = fullSubCostCodes.map((s) => ({ value: String(s.id), label: s.number ? `${s.number} — ${s.name}` : s.name }));
+  const projectOptions = fullProjects.map((p) => ({ value: p.public_id, label: p.name }));
 
   return (
     <div className="page form-page-wide">
@@ -458,16 +523,29 @@ export default function BillEdit() {
                 </tr>
               )}
               {lineItems.map((li, idx) => {
-                const updateField = (key: string, value: any) => {
-                  const updated = lineItems.map((item, i) => i === idx ? { ...item, [key]: value } : item);
+                // Patch one row, then recompute EVERY row — computeLineItem repopulates
+                // amount/price from stored values (U-167), so narrowing it to the edited
+                // row would change which rows get derived.
+                const patchRow = (patch: Partial<LineItemRow>) => {
+                  const updated = lineItems.map((item, i) => (i === idx ? { ...item, ...patch } : item));
                   setLineItems(updated.map(computeLineItem));
                 };
+                const updateField = (key: string, value: any) =>
+                  patchRow({ [key]: value } as Partial<LineItemRow>);
                 const removeRow = () => setLineItems(lineItems.filter((_, i) => i !== idx));
-                const sccOptions = fullSubCostCodes.map((s) => ({ value: String(s.id), label: s.number ? `${s.number} — ${s.name}` : s.name }));
-                const projectOptions = fullProjects.map((p) => ({ value: p.public_id, label: p.name }));
+                const projectSelectValue =
+                  li.project_public_id ||
+                  (li.unresolved_project_id != null ? UNRESOLVED_PROJECT_VALUE : "");
+                // An explicit user pick — including "—" (clear) — drops the unresolved marker,
+                // which is what distinguishes a real clear from a project we merely can't render.
+                const handleProjectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+                  const value = e.target.value;
+                  if (value === UNRESOLVED_PROJECT_VALUE) return;
+                  patchRow({ project_public_id: value, unresolved_project_id: undefined });
+                };
 
                 return (
-                  <tr key={li.public_id ?? idx}>
+                  <tr key={li.uid}>
                     <td>
                       <input className="inline-li-input" value={li.description} onChange={(e) => updateField("description", e.target.value)} />
                     </td>
@@ -478,8 +556,17 @@ export default function BillEdit() {
                       </select>
                     </td>
                     <td>
-                      <select className="inline-li-input" value={li.project_public_id} onChange={(e) => updateField("project_public_id", e.target.value)}>
+                      <select
+                        className="inline-li-input"
+                        value={projectSelectValue}
+                        onChange={handleProjectChange}
+                      >
                         <option value="">—</option>
+                        {li.unresolved_project_id != null && (
+                          <option value={UNRESOLVED_PROJECT_VALUE} disabled>
+                            Project #{li.unresolved_project_id} (not in your projects)
+                          </option>
+                        )}
                         {projectOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
                     </td>
