@@ -13,6 +13,7 @@ import type { CurrentUser, CurrentUserModule } from "../../types/api";
 
 const mockNavigate = vi.fn();
 const mockPost = vi.fn();
+const mockPut = vi.fn();
 const mockUploadFile = vi.fn();
 const mockToast = vi.fn();
 
@@ -26,6 +27,7 @@ vi.mock("react-router-dom", async (importOriginal) => {
 
 vi.mock("../../api/client", () => ({
   post: (...args: unknown[]) => mockPost(...args),
+  put: (...args: unknown[]) => mockPut(...args),
   uploadFile: (...args: unknown[]) => mockUploadFile(...args),
 }));
 
@@ -96,7 +98,11 @@ let originalRevokeObjectURL: typeof URL.revokeObjectURL;
 
 function stubPost(overrides: Record<string, () => Promise<unknown>> = {}) {
   const defaults: Record<string, () => Promise<unknown>> = {
-    "/api/v1/create/bill": async () => ({ public_id: "bill-1", id: 1 }),
+    "/api/v1/create/bill": async () => ({
+      public_id: "bill-1",
+      id: 1,
+      row_version: "rv-create-1",
+    }),
     "/api/v1/create/bill_line_item": async () => ({}),
     "/api/v1/submit/review/bill/bill-1": async () => ({}),
   };
@@ -151,6 +157,34 @@ function fillLineRow(rowIndex: number, description: string, projectPublicId: str
   selectChange(projectSelect, projectPublicId);
 }
 
+/**
+ * The Rate cell for a line row. Owns the column index so adding or reordering
+ * a column in the line-item table breaks in ONE place instead of silently
+ * repointing every rate read/write at the wrong input.
+ */
+function rateInputAt(rowIndex: number): HTMLInputElement {
+  const row = container.querySelectorAll("tbody tr")[rowIndex] as HTMLTableRowElement;
+  return row.querySelectorAll("td")[4].querySelector("input") as HTMLInputElement;
+}
+
+function fillLineRate(rowIndex: number, rate: string) {
+  setInputValue(rateInputAt(rowIndex), rate);
+}
+
+/** The body of the create/bill POST, asserted present. */
+function createBillBody(): Record<string, unknown> {
+  const call = mockPost.mock.calls.find((c) => c[0] === "/api/v1/create/bill");
+  expect(call).toBeTruthy();
+  return call![1] as Record<string, unknown>;
+}
+
+/** stubPost override making every additional-line POST fail. */
+const FAILING_LINE_ITEM = {
+  "/api/v1/create/bill_line_item": async () => {
+    throw new Error("line item failed");
+  },
+};
+
 function attachPdf() {
   const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
   const file = new File(["x"], "bill.pdf", { type: "application/pdf" });
@@ -166,6 +200,37 @@ function findButton(label: string): HTMLButtonElement {
 
 function submitForReviewButton(): HTMLButtonElement {
   return findButton("Submit For Review");
+}
+
+function lineProjectForIndex(index: number): string {
+  return index % 2 === 0 ? "p-1" : "p-2";
+}
+
+async function arrangeMultiLineBillWithRates(rates: string[]) {
+  renderPage();
+
+  await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+  expect(container.querySelector("#vendor_public_id")).toBeTruthy();
+
+  await act(async () => {
+    fillHeader();
+  });
+
+  for (let i = 0; i < rates.length; i++) {
+    if (i > 0) {
+      await act(async () => {
+        findButton("+ Add Line").click();
+      });
+    }
+    await act(async () => {
+      fillLineRow(i, `Line ${i + 1}`, lineProjectForIndex(i));
+      fillLineRate(i, rates[i]);
+    });
+  }
+
+  await act(async () => {
+    attachPdf();
+  });
 }
 
 async function arrangeTwoLineBill() {
@@ -208,6 +273,7 @@ beforeEach(() => {
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   mockUseCurrentUser.mockReturnValue({ data: adminUser(), isLoading: false });
   mockUploadFile.mockResolvedValue({ public_id: "att-1", content_type: "application/pdf" });
+  mockPut.mockResolvedValue({});
   stubPost();
 
   originalCreateObjectURL = URL.createObjectURL;
@@ -296,6 +362,12 @@ describe("BillCreate submit-for-review", () => {
     expect(submitCall![1]).toEqual({});
 
     expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-1");
+
+    // The header total is corrected ONLY on the partial-failure path. The whole
+    // point of correct-on-failure (over posting a summary-only total up front
+    // and PUTting the real one after) is that the happy path pays for no extra
+    // write — so pin that here or the design's only cost-saving is untested.
+    expect(mockPut).not.toHaveBeenCalled();
   });
 
   it("Submit For Review stays disabled until a populated line carries a project", async () => {
@@ -321,11 +393,7 @@ describe("BillCreate submit-for-review", () => {
   });
 
   it("a failed line-item POST skips the review submit", async () => {
-    stubPost({
-      "/api/v1/create/bill_line_item": async () => {
-        throw new Error("line item failed");
-      },
-    });
+    stubPost(FAILING_LINE_ITEM);
 
     await arrangeTwoLineBill();
 
@@ -396,4 +464,179 @@ describe("BillCreate submit-for-review", () => {
       expect(submitForReviewButton().disabled).toBe(true);
     },
   );
+});
+
+describe("BillCreate partial line failure and submit guard", () => {
+  it("corrects the header total when a line item fails to save", async () => {
+    stubPost(FAILING_LINE_ITEM);
+
+    await arrangeMultiLineBillWithRates(["100", "50"]);
+
+    expect(rateInputAt(0).value).toBe("100");
+    expect(rateInputAt(1).value).toBe("50");
+
+    await act(async () => {
+      findButton("Save For Later").click();
+    });
+
+    await flushUntil(() => mockPut.mock.calls.length > 0);
+
+    expect(createBillBody().total_amount).toBe(150);
+
+    expect(mockPut).toHaveBeenCalledWith(
+      "/api/v1/update/bill/bill-1",
+      expect.objectContaining({
+        total_amount: 100,
+        row_version: "rv-create-1",
+      }),
+    );
+  });
+
+  it("does not correct the header total when the user lacks can_update", async () => {
+    mockUseCurrentUser.mockReturnValue({
+      data: {
+        ...adminUser(),
+        is_admin: false,
+        modules: [
+          makeModule(Modules.BILLS, { can_read: true, can_create: true, can_update: false }),
+        ],
+      },
+      isLoading: false,
+    });
+
+    stubPost(FAILING_LINE_ITEM);
+
+    await arrangeMultiLineBillWithRates(["100", "50"]);
+
+    expect(rateInputAt(1).value).toBe("50");
+
+    await act(async () => {
+      findButton("Save For Later").click();
+    });
+
+    await flushUntil(() => mockToast.mock.calls.length > 0);
+
+    expect(createBillBody().total_amount).toBe(150);
+
+    expect(mockPut).not.toHaveBeenCalled();
+    const toastMessage = String(mockToast.mock.calls[0][0]);
+    expect(toastMessage).toMatch(/total still includes the unsaved line/i);
+  });
+
+  it("still navigates to edit when the header correction itself fails", async () => {
+    stubPost(FAILING_LINE_ITEM);
+    mockPut.mockRejectedValue(new Error("update failed"));
+
+    await arrangeMultiLineBillWithRates(["100", "50"]);
+
+    expect(rateInputAt(0).value).toBe("100");
+
+    await act(async () => {
+      findButton("Save For Later").click();
+    });
+
+    await flushUntil(() => mockNavigate.mock.calls.length > 0);
+
+    expect(createBillBody()).toBeTruthy();
+    expect(mockPut).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-1/edit");
+    expect(mockToast.mock.calls.length).toBeGreaterThan(0);
+  });
+
+  it("corrects the header total using only successfully persisted additional lines", async () => {
+    let lineItemPostCount = 0;
+    stubPost({
+      "/api/v1/create/bill_line_item": async () => {
+        lineItemPostCount += 1;
+        if (lineItemPostCount === 1) return {};
+        throw new Error("line item failed");
+      },
+    });
+
+    await arrangeMultiLineBillWithRates(["100", "50", "25"]);
+
+    expect([0, 1, 2].map((i) => rateInputAt(i).value)).toEqual(["100", "50", "25"]);
+
+    await act(async () => {
+      findButton("Save For Later").click();
+    });
+
+    await flushUntil(() => mockPut.mock.calls.length > 0);
+
+    expect(createBillBody().total_amount).toBe(175);
+
+    expect(mockPut).toHaveBeenCalledWith(
+      "/api/v1/update/bill/bill-1",
+      expect.objectContaining({
+        total_amount: 150,
+        row_version: "rv-create-1",
+      }),
+    );
+
+    const toastMessage = String(mockToast.mock.calls[0][0]);
+    expect(toastMessage).toMatch(/Line 3 failed to save/i);
+    expect(toastMessage).not.toMatch(/Line 2 failed/i);
+  });
+
+  it("releases the in-flight guard when bill create fails so Save For Later can retry", async () => {
+    let createBillCallCount = 0;
+    stubPost({
+      "/api/v1/create/bill": async () => {
+        createBillCallCount += 1;
+        if (createBillCallCount === 1) {
+          throw new Error("create failed");
+        }
+        return {
+          public_id: "bill-1",
+          id: 1,
+          row_version: "rv-create-1",
+        };
+      },
+    });
+
+    await arrangeOneLineBill();
+
+    const saveBtn = findButton("Save For Later");
+    expect(saveBtn.disabled).toBe(false);
+
+    await act(async () => {
+      saveBtn.click();
+    });
+
+    await flushUntil(() => container.querySelector(".form-error") !== null);
+    expect(container.querySelector(".form-error")?.textContent).toContain("create failed");
+    expect(findButton("Save For Later").disabled).toBe(false);
+
+    await act(async () => {
+      findButton("Save For Later").click();
+    });
+
+    await flushUntil(() => mockNavigate.mock.calls.length > 0);
+
+    expect(mockPost.mock.calls.filter((c) => c[0] === "/api/v1/create/bill")).toHaveLength(2);
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-1/edit");
+  });
+
+  it("a double click fires only one create", async () => {
+    await arrangeOneLineBill();
+
+    const projectSelect = container.querySelectorAll("tbody tr")[0]
+      .querySelectorAll("td")[2]
+      .querySelector("select") as HTMLSelectElement;
+    expect(projectSelect.value).toBe("p-1");
+    expect(findButton("Save For Later").disabled).toBe(false);
+
+    await act(async () => {
+      const saveBtn = findButton("Save For Later");
+      saveBtn.click();
+      saveBtn.click();
+    });
+
+    await flushUntil(
+      () => mockPost.mock.calls.filter((c) => c[0] === "/api/v1/create/bill").length >= 1,
+    );
+
+    expect(mockPost.mock.calls.filter((c) => c[0] === "/api/v1/create/bill")).toHaveLength(1);
+    expect(mockUploadFile).toHaveBeenCalledTimes(1);
+  });
 });

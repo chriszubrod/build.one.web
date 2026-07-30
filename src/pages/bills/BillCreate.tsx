@@ -1,10 +1,10 @@
 import { useNavigate } from "react-router-dom";
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { post, uploadFile } from "../../api/client";
+import { post, put, uploadFile } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
-import { computeBillLine } from "./lineMath";
+import { computeBillLine, sumLineAmounts } from "./lineMath";
 import FormField from "../../components/FormField";
 import DateField from "../../components/DateField";
 import TextareaField from "../../components/TextareaField";
@@ -94,6 +94,18 @@ export default function BillCreate() {
   // because we don't render off of it and need to read it synchronously
   // inside onSubmit.
   const pendingActionRef = useRef<"save" | "submit" | "complete" | null>(null);
+  // Synchronous guard against double-submit — does not depend on React flushing
+  // the buttons' disabled={busy} attribute between rapid clicks.
+  const inFlightRef = useRef(false);
+  // busyAction (what the buttons render off) and inFlightRef (the synchronous
+  // guard) are two representations of one fact and must always be cleared
+  // TOGETHER. Clearing only busyAction re-enables the buttons while the ref
+  // still short-circuits every later submit — the form wedges permanently with
+  // no error and no recovery short of a reload.
+  const endAction = () => {
+    setBusyAction(null);
+    inFlightRef.current = false;
+  };
   // Auto-calc DueDate from PaymentTerm.due_days + BillDate BY DEFAULT.
   // Flip to false the moment the user hand-edits DueDate, so their manual
   // value isn't clobbered by a later BillDate change. Picking a new
@@ -253,10 +265,7 @@ export default function BillCreate() {
   // Bill.TotalAmount = sum of all populated lines' amounts. Server writes
   // this to the header; per-line values live on the individual BLIs. Empty
   // rows contribute nothing (they're already filtered out).
-  const totalAmount = populatedLines.reduce(
-    (sum, li) => sum + (li.amount !== "" ? Number(li.amount) : 0),
-    0,
-  );
+  const totalAmount = sumLineAmounts(populatedLines);
 
   const buildBody = () => {
     // First populated line becomes the inline `line_*` summary — the
@@ -304,6 +313,8 @@ export default function BillCreate() {
       setSaveError("A PDF attachment is required.");
       return;
     }
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     setBusyAction(action);
     setSaveError("");
     try {
@@ -322,6 +333,11 @@ export default function BillCreate() {
       // attachment); we redirect to /edit with a toast and let the user
       // finish there. Reversing the bill would need a server transaction we
       // don't have and would lose the attachment upload work.
+      // Which lines actually made it to the server. The summary line lands
+      // with the create call itself; each additional line joins only once its
+      // own POST resolves, so this array — not the full populatedLines — is
+      // what the corrected header total must be summed from.
+      const persistedLines = populatedLines.slice(0, 1);
       const additionalLines = populatedLines.slice(1);
       const failedLineNumbers: number[] = [];
       for (let i = 0; i < additionalLines.length; i++) {
@@ -340,6 +356,7 @@ export default function BillCreate() {
             markup: li.markup !== "" ? Number(li.markup) : null,
             price: li.price !== "" ? Number(li.price) : null,
           });
+          persistedLines.push(li);
         } catch {
           // +2 because populatedLines[0] is line #1 (summary), so
           // additionalLines[0] is line #2, etc. Human-readable numbering.
@@ -354,12 +371,45 @@ export default function BillCreate() {
           action === "submit"
             ? " The bill was NOT submitted for review — finish the lines and submit from the edit page."
             : "";
+        // The create call posted a total covering EVERY populated line, so a
+        // failed line leaves the header overstated. Correct it to what actually
+        // persisted. Gated on can_update because /update/bill enforces it while
+        // the create path only needs can_create — a create-only user keeps the
+        // overstated total until someone with update rights fixes it.
+        // NB the API coerces `... if body.total_amount else None`, and Decimal(0)
+        // is falsy in Python, so a corrected total of exactly 0 lands as NULL
+        // (blank header) rather than 0.00 — still better than leaving it
+        // overstated. Fixing that belongs in build.one.api, not here.
+        let totalCorrected = false;
+        if (hasUpdatePerm) {
+          try {
+            await put(`/api/v1/update/bill/${created.public_id}`, {
+              row_version: created.row_version,
+              vendor_public_id: form.vendor_public_id,
+              payment_term_public_id: form.payment_term_public_id || undefined,
+              bill_date: form.bill_date,
+              due_date: form.due_date,
+              bill_number: form.bill_number,
+              total_amount: sumLineAmounts(persistedLines),
+              memo: form.memo || null,
+              is_draft: true,
+            });
+            totalCorrected = true;
+          } catch {
+            // Correcting the total is best-effort — never block the user off
+            // the bill for it. The toast says so instead.
+          }
+        }
+        const totalNote = totalCorrected
+          ? " The bill total was corrected to match the saved lines."
+          : " The bill total still includes the unsaved line(s) — fix it on the edit page.";
         toast(
           `Bill saved. ` +
             `${single ? "Line" : "Lines"} ` +
             `${failedLineNumbers.join(", ")} failed to save — ` +
             `add ${single ? "it" : "them"} on the edit page.` +
-            submitNote,
+            submitNote +
+            totalNote,
           "error",
         );
         navigate(`/bill/${created.public_id}/edit`);
@@ -408,7 +458,7 @@ export default function BillCreate() {
       );
     } catch (err: any) {
       setSaveError(err.message);
-      setBusyAction(null);
+      endAction();
     }
   };
 
