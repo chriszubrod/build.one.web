@@ -174,6 +174,9 @@ export default function BillEdit() {
   const [lineItemsLoaded, setLineItemsLoaded] = useState(false);
   const persistedLineTotalRef = useRef<number | null>(null);
   const headerDirtyRef = useRef(false);
+  // Counts confirmed header PUTs (auto-save and saveAll) so saveAll can tell whether its
+  // own header write is still the newest one before seeding the item cache.
+  const headerWriteSeqRef = useRef(0);
   const [origLineItemPublicIds, setOrigLineItemPublicIds] = useState<string[]>([]);
   const [attachmentPublicId, setAttachmentPublicId] = useState<string | null>(null);
   const { objectUrl: attachmentBlobUrl, loading: attachmentLoading, loadError: attachmentLoadError } =
@@ -300,6 +303,7 @@ export default function BillEdit() {
         is_draft: form.is_draft,
       });
       rowVersion.set(updated.row_version);
+      ++headerWriteSeqRef.current;
       setForm((prev: any) => (prev ? { ...prev, row_version: updated.row_version } : prev));
     } catch {
       headerDirtyRef.current = true;
@@ -397,6 +401,7 @@ export default function BillEdit() {
         is_draft: latestForm.is_draft,
       });
       rowVersion.set(updated.row_version);
+      const headerWriteSeq = ++headerWriteSeqRef.current;
       setForm((prev: any) => ({ ...prev, row_version: updated.row_version }));
 
       // Line-item sync (U-170). The retry-safety invariant is scoped to
@@ -464,6 +469,18 @@ export default function BillEdit() {
         }
       }
       persistedLineTotalRef.current = computedTotal;
+      // Reconcile the item cache only after the line-item loop: an earlier merge would
+      // change `item` identity, re-run the load effect, mint new uids, and stampRow would
+      // match nothing — silently dropping confirmed public_id/row_version (U-170). Merge,
+      // don't replace: the GET (api entities/bill/api/router.py, /get/bill/{public_id})
+      // appends a qbo_bill_url the header PUT does not return. Decline if a mid-loop
+      // auto-save superseded this header PUT — caching its stale row_version would
+      // re-create the 409, and leaving the entry untouched is no worse than pre-U-174.
+      if (headerWriteSeqRef.current === headerWriteSeq) {
+        queryClient.setQueryData(entityItemKey(billItemPath), (prev: Bill | undefined) =>
+          prev ? { ...prev, ...updated } : updated,
+        );
+      }
       return true;
     } catch (err: any) {
       // Failed saveAll may have partially synced lines or failed the header PUT —
@@ -718,6 +735,7 @@ export default function BillEdit() {
                 setDeleting(true);
                 try {
                   await deleteEntity(`/api/v1/delete/bill/${publicId}`);
+                  queryClient.removeQueries({ queryKey: entityItemKey(billItemPath) });
                   toast("Bill deleted.");
                   navigate("/bill/list");
                 } catch (err: any) {

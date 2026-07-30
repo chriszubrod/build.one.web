@@ -7,6 +7,7 @@ import BillEdit from "./BillEdit";
 import { ApiError } from "../../api/client";
 import { flushUntil } from "../../__testutils__/flush";
 import { setInputValue } from "../../__testutils__/domEvents";
+import { entityItemKey } from "../../hooks/useEntity";
 import type { Bill, BillLineItem } from "../../types/api";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -847,5 +848,175 @@ describe("BillEdit shared-attachment re-homing on line delete (U-171)", () => {
     expect(
       mockGetOne.mock.calls.some((c) => c[0] === `/api/v1/get/attachment/id/${ATT_ID}`),
     ).toBe(true);
+  });
+});
+
+describe("BillEdit item cache reconciliation (U-174)", () => {
+  let confirmSpy: ReturnType<typeof vi.spyOn> | undefined;
+
+  beforeEach(() => {
+    setupMocks([sampleLineItem()]);
+  });
+
+  afterEach(() => {
+    confirmSpy?.mockRestore();
+  });
+
+  const cachedBill = () => queryClient.getQueryData<Bill>(entityItemKey(BILL_GET_PATH));
+
+  /** Exact-text button lookup that is safe to POLL on — unlike findSaveButton, which
+   * hard-asserts and would THROW inside a flushUntil predicate rather than wait while
+   * the label still reads "Saving...". */
+  const buttonWithText = (label: string) =>
+    Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent?.trim() === label,
+    );
+
+  /** U-152 rule 1 for a textarea: assigning .value updates React's _valueTracker and
+   * suppresses onChange, so the edit never reaches state. domEvents.setInputValue can't
+   * serve here — its HTMLInputElement prototype setter brand-checks the receiver and
+   * throws on a textarea. Folding all three variants into __testutils__ is a follow-up. */
+  function setTextareaValue(el: HTMLTextAreaElement, value: string): void {
+    const nativeSetter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )!.set!;
+    nativeSetter.call(el, value);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  /** Stubs PUT so the bill_line_item call HANGS until the returned settle() runs — that
+   * parked window is saveAll's line-item loop, where a concurrent auto-save can land.
+   * The header response is delegated so each spec supplies only what distinguishes it. */
+  function stubPutWithHangingLine(header: () => Promise<Bill>) {
+    let resolveLine!: (value: BillLineItem) => void;
+    const linePut = new Promise<BillLineItem>((resolve) => {
+      resolveLine = resolve;
+    });
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/bill/bill-1") return header();
+      if (path.startsWith("/api/v1/update/bill_line_item/")) return linePut;
+      return Promise.reject(new Error(`unexpected put: ${path}`));
+    });
+    return async function settleLinePut() {
+      await act(async () => {
+        resolveLine(sampleLineItem({ row_version: "rv-1b" }));
+        await linePut;
+      });
+    };
+  }
+
+  it("a successful save seeds the item cache with the fresh bill", async () => {
+    renderBillEdit();
+    await waitForReady();
+
+    await flushUntil(() => cachedBill()?.row_version === "brv-1");
+    expect(cachedBill()?.row_version).toBe("brv-1");
+
+    await clickSave();
+
+    expect(cachedBill()?.row_version).toBe("brv-2");
+  });
+
+  it("declines item-cache seed when a mid-loop auto-save supersedes the saveAll header PUT", async () => {
+    let headerPutCount = 0;
+    const settleLinePut = stubPutWithHangingLine(() => {
+      headerPutCount += 1;
+      if (headerPutCount === 1) {
+        return Promise.resolve(sampleBill({ row_version: "brv-2" }));
+      }
+      if (headerPutCount === 2) {
+        return Promise.resolve(sampleBill({ row_version: "brv-3", memo: "autosaved mid-loop" }));
+      }
+      return Promise.reject(new Error(`unexpected header put #${headerPutCount}`));
+    });
+
+    renderBillEdit();
+    await waitForReady();
+
+    await act(async () => {
+      findSaveButton().click();
+    });
+
+    await flushUntil(() => buttonWithText("Saving...") !== undefined);
+
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    expect(memo).toBeTruthy();
+    await act(async () => {
+      setTextareaValue(memo, "edited during save");
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(350);
+    });
+    // Hard precondition — the spec asserts nothing unless the auto-save really landed.
+    await flushUntil(() => billHeaderPutBodies().length >= 2);
+    expect(billHeaderPutBodies()).toHaveLength(2);
+
+    await settleLinePut();
+
+    await flushUntil(() => buttonWithText("Save") !== undefined);
+
+    expect(cachedBill()?.row_version).toBe("brv-1");
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-1");
+  });
+
+  it("seeds the item cache on a normal save even when the line sync is slow enough for React to commit", async () => {
+    const settleLinePut = stubPutWithHangingLine(() =>
+      Promise.resolve(sampleBill({ row_version: "brv-2" })),
+    );
+
+    renderBillEdit();
+    await waitForReady();
+
+    await act(async () => {
+      findSaveButton().click();
+    });
+
+    // Let React fully COMMIT setForm(row_version) in its own scope before the line PUT
+    // settles. That ordering is what made the original rowVersion.read() guard read a
+    // stale per-render token and decline — seeding nothing on a perfectly normal save.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+
+    await settleLinePut();
+
+    await flushUntil(() => buttonWithText("Save") !== undefined);
+
+    expect(cachedBill()?.row_version).toBe("brv-2");
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-1");
+  });
+
+  it("a successful delete removes the item cache entry", async () => {
+    confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderBillEdit();
+    await waitForReady();
+
+    await flushUntil(() => cachedBill() !== undefined);
+    expect(cachedBill()).toBeDefined();
+
+    // 404 the bill AFTER the delete so an active-observer re-subscribe cannot repopulate
+    // the entry and turn a missing removeQueries into a false green.
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === BILL_GET_PATH) {
+        return Promise.reject(new ApiError(404, "Not found"));
+      }
+      if (path.startsWith("/api/v1/get/bill-line-item-attachment/by-bill-line-item/")) {
+        return Promise.reject(new ApiError(404, "Not found"));
+      }
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+
+    const deleteBtn = buttonWithText("Delete");
+    expect(deleteBtn).toBeDefined();
+
+    await act(async () => {
+      deleteBtn!.click();
+    });
+
+    await flushUntil(() => cachedBill() === undefined);
+    expect(cachedBill()).toBeUndefined();
   });
 });
