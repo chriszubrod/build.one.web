@@ -223,11 +223,24 @@ export default function BillCreate() {
   const populatedLines = lines.filter(isLinePopulated);
   const hasLineData = populatedLines.length > 0;
 
-  // Submit For Review needs at least one populated line with a project so
-  // the API's recipient resolver can find PMs/Owners (K06988 bug on empty
+  // Submit For Review is a compound action: POST /api/v1/create/bill
+  // (Modules.BILLS.can_create) then POST /api/v1/submit/review/bill/:id
+  // (can_update — same rule resolveBillEditActions encodes in
+  // billPermissions.ts). Both permissions must be present. Also needs at
+  // least one populated line with a project so the submit endpoint's
+  // recipient resolver can find PMs/Owners (K06988 bug on empty
   // resolution). Any populated line with a project is enough — a bill can
   // legitimately span multiple projects, and the resolver walks all of them.
-  const canSubmitForReview = populatedLines.some((li) => !!li.project_public_id);
+  const hasCreatePerm = hasBillPermission(me, "can_create");
+  const hasUpdatePerm = hasBillPermission(me, "can_update");
+  const hasSubmitPerms = hasCreatePerm && hasUpdatePerm;
+  const hasProjectOnLine = populatedLines.some((li) => !!li.project_public_id);
+  const canSubmitForReview = hasSubmitPerms && hasProjectOnLine;
+  const submitForReviewTitle = !hasSubmitPerms
+    ? "Bills create and update permissions are required — Submit for Review creates the bill and calls the review submit endpoint."
+    : !hasProjectOnLine
+      ? "Set Project on at least one line item to enable Submit for Review."
+      : "Save the bill AND queue the reviewer notification email.";
 
   // Complete needs EVERY populated line to have both project AND SCC —
   // completion enqueues one SharePoint upload per project and one Excel row
@@ -245,12 +258,18 @@ export default function BillCreate() {
     0,
   );
 
-  const buildBody = (submitForReview: boolean) => {
+  const buildBody = () => {
     // First populated line becomes the inline `line_*` summary — the
     // API's create endpoint takes ONE summary and auto-creates the
     // corresponding BillLineItem (the one the attachment links to).
     // Any additional populated lines get POSTed separately after the
     // bill is created (see handleSubmit).
+    //
+    // submit_for_review is ALWAYS false — never null/omitted. The auto-Submit
+    // gate in BillService.create fires when submit_for_review IS NOT False
+    // (entities/bill/business/service.py:479), and that hook's recipient
+    // resolver only sees this summary line — before the additional-line
+    // POSTs run. We submit for review explicitly AFTER all lines persist.
     const first = populatedLines[0];
     const body: Record<string, unknown> = {
       vendor_public_id: form.vendor_public_id,
@@ -263,7 +282,7 @@ export default function BillCreate() {
       total_amount: hasLineData ? totalAmount : null,
       memo: form.memo || null,
       is_draft: true,
-      submit_for_review: submitForReview,
+      submit_for_review: false,
     };
     if (first) {
       body.line_description = first.description || null;
@@ -292,10 +311,8 @@ export default function BillCreate() {
         "/api/v1/upload/attachment",
         file,
       );
-      // Complete bypasses Review entirely — never auto-Submit on create.
-      const submitForReview = action === "submit";
       const created = await post<Bill>("/api/v1/create/bill", {
-        ...buildBody(submitForReview),
+        ...buildBody(),
         attachment_public_id: attachment.public_id,
       });
 
@@ -330,31 +347,54 @@ export default function BillCreate() {
         }
       }
       if (failedLineNumbers.length > 0) {
+        // Do NOT submit for review — recipient resolution walks all BLIs,
+        // and this bill is incomplete until the failed lines are saved.
+        const single = failedLineNumbers.length === 1;
+        const submitNote =
+          action === "submit"
+            ? " The bill was NOT submitted for review — finish the lines and submit from the edit page."
+            : "";
         toast(
           `Bill saved. ` +
-            `${failedLineNumbers.length === 1 ? "Line" : "Lines"} ` +
+            `${single ? "Line" : "Lines"} ` +
             `${failedLineNumbers.join(", ")} failed to save — ` +
-            `add ${failedLineNumbers.length === 1 ? "it" : "them"} on the edit page.`,
+            `add ${single ? "it" : "them"} on the edit page.` +
+            submitNote,
           "error",
         );
         navigate(`/bill/${created.public_id}/edit`);
         return;
       }
 
-      if (action === "complete") {
+      const followUp =
+        action === "submit"
+          ? {
+              path: `/api/v1/submit/review/bill/${created.public_id}`,
+              label: "Submit for review",
+              retry: "Retry from this page.",
+            }
+          : action === "complete"
+            ? {
+                path: `/api/v1/complete/bill/${created.public_id}`,
+                label: "Completion",
+                retry: "Retry Complete from this page.",
+              }
+            : null;
+      if (followUp) {
         try {
-          // /complete/bill returns 202 (background); navigate immediately,
-          // user sees the bill transition on the detail page.
-          await post(`/api/v1/complete/bill/${created.public_id}`, {});
-        } catch (completeErr: any) {
-          // Bill was created OK but completion failed. Re-attempting
-          // from this form would hit a (vendor, bill_number, date)
-          // uniqueness 409. Send the user to the edit page where the
-          // Complete button on BillEdit can retry against the already-
+          // Both follow-ups return fast — /submit/review writes the Review row
+          // and queues the notification, /complete/bill returns 202 and drains
+          // in the background — so we navigate straight after and let the user
+          // watch the bill transition on the detail page.
+          await post(followUp.path, {});
+        } catch (err: any) {
+          // Bill + all lines were created OK but the follow-up action failed.
+          // Re-creating would hit a (vendor, bill_number, date) uniqueness 409;
+          // a submit retry could also 409 if a review row already exists. Send
+          // to edit where Submit or Complete can retry against the already-
           // created draft.
           toast(
-            `Bill saved as draft. Completion failed: ${completeErr.message}. ` +
-              `Retry Complete from this page.`,
+            `Bill saved as draft. ${followUp.label} failed: ${err.message}. ${followUp.retry}`,
             "error",
           );
           navigate(`/bill/${created.public_id}/edit`);
@@ -586,11 +626,7 @@ export default function BillCreate() {
             className="btn btn-success"
             disabled={busy || !file || !canSubmitForReview}
             onClick={() => { pendingActionRef.current = "submit"; }}
-            title={
-              canSubmitForReview
-                ? "Save the bill AND queue the reviewer notification email."
-                : "Set Project on the line item to enable Submit for Review."
-            }
+            title={submitForReviewTitle}
           >
             {busyAction === "submit" ? "Submitting..." : "Submit For Review"}
           </button>
