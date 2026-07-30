@@ -4,6 +4,31 @@ Pending work, deferred decisions, known issues. Check off as done; prune anythin
 
 ---
 
+## Bills redesign (f73a3fd) — post-hoc `/code-review` follow-ups (2026-07-29)
+
+The Bill Create/Edit redesign shipped as concurrent-session WIP without the two-pass gate; a post-hoc `xhigh` `/code-review` found 14 issues. **The P0 (silent money loss — `computeBillLine` zeroing lump-sum/QBO account-based line amounts) is FIXED + DEPLOYED as U-167** (`7ec9b1d`, `lineMath.test.ts`). The remaining 13 are follow-up units, each needs its own Map→Hunt→Refactor→Test→Verify→deploy:
+
+**High**
+- [ ] **Submit-for-Review empty reviewer recipients** — `BillCreate.tsx:230`. Submit is gated on `populatedLines.some(hasProject)` but `create/bill` embeds `submit_for_review=true` carrying only `populatedLines[0]`'s project; project-bearing later lines POST afterward → server resolves no PMs/Owners → BCC-only notification. Mirror BillEdit: persist all lines, then call `/submit/review/bill/:id` (never submit on the create path). Reintroduces the K06988-class bug BillEdit was refactored to avoid.
+- [ ] **Project silently stripped on save** — `BillEdit.tsx:122`. Load resolves `project_id`→`project_public_id` via `fullProjects.find`; a project absent from the loaded (inactive/RBAC-scoped) list → `""` → next `saveAll` writes `project_public_id: null`, wiping the association (breaks PM resolution + doc routing). Preserve the original project id when the lookup misses (e.g. keep a fallback public_id), don't coerce to null.
+- [ ] **saveAll mid-loop failure → duplicate lines + 409 wedge** — `BillEdit.tsx:311`. New public_ids / refreshed row_versions are written back to state only after the whole loop (`setLineItems(savedItems)` at 311); a mid-loop throw discards them in the catch → retry re-POSTs already-created rows (duplicates) and re-PUTs with stale row_versions (permanent 409 until reload). Persist per-item progress incrementally (update state as each row succeeds) or make the sync idempotent.
+- [ ] **Shared attachment orphaned when first line removed** — `BillEdit.tsx:109`/`281`. The bill's single PDF is fetched/linked via `res.data[0]` only; deleting the first line deletes its BLI → the bill loses its only source document. Re-link the shared attachment to a surviving line before deleting, or model the attachment at the bill level.
+
+**Medium**
+- [ ] **Partial line-POST failure → overstated header total** — `BillCreate.tsx:332`. `create/bill` sends `total_amount` = sum of ALL lines, but additional lines POST one-by-one afterward and a failure only toasts + navigates — the header is never corrected, so `Bill.TotalAmount` > Σ created BLIs. Recompute + PATCH the header after the line loop (mirror BillEdit's `saveAll` recompute), or create all lines transactionally.
+- [ ] **Missing cache reconciliation** — `BillCreate` (no list invalidate after create), `BillEdit:535` (delete: no `removeEntity`), `BillEdit:275` (saveAll: no `setQueryData` on the item). With global `staleTime: 5min` + `refetchOnWindowFocus: false`, stale lists / ghost rows / a 404-on-read item persist for minutes. Apply the documented `invalidateEntity`/`removeEntity`/`setQueryData` pattern (CLAUDE.md checklist step 7).
+- [ ] **Save-For-Later with zero populated lines → orphan attachment** — `BillCreate.tsx:297`. Enabled on `!file` alone; with no populated lines `buildBody` creates no summary BLI, yet `attachment_public_id` is still sent → the uploaded PDF binds to no line (invisible on BillEdit's `res.data[0]` fetch, orphaned in blob). Require ≥1 populated line when a file is attached, or create a summary line to hold it.
+- [ ] **`total_amount` raw float sum** — `BillCreate.tsx:243` (+ BillEdit `saveAll` via `sumLineAmounts`). `reduce` over `Number(amount)` sends e.g. `0.30000000000000004` to the money field; NEW vs the pre-rework single-line `Number(line.amount)`. **PLAUSIBLE** — confirm whether the API quantizes `total_amount` server-side (`Decimal(str(v))`→`DECIMAL(n,2)`); if not, quantize client-side before sending.
+- [ ] **Double-submit → duplicate create + orphan upload** — `BillCreate.tsx:288`. All three action buttons are `type=submit`; `disabled=busy` lands only after re-render, so a fast double-click fires `handleSubmit` twice (two uploads, two `create/bill`). Only the `(vendor,bill_number,date)` uniqueness 409 backstops it, and the orphan attachment persists. Guard with an in-flight ref / disable-before-await.
+
+**Low**
+- [ ] **Index-as-key on editable rows** — `BillCreate.tsx:459`. `key={index}` on an add/remove list → removing a non-last row makes React reuse DOM nodes / transient input+focus across logically different rows. Key on a stable row id (BillEdit already keys on `li.public_id ?? idx`).
+- [ ] **DueDate auto-calc DST off-by-one** — `BillCreate.tsx:129`. `new Date(bd.getTime() + due_days*86400000)` drifts one day across a DST fall-back boundary despite the comment. Use `dd.setDate(dd.getDate()+due_days)`. (Also reconcile against the API convention that `Bill.DueDate = BillDate`.)
+- [ ] **`lineMath` toFixed penny-drift (pre-existing)** — `lineMath.ts:36`. `amount` is `toFixed(2)`-rounded while `price` derives from the un-rounded amount, and `toFixed` mis-rounds exact half-cents (`1.005`→`"1.00"`). Not introduced by f73a3fd but now the single money path for both pages. Round-half-up on a scaled integer, and derive price from the rounded amount.
+- [ ] **`.detail-fields-form` fragile CSS coupling (altitude)** — `index.css:5574`. A per-page descendant override styles `FormField`/`SelectField`/… private `.form-group` markup ("without touching the components themselves"); a future internal change silently breaks the row layout with no type error. Add a `layout="row"` variant/prop (or a shared form-row primitive) so the shell is a contract, mirroring `DetailView`.
+
+---
+
 ## /docs surface — keep current + extend
 
 v1 (admin-only, iOS section) shipped 2026-06-20. **Standing rule:** every feature add/change refreshes the matching `/docs` section — the Docs step of the per-unit pipeline (see `CLAUDE.md` "Documentation surface" + umbrella memory `feedback_docs_keep_current.md`). Follow-ups:
