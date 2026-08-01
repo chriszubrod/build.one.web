@@ -2,6 +2,12 @@
 
 Pending work, deferred decisions, known issues. Check off as done; prune anything stale.
 
+## Bills post-hoc — U-181 spawned follow-ups (2026-08-01)
+
+- [ ] **BudgetEdit::compute carries both lineMath defects** — `src/pages/budgets/BudgetEdit.tsx` `compute()` still rounds via `toFixed(2)` on the un-rounded path (mis-rounds half-cents AND derives price from the un-rounded amount) — the exact pair U-181 fixed in `computeBillLine`. Port/share `roundMoney`.
+- [ ] **Persisted-price toFixed rounding** — `LaborReviewScreen.tsx:515` + `ContractLaborEdit.tsx:381` round PERSISTED prices via `Number(x.toFixed(2))` (same mis-rounding). Route through `roundMoney`.
+- [ ] **Eventual shared `src/shared/money.ts`** — `roundMoney` lives in `bills/lineMath.ts`; once BudgetEdit + the CL pages consume it, promote to `src/shared/money.ts`. NB `budgets/revisionLedger.ts` exports a DIFFERENT `roundToCents` (returns integer CENTS) — keep names disjoint (silent 100× hazard).
+
 ## Bills post-hoc — U-176 spawned follow-ups (2026-07-30)
 
 - [ ] **tsconfig type-check gap** — `tsconfig.app.json` EXCLUDES `ExpenseEdit.tsx`/`BillCreditEdit.tsx`/`InvoiceEdit.tsx` (lines 28/34/37), so neither `tsc -p tsconfig.app.json` nor `npm run build`'s `tsc -b` type-checks them — a change to those pages compiles 'clean' under the standing build while never being verified. U-176 proved them 0-errors via a one-off tsc, but that's not enforced. Either drop them from `exclude` (fix whatever made them excluded) or add a CI one-off. Real gap.
@@ -44,7 +50,7 @@ The Bill Create/Edit redesign shipped as concurrent-session WIP without the two-
 **Low**
 - [ ] **Index-as-key on editable rows** — `BillCreate.tsx:459`. `key={index}` on an add/remove list → removing a non-last row makes React reuse DOM nodes / transient input+focus across logically different rows. Key on a stable row id (BillEdit already keys on `li.public_id ?? idx`).
 - [ ] **DueDate auto-calc DST off-by-one** — `BillCreate.tsx:129`. `new Date(bd.getTime() + due_days*86400000)` drifts one day across a DST fall-back boundary despite the comment. Use `dd.setDate(dd.getDate()+due_days)`. (Also reconcile against the API convention that `Bill.DueDate = BillDate`.)
-- [ ] **`lineMath` toFixed penny-drift (pre-existing)** — `lineMath.ts:36`. `amount` is `toFixed(2)`-rounded while `price` derives from the un-rounded amount, and `toFixed` mis-rounds exact half-cents (`1.005`→`"1.00"`). Not introduced by f73a3fd but now the single money path for both pages. Round-half-up on a scaled integer, and derive price from the rounded amount.
+- [x] **✅ `lineMath` penny-drift — DONE (U-181 `f8c7b06`)** — new `roundMoney` (half-away-from-zero, decimal-string scaling + 2^49 cutoff) + price from rounded amount. ~~toFixed penny-drift (pre-existing)~~ — `lineMath.ts:36`. `amount` is `toFixed(2)`-rounded while `price` derives from the un-rounded amount, and `toFixed` mis-rounds exact half-cents (`1.005`→`"1.00"`). Not introduced by f73a3fd but now the single money path for both pages. Round-half-up on a scaled integer, and derive price from the rounded amount.
 - [ ] **`.detail-fields-form` fragile CSS coupling (altitude)** — `index.css:5574`. A per-page descendant override styles `FormField`/`SelectField`/… private `.form-group` markup ("without touching the components themselves"); a future internal change silently breaks the row layout with no type error. Add a `layout="row"` variant/prop (or a shared form-row primitive) so the shell is a contract, mirroring `DetailView`.
 
 ---
