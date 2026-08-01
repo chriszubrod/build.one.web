@@ -7,6 +7,9 @@ import { useCurrentUser } from "../../hooks/useCurrentUser";
 import ReviewTimeline from "../../components/ReviewTimeline";
 import { resolveContractLaborEditActions } from "./contractLaborPermissions";
 import { STATUS_CLASSES, STATUS_LABELS } from "./contractLaborStatus";
+// Interim cross-import: roundMoney lives in bills/lineMath until it earns a
+// shared src/shared/money.ts home (booked in TODO.md). Do NOT edit lineMath.ts.
+import { roundMoney } from "../bills/lineMath";
 import type {
   ContractLabor,
   ContractLaborDailySummary,
@@ -378,7 +381,7 @@ export default function ContractLaborEdit() {
         hours: row.hours !== "" ? Number(row.hours) : null,
         rate: row.rate !== "" ? Number(row.rate) : null,
         markup: row.markup_percent !== "" ? Number(row.markup_percent) / 100 : null,
-        price: Number(computePrice(row).toFixed(2)),
+        price: roundMoney(computePrice(row)),
         is_billable: row.is_billable,
         is_overhead: row.is_overhead,
       })),

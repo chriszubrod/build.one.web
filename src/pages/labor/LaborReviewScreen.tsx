@@ -10,6 +10,9 @@ import SectionCard from "../../components/ui/SectionCard";
 import ListRow from "../../components/ui/ListRow";
 import SubCostCodePickerSheet from "./SubCostCodePickerSheet";
 import ProjectPickerSheet from "../time-entry/ProjectPickerSheet";
+// Interim cross-import: roundMoney lives in bills/lineMath until it earns a
+// shared src/shared/money.ts home (booked in TODO.md). Do NOT edit lineMath.ts.
+import { roundMoney } from "../bills/lineMath";
 import type {
   ContractLabor,
   ContractLaborLineItem,
@@ -512,7 +515,7 @@ export default function LaborReviewScreen() {
         hours: hoursForSave,
         rate: rateForSave,
         markup: markupForSave,
-        price: Number(priceForSave.toFixed(2)),
+        price: roundMoney(priceForSave),
         is_billable: li.is_billable,
         is_overhead: li.is_overhead,
       };
