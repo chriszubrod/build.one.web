@@ -232,4 +232,36 @@ describe("ContractLaborEdit save payload (U-185)", () => {
     const body = call![1] as { line_items: { price: number }[] };
     expect(body.line_items[0].price).toBe(1.01);
   });
+
+  it("persists exact decimal price 100.03 on float-lossy hours×rate×markup (U-192)", async () => {
+    renderEdit();
+    await waitForLineForm();
+
+    await act(async () => {
+      setInputValue(labeledInput("Hours"), "1");
+      setInputValue(labeledInput("Rate (per hour)"), "80.02");
+      setInputValue(labeledInput("Markup (%)"), "25");
+    });
+    expect(labeledInput("Hours").value).toBe("1");
+    expect(labeledInput("Rate (per hour)").value).toBe("80.02");
+    expect(labeledInput("Markup (%)").value).toBe("25");
+
+    const floatProduct = Number("1") * Number("80.02") * (1 + 25 / 100);
+    expect(floatProduct).toBe(100.02499999999999);
+
+    mockPut.mockClear();
+
+    const btn = saveChangesButton();
+    expect(btn, "Save Changes button not rendered").toBeDefined();
+    await act(async () => {
+      btn!.click();
+    });
+
+    await flushUntil(() => mockPut.mock.calls.some((c) => c[0] === `${CL_PATH}/bill`));
+    const call = mockPut.mock.calls.find((c) => c[0] === `${CL_PATH}/bill`);
+    expect(call, "Save Changes did not PUT the bill endpoint").toBeDefined();
+
+    const body = call![1] as { line_items: { price: number }[] };
+    expect(body.line_items[0].price).toBe(100.03);
+  });
 });

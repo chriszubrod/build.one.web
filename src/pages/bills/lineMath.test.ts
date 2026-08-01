@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { computeBillLine, roundMoney, sumLineAmounts } from "./lineMath";
+import { applyMarkup, computeAmount, roundMoney } from "../../shared/money";
+import { computeBillLine, sumLineAmounts } from "./lineMath";
 
 // A minimal BillLineMathFields row.
 const row = (o: Partial<Record<"quantity" | "rate" | "markup" | "amount" | "price", string>>) => ({
@@ -94,6 +95,42 @@ describe("computeBillLine", () => {
     expect(r.amount).not.toBe("");
     expect(r.price).not.toBe("");
   });
+
+  it("exact decimal markup: qty 1 × rate 80.02 @ 25% markup → price 100.03 (not float 100.02)", () => {
+    const floatProduct = Number("1") * Number("80.02") * (1 + Number("0.25"));
+    const lossy = roundMoney(roundMoney(Number("1") * Number("80.02")) * (1 + Number("0.25")));
+    expect(floatProduct).toBe(100.02499999999999);
+    expect(lossy).toBe(100.02);
+
+    const r = computeBillLine(row({ quantity: "1", rate: "80.02", markup: "0.25" }));
+    expect(r.amount).toBe("80.02");
+    expect(r.price).toBe("100.03");
+  });
+
+  it.each([
+    ["2", "40.01", "0.25", "80.02", "100.03"],
+    ["80.02", "", "0.25", "80.02", "100.03"],
+  ])(
+    "float-lossy sibling qty=%p rate=%p markup=%p → amount %p / price %p",
+    (quantity, rate, markup, amount, price) => {
+      if (rate !== "") {
+        const lossy = roundMoney(
+          roundMoney(Number(quantity) * Number(rate)) * (1 + Number(markup)),
+        );
+        const exact = applyMarkup(computeAmount(quantity, rate), markup);
+        expect(lossy).not.toBe(exact);
+        const r = computeBillLine(row({ quantity, rate, markup }));
+        expect(r.amount).toBe(amount);
+        expect(r.price).toBe(price);
+      } else {
+        const lossy = roundMoney(Number(amount) * (1 + Number(markup)));
+        expect(lossy).toBe(100.02);
+        const r = computeBillLine(row({ amount: quantity, markup }));
+        expect(r.amount).toBe(amount);
+        expect(r.price).toBe(price);
+      }
+    },
+  );
 });
 
 describe("roundMoney", () => {

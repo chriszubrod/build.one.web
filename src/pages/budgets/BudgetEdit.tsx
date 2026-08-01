@@ -21,9 +21,7 @@ import {
   STATUS_LABELS,
 } from "../../api/budget";
 import type { LookupSubCostCode, BudgetRevision } from "../../types/api";
-// Interim cross-import: roundMoney lives in bills/lineMath until it earns a
-// shared src/shared/money.ts home (booked in TODO.md). Do NOT edit lineMath.ts.
-import { roundMoney } from "../bills/lineMath";
+import { applyMarkup, computeAmount } from "../../shared/money";
 import {
   newLineItemUid,
   persistedLineItemUid,
@@ -58,20 +56,17 @@ function newRow(): LineRow {
   };
 }
 
-/** amount = qty x rate; price = amount x (1 + markup). amount and price are
- * rounded to cents via roundMoney (half away from zero) before formatting;
- * these are the values sent to the server (mirrors computeBillLine). */
+/** amount = qty x rate; price = amount x (1 + markup). Both come back from
+ * shared/money already rounded to cents (half away from zero) before
+ * formatting; these are the values sent to the server (mirrors
+ * computeBillLine). Empty strings coalesce to 0 inside the helpers. */
 function compute(li: LineRow): LineRow {
-  const qty = li.quantity !== "" ? Number(li.quantity) : 0;
-  const rate = li.rate !== "" ? Number(li.rate) : 0;
-  const markup = li.markup !== "" ? Number(li.markup) : 0;
-  const amount = qty * rate;
-  const roundedAmount = roundMoney(amount);
-  const roundedPrice = roundMoney(roundedAmount * (1 + markup));
+  const amount = computeAmount(li.quantity, li.rate);
+  const price = applyMarkup(amount, li.markup);
   return {
     ...li,
-    amount: roundedAmount ? roundedAmount.toFixed(2) : "",
-    price: roundedPrice ? roundedPrice.toFixed(2) : "",
+    amount: amount ? amount.toFixed(2) : "",
+    price: price ? price.toFixed(2) : "",
   };
 }
 

@@ -279,6 +279,48 @@ describe("BudgetEdit (U-189)", () => {
     expect(body.price).toBe(2.02);
   });
 
+  it("persists exact decimal price 100.03 on float-lossy qty×rate×markup (U-192)", async () => {
+    renderEdit();
+    await waitForAddLineButton();
+
+    await act(async () => {
+      addLineButton()!.click();
+    });
+
+    const card = lineCards()[0];
+
+    await act(async () => {
+      setInputValue(labeledInputInCard(card, "Qty"), "1");
+      setInputValue(labeledInputInCard(card, "Rate"), "80.02");
+      setInputValue(labeledInputInCard(card, "Markup"), "0.25");
+    });
+    expect(labeledInputInCard(card, "Qty").value).toBe("1");
+    expect(labeledInputInCard(card, "Rate").value).toBe("80.02");
+    expect(labeledInputInCard(card, "Markup").value).toBe("0.25");
+
+    // Fixture precondition: prove THESE inputs are genuinely float-lossy, so
+    // the assertion below fails if the exact multiply regresses. Derived from
+    // the fixture, not a literal compared to a literal.
+    const floatProduct = Number("1") * Number("80.02") * (1 + Number("0.25"));
+    expect(floatProduct).toBe(100.02499999999999);
+
+    mockPost.mockClear();
+
+    const btn = saveButton();
+    expect(btn, "Save button not rendered").toBeDefined();
+    await act(async () => {
+      btn!.click();
+    });
+
+    await flushUntil(() => mockPost.mock.calls.some((c) => c[0] === CREATE_LI_PATH));
+    const call = mockPost.mock.calls.find((c) => c[0] === CREATE_LI_PATH);
+    expect(call, "Save did not POST create budget-line-item").toBeDefined();
+
+    const body = call![1] as { amount: number; price: number };
+    expect(body.amount).toBe(80.02);
+    expect(body.price).toBe(100.03);
+  });
+
   it("keeps row identity and focus on the correct surviving row after a mid-list remove", async () => {
     renderEdit();
     await waitForAddLineButton();

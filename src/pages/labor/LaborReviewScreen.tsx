@@ -10,9 +10,10 @@ import SectionCard from "../../components/ui/SectionCard";
 import ListRow from "../../components/ui/ListRow";
 import SubCostCodePickerSheet from "./SubCostCodePickerSheet";
 import ProjectPickerSheet from "../time-entry/ProjectPickerSheet";
-// Interim cross-import: roundMoney lives in bills/lineMath until it earns a
-// shared src/shared/money.ts home (booked in TODO.md). Do NOT edit lineMath.ts.
-import { roundMoney } from "../bills/lineMath";
+import {
+  applyMarkup,
+  computeAmount as exactLineAmount,
+} from "../../shared/money";
 import type {
   ContractLabor,
   ContractLaborLineItem,
@@ -143,12 +144,16 @@ function inputRejectsAboveMax(v: string, max: number): boolean {
   return n > max;
 }
 
+// Display math routes through the SAME exact-decimal helpers as the save path
+// below (U-192). When these were local float multiplies, the grid rendered
+// $100.02 for 1h × $80.02 @ 25% while the PUT body persisted $100.03 — a
+// reviewer approving a number the server would not store.
 function computeAmount(hours: number, rate: number): number {
-  return hours * rate;
+  return exactLineAmount(hours, rate);
 }
 
 function computePrice(hours: number, rate: number, markupFraction: number): number {
-  return hours * rate * (1 + markupFraction);
+  return applyMarkup(exactLineAmount(hours, rate), markupFraction);
 }
 
 export default function LaborReviewScreen() {
@@ -499,7 +504,7 @@ export default function LaborReviewScreen() {
       const h = hoursForSave ?? 0;
       const r = rateForSave ?? 0;
       const mf = markupForSave ?? 0;
-      const priceForSave = Math.max(0, h * r * (1 + mf));
+      const priceForSave = Math.max(0, applyMarkup(exactLineAmount(h, r), mf));
       // Server-line: keep its id + public_id + row_version. Added line:
       // ship id=null so the diff-based PUT inserts it; public_id and
       // row_version are dropped (they're client-only sentinels).
@@ -515,7 +520,7 @@ export default function LaborReviewScreen() {
         hours: hoursForSave,
         rate: rateForSave,
         markup: markupForSave,
-        price: roundMoney(priceForSave),
+        price: priceForSave,
         is_billable: li.is_billable,
         is_overhead: li.is_overhead,
       };

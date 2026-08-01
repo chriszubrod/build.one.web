@@ -7,9 +7,11 @@ import { useCurrentUser } from "../../hooks/useCurrentUser";
 import ReviewTimeline from "../../components/ReviewTimeline";
 import { resolveContractLaborEditActions } from "./contractLaborPermissions";
 import { STATUS_CLASSES, STATUS_LABELS } from "./contractLaborStatus";
-// Interim cross-import: roundMoney lives in bills/lineMath until it earns a
-// shared src/shared/money.ts home (booked in TODO.md). Do NOT edit lineMath.ts.
-import { roundMoney } from "../bills/lineMath";
+import {
+  applyMarkup,
+  computeAmount as exactLineAmount,
+  percentToFraction,
+} from "../../shared/money";
 import type {
   ContractLabor,
   ContractLaborDailySummary,
@@ -47,13 +49,12 @@ function toNum(s: string): number {
 
 // Amount = Hours × Rate (pre-markup). Treats Rate as an hourly rate.
 function computeAmount(row: LineRow): number {
-  return toNum(row.hours) * toNum(row.rate);
+  return exactLineAmount(row.hours, row.rate);
 }
 
 // Price = Amount × (1 + Markup). What we actually bill the client.
 function computePrice(row: LineRow): number {
-  const markup = toNum(row.markup_percent) / 100;
-  return computeAmount(row) * (1 + markup);
+  return applyMarkup(computeAmount(row), percentToFraction(row.markup_percent));
 }
 
 function emptyRow(workDate: string): LineRow {
@@ -381,7 +382,7 @@ export default function ContractLaborEdit() {
         hours: row.hours !== "" ? Number(row.hours) : null,
         rate: row.rate !== "" ? Number(row.rate) : null,
         markup: row.markup_percent !== "" ? Number(row.markup_percent) / 100 : null,
-        price: roundMoney(computePrice(row)),
+        price: computePrice(row),
         is_billable: row.is_billable,
         is_overhead: row.is_overhead,
       })),

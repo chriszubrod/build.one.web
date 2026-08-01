@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import LaborReviewScreen from "./LaborReviewScreen";
 import { flushUntil } from "../../__testutils__/flush";
-import { setTextareaValue } from "../../__testutils__/domEvents";
+import { setInputValue, setTextareaValue } from "../../__testutils__/domEvents";
 import type { ContractLabor, ContractLaborLineItem } from "../../types/api";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -242,5 +242,71 @@ describe("LaborReviewScreen save payload (U-185)", () => {
 
     const body = call![1] as { line_items: { price: number }[] };
     expect(body.line_items[0].price).toBe(1.01);
+  });
+
+  it("persists exact decimal price 100.03 on float-lossy hours×rate×markup (U-192)", async () => {
+    renderReview();
+    await waitForReviewReady();
+
+    const hoursInput = container.querySelector(
+      `#hours-${LINE_PUBLIC_ID}`,
+    ) as HTMLInputElement;
+    const rateInput = container.querySelector(
+      `#rate-${LINE_PUBLIC_ID}`,
+    ) as HTMLInputElement;
+    const markupInput = container.querySelector(
+      `#markup-${LINE_PUBLIC_ID}`,
+    ) as HTMLInputElement;
+    expect(hoursInput).toBeTruthy();
+    expect(rateInput).toBeTruthy();
+    expect(markupInput).toBeTruthy();
+
+    await act(async () => {
+      setInputValue(hoursInput, "1");
+      setInputValue(rateInput, "80.02");
+      setInputValue(markupInput, "25");
+    });
+    expect(hoursInput.value).toBe("1");
+    expect(rateInput.value).toBe("80.02");
+    expect(markupInput.value).toBe("25");
+
+    const floatProduct = Number("1") * Number("80.02") * (1 + 25 / 100);
+    expect(floatProduct).toBe(100.02499999999999);
+
+    // For EDITED values, the displayed price must agree with what the save
+    // below persists. Until U-192's /simplify pass this screen kept a local
+    // float computePrice for display, so the reviewer saw $100.02 while the
+    // PUT carried 100.03 — approving a number the server would not store.
+    // Asserted BEFORE the click: the post-save refreshFromServer re-renders
+    // from the mocked server fixture, which would mask this.
+    //
+    // Scope note: agreement is NOT yet universal. For an UNTOUCHED server
+    // value with >2 decimals, display math reads decimalToDisplayString's
+    // 2dp-rounded string while the save reads raw li.hours (server "1.234"
+    // × 10 shows $12.30, persists 12.34). That is a separate display-
+    // precision defect, pre-dating U-192 and unchanged by it — booked in
+    // TODO.md, not fixed here.
+    expect(
+      container.textContent,
+      "grid renders the float price $100.02 while persisting 100.03",
+    ).not.toContain("$100.02");
+    expect(container.textContent).toContain("$100.03");
+
+    await flushUntil(() => saveChangesButton()?.disabled === false);
+    const btn = saveChangesButton();
+    expect(btn, "Save changes button never became enabled after the edit").toBeDefined();
+
+    mockPut.mockClear();
+
+    await act(async () => {
+      btn!.click();
+    });
+
+    await flushUntil(() => mockPut.mock.calls.some((c) => c[0] === `${CL_PATH}/bill`));
+    const call = mockPut.mock.calls.find((c) => c[0] === `${CL_PATH}/bill`);
+    expect(call, "Save changes did not PUT the bill endpoint").toBeDefined();
+
+    const body = call![1] as { line_items: { price: number }[] };
+    expect(body.line_items[0].price).toBe(100.03);
   });
 });
