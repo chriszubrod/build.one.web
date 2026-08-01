@@ -5,8 +5,8 @@ Pending work, deferred decisions, known issues. Check off as done; prune anythin
 ## Bills post-hoc — U-181 spawned follow-ups (2026-08-01)
 
 - [ ] **BudgetEdit::compute carries both lineMath defects** — `src/pages/budgets/BudgetEdit.tsx` `compute()` still rounds via `toFixed(2)` on the un-rounded path (mis-rounds half-cents AND derives price from the un-rounded amount) — the exact pair U-181 fixed in `computeBillLine`. Port/share `roundMoney`.
-- [ ] **Persisted-price toFixed rounding** — `LaborReviewScreen.tsx:515` + `ContractLaborEdit.tsx:381` round PERSISTED prices via `Number(x.toFixed(2))` (same mis-rounding). Route through `roundMoney`.
-- [ ] **Eventual shared `src/shared/money.ts`** — `roundMoney` lives in `bills/lineMath.ts`; once BudgetEdit + the CL pages consume it, promote to `src/shared/money.ts`. NB `budgets/revisionLedger.ts` exports a DIFFERENT `roundToCents` (returns integer CENTS) — keep names disjoint (silent 100× hazard).
+- [x] **✅ Persisted-price rounding — DONE (U-185 `948dd41`, both CL pages → roundMoney)** · ~~toFixed rounding~~ — `LaborReviewScreen.tsx:515` + `ContractLaborEdit.tsx:381` round PERSISTED prices via `Number(x.toFixed(2))` (same mis-rounding). Route through `roundMoney`.
+- [ ] **Eventual shared `src/shared/money.ts`** — `roundMoney` lives in `bills/lineMath.ts`; **the CL pages now consume it via cross-import (U-185)** — 2 consumers, RIPE; promote to `src/shared/money.ts` when BudgetEdit joins (or now). NB `budgets/revisionLedger.ts` exports a DIFFERENT `roundToCents` (returns integer CENTS) — keep names disjoint (silent 100× hazard).
 
 ## Bills post-hoc — U-176 spawned follow-ups (2026-07-30)
 
