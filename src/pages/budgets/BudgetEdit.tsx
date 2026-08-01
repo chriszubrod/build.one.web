@@ -21,10 +21,19 @@ import {
   STATUS_LABELS,
 } from "../../api/budget";
 import type { LookupSubCostCode, BudgetRevision } from "../../types/api";
+// Interim cross-import: roundMoney lives in bills/lineMath until it earns a
+// shared src/shared/money.ts home (booked in TODO.md). Do NOT edit lineMath.ts.
+import { roundMoney } from "../bills/lineMath";
+import {
+  newLineItemUid,
+  persistedLineItemUid,
+  existingUidsByPublicId,
+} from "../../shared/lineItemUid";
 import { resolveBudgetEditActions } from "./budgetPermissions";
 import "./budget.css";
 
 interface LineRow {
+  uid: string;
   public_id?: string;
   row_version?: string;
   sub_cost_code_id: string;
@@ -38,6 +47,7 @@ interface LineRow {
 
 function newRow(): LineRow {
   return {
+    uid: newLineItemUid(),
     sub_cost_code_id: "",
     description: "",
     quantity: "",
@@ -48,18 +58,20 @@ function newRow(): LineRow {
   };
 }
 
-/** amount = qty x rate; price = amount x (1 + markup). Display-only compute
- * (mirrors BillEdit); the server stores exactly what we send. */
+/** amount = qty x rate; price = amount x (1 + markup). amount and price are
+ * rounded to cents via roundMoney (half away from zero) before formatting;
+ * these are the values sent to the server (mirrors computeBillLine). */
 function compute(li: LineRow): LineRow {
   const qty = li.quantity !== "" ? Number(li.quantity) : 0;
   const rate = li.rate !== "" ? Number(li.rate) : 0;
   const markup = li.markup !== "" ? Number(li.markup) : 0;
   const amount = qty * rate;
-  const price = amount * (1 + markup);
+  const roundedAmount = roundMoney(amount);
+  const roundedPrice = roundMoney(roundedAmount * (1 + markup));
   return {
     ...li,
-    amount: amount ? amount.toFixed(2) : "",
-    price: price ? price.toFixed(2) : "",
+    amount: roundedAmount ? roundedAmount.toFixed(2) : "",
+    price: roundedPrice ? roundedPrice.toFixed(2) : "",
   };
 }
 
@@ -145,21 +157,25 @@ export default function BudgetEdit() {
   }, [revision?.public_id, revision?.row_version]);
 
   useEffect(() => {
-    if (!lineItemsQ.data) return;
-    const mapped: LineRow[] = lineItemsQ.data.map((li) => ({
-      public_id: li.public_id,
-      row_version: li.row_version,
-      sub_cost_code_id:
-        li.sub_cost_code_id != null ? String(li.sub_cost_code_id) : "",
-      description: li.description ?? "",
-      quantity: li.quantity ?? "",
-      rate: li.rate ?? "",
-      amount: li.amount ?? "",
-      markup: li.markup ?? "",
-      price: li.price ?? "",
-    }));
-    setRows(mapped);
-    setOrigIds(mapped.filter((r) => r.public_id).map((r) => r.public_id!));
+    const data = lineItemsQ.data;
+    if (!data) return;
+    setRows((prev) => {
+      const existing = existingUidsByPublicId(prev);
+      return data.map((li) => ({
+        uid: existing.get(li.public_id) ?? persistedLineItemUid(li.public_id),
+        public_id: li.public_id,
+        row_version: li.row_version,
+        sub_cost_code_id:
+          li.sub_cost_code_id != null ? String(li.sub_cost_code_id) : "",
+        description: li.description ?? "",
+        quantity: li.quantity ?? "",
+        rate: li.rate ?? "",
+        amount: li.amount ?? "",
+        markup: li.markup ?? "",
+        price: li.price ?? "",
+      }));
+    });
+    setOrigIds(data.map((li) => li.public_id));
   }, [lineItemsQ.data]);
 
   const sccOptions = (lookups?.sub_cost_codes ?? []) as LookupSubCostCode[];
@@ -225,7 +241,11 @@ export default function BudgetEdit() {
         }
       }
       setRows(saved);
-      setOrigIds(saved.filter((r) => r.public_id).map((r) => r.public_id!));
+      setOrigIds(saved.map((r) => r.public_id!));
+      // Commit `saved` BEFORE invalidating: the refetch re-runs the hydrate
+      // effect, and only rows already carrying their freshly-stamped public_id
+      // can have their minted uid matched by existingUidsByPublicId. Invalidate
+      // first and every just-created row remounts (losing focus/selection).
       // Await the refetch so saveAll fully settles before a terminal action
       // (activate/approve) proceeds — and so a re-entry shows persisted state
       // without racing a stale-cache re-seed.
@@ -380,7 +400,10 @@ export default function BudgetEdit() {
       </div>
 
       {rows.map((li, idx) => (
-        <div className="li-card" key={li.public_id ?? `new-${idx}`}>
+        // Stable uid keys — index keys make React reuse a DOM node across
+        // logically different rows after a mid-list remove, so focus and
+        // in-progress input land on the wrong line.
+        <div className="li-card" key={li.uid}>
           <div className="li-card-header">
             <span className="li-card-num">#{idx + 1}</span>
             {!readOnly && (
