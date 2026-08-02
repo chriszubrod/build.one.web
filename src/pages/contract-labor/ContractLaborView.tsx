@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ApiError, getList, getOne } from "../../api/client";
 import { useEntityList } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { applyMarkup, computeAmount } from "../../shared/money";
 import { hasContractLaborPermission } from "./contractLaborPermissions";
 import { STATUS_CLASSES, STATUS_LABELS } from "./contractLaborStatus";
 import type {
@@ -46,6 +47,36 @@ function fmtHHMM(decHours: string | null | number | undefined): string {
 function fmtBool(v: boolean | null | undefined): string {
   if (v == null) return "—";
   return v ? "Yes" : "No";
+}
+
+// Amount = Hours x Rate (pre-markup), exact-decimal and already cent-rounded.
+function lineAmount(row: ContractLaborLineItem): number {
+  return computeAmount(row.hours ?? 0, row.rate ?? 0);
+}
+
+// Price = Amount x (1 + Markup). row.markup is already a FRACTION (e.g. "0.25"),
+// not a percent string, so there is deliberately no percentToFraction call here
+// (that shim is a ContractLaborEdit-only concern, because Edit holds markup_percent).
+function linePrice(row: ContractLaborLineItem): number {
+  const amount = lineAmount(row);
+  // SHIM with a known root cause and a scheduled removal — see web TODO.md.
+  // `shared/money.ts`'s `canonicalDecimalString` handles a malformed STRING
+  // correctly (it fails the well-formed gate and falls through to the float
+  // path, so NaN propagates), but maps any non-finite NUMBER to "0". A
+  // malformed hours/rate makes `lineAmount` return exactly that, so an
+  // unguarded `applyMarkup` renders a plausible $0.00 over broken data: the
+  // Price column would silently swallow a row the Amount column flags as NaN,
+  // and the row would drop out of the Total Price footer while Total Amount
+  // still shows NaN. Keeping the legacy float spelling on this path preserves
+  // the pre-U-198 rendering exactly.
+  // `Number.isFinite`, NOT `Number.isNaN`: the two differ on Infinity, where
+  // applyMarkup(Infinity, "-1") returns 0 but the float spelling gives NaN.
+  // ContractLaborEdit.tsx has the identical unguarded shape and still renders
+  // $0.00 here — a pre-existing divergence this unit does not introduce and
+  // deliberately does not reach into. The right-depth fix is in money.ts, and
+  // it retires this whole branch.
+  if (!Number.isFinite(amount)) return amount * (1 + Number(row.markup ?? 0));
+  return applyMarkup(amount, row.markup ?? 0);
 }
 
 export default function ContractLaborView() {
@@ -110,22 +141,8 @@ export default function ContractLaborView() {
     () => lines.reduce((sum, r) => sum + Number(r.hours ?? 0), 0),
     [lines],
   );
-  const totalAmount = useMemo(
-    () => lines.reduce((sum, r) => sum + Number(r.hours ?? 0) * Number(r.rate ?? 0), 0),
-    [lines],
-  );
-  const totalPrice = useMemo(
-    () =>
-      lines.reduce(
-        (sum, r) =>
-          sum +
-          Number(r.hours ?? 0) *
-            Number(r.rate ?? 0) *
-            (1 + Number(r.markup ?? 0)),
-        0,
-      ),
-    [lines],
-  );
+  const totalAmount = useMemo(() => lines.reduce((sum, r) => sum + lineAmount(r), 0), [lines]);
+  const totalPrice = useMemo(() => lines.reduce((sum, r) => sum + linePrice(r), 0), [lines]);
 
   if (entryQuery.isLoading) return <div className="page-loading">Loading...</div>;
   if (entryQuery.error) {
@@ -261,11 +278,8 @@ export default function ContractLaborView() {
                 {lines.map((row, i) => {
                   const proj = row.project_id ? projectById.get(row.project_id) : undefined;
                   const scc = row.sub_cost_code_id ? subCostCodeById.get(row.sub_cost_code_id) : undefined;
-                  const hours = Number(row.hours ?? 0);
-                  const rate = Number(row.rate ?? 0);
-                  const markup = Number(row.markup ?? 0);
-                  const amount = hours * rate;
-                  const price = amount * (1 + markup);
+                  const amount = lineAmount(row);
+                  const price = linePrice(row);
                   return (
                     <tr key={row.public_id ?? i}>
                       <td>{i + 1}</td>
