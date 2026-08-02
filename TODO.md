@@ -2,6 +2,12 @@
 
 Pending work, deferred decisions, known issues. Check off as done; prune anything stale.
 
+## U-190 spawned follow-ups (2026-08-02, surfaced by /simplify Pass-2)
+
+- [ ] 🟡 **`ContractLaborView.tsx:113-128,264-268` raw float line math** — View recomputes amount/price with raw `Number(x) * ...` float arithmetic while ContractLaborEdit now routes through the exact-decimal `computeBillLine`/`shared/money`, so **View and Edit can display different money for the same row**. Route View through the same shared helpers.
+- [ ] 🟡 **Move `pages/bills/lineMath.ts` → `src/shared/`** — it is now the shared line-math home consumed by bills, budgets (U-190), and (indirectly) contract-labor; living under `pages/bills/` makes every non-bill consumer cross-import from a sibling page. Relocate + update importers (BudgetEdit, lineMath.test.ts, any others). Behavior-neutral move.
+- [ ] 🟢 **Make lump-sum amounts enterable in BudgetEdit** — U-190 preserves a stored lump-sum amount but there's no first-class way to TYPE one (the Amount cell is display-only; you can only reach a lump-sum row by clearing qty/rate on a unit line). Add an editable Amount affordance for schedule-of-values rows.
+
 ## Bills post-hoc — U-181 spawned follow-ups (2026-08-01)
 
 - [x] **✅ BudgetEdit::compute money defects — DONE (U-189 `bca48c6`, roundMoney port)** · ~~carries both lineMath defects~~ — `src/pages/budgets/BudgetEdit.tsx` `compute()` still rounds via `toFixed(2)` on the un-rounded path (mis-rounds half-cents AND derives price from the un-rounded amount) — the exact pair U-181 fixed in `computeBillLine`. Port/share `roundMoney`.
