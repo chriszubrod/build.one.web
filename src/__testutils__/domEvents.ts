@@ -30,3 +30,18 @@ export function setInputValue(input: HTMLInputElement, value: string): void {
 export function setTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
   setNativeValue(textarea, value);
 }
+
+/**
+ * Pick a controlled `<select>` so React's `onChange` really fires.
+ *
+ * Same `_valueTracker` trap as {@link setInputValue}: assigning
+ * `select.value = x` directly updates React's internal tracker, so React
+ * suppresses the synthetic change event and the pick never reaches component
+ * state. The native prototype setter resets the tracker; React listens to
+ * bubbling `change` on selects (not `input`).
+ */
+export function setSelectValue(select: HTMLSelectElement, value: string): void {
+  const nativeSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
+  nativeSetter.call(select, value);
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+}

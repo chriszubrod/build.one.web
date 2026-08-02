@@ -10,6 +10,7 @@ import { STATUS_CLASSES, STATUS_LABELS } from "./contractLaborStatus";
 import {
   applyMarkup,
   computeAmount as exactLineAmount,
+  fractionToPercent,
   percentToFraction,
 } from "../../shared/money";
 import type {
@@ -75,7 +76,7 @@ function emptyRow(workDate: string): LineRow {
 }
 
 function fromServer(item: ContractLaborLineItem, fallbackDate: string): LineRow {
-  const markupDecimal = item.markup != null ? Number(item.markup) : NaN;
+  const rawMarkup = item.markup;
   return {
     id: item.id,
     public_id: item.public_id,
@@ -85,7 +86,11 @@ function fromServer(item: ContractLaborLineItem, fallbackDate: string): LineRow 
     sub_cost_code_id: item.sub_cost_code_id != null ? String(item.sub_cost_code_id) : "",
     hours: item.hours ?? "",
     rate: item.rate ?? "",
-    markup_percent: isFinite(markupDecimal) ? String(markupDecimal * 100) : "",
+    // Pass the raw decimal STRING, never a pre-parsed number — round-tripping
+    // through a double is the float error this helper exists to avoid. The
+    // `!= null` half is for the type; `isFinite` is what rejects garbage.
+    markup_percent:
+      rawMarkup != null && isFinite(Number(rawMarkup)) ? fractionToPercent(rawMarkup) : "",
     is_billable: item.is_billable !== false,
     is_overhead: item.is_overhead === true,
     description: item.description ?? "",
@@ -217,7 +222,7 @@ export default function ContractLaborEdit() {
     if (!cfg) return null;
     return {
       rate: cfg.rate ?? "",
-      markupPercent: cfg.markup != null ? String(Number(cfg.markup) * 100) : "",
+      markupPercent: cfg.markup != null ? fractionToPercent(cfg.markup) : "",
     };
   }, [entry?.vendor_id, vendorConfigQuery.data, vendors]);
 
@@ -306,8 +311,7 @@ export default function ContractLaborEdit() {
               // Only overwrite fields the DB actually returned.
               const p: Partial<LineRow> = {};
               if (r.hourly_rate !== null) p.rate = r.hourly_rate;
-              if (r.markup !== null)
-                p.markup_percent = String(Number(r.markup) * 100);
+              if (r.markup !== null) p.markup_percent = fractionToPercent(r.markup);
               return { ...row, ...p };
             }),
           );

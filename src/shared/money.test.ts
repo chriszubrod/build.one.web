@@ -3,6 +3,7 @@ import { computeBillLine } from "../pages/bills/lineMath";
 import {
   applyMarkup,
   computeAmount,
+  fractionToPercent,
   percentToFraction,
   roundMoney,
 } from "./money";
@@ -99,6 +100,42 @@ describe("percentToFraction", () => {
   });
 });
 
+describe("fractionToPercent (U-195)", () => {
+  it("converts common markup fractions without the float garbage it replaces", () => {
+    // The spelling under replacement, pinned so the defect can't quietly return.
+    expect(String(0.07 * 100)).toBe("7.000000000000001");
+    expect(String(0.14 * 100)).toBe("14.000000000000002");
+
+    expect(fractionToPercent(0.07)).toBe("7");
+    expect(fractionToPercent(0.14)).toBe("14");
+    expect(fractionToPercent(0.29)).toBe("29");
+  });
+
+  it.each([
+    // DECIMAL(18,4) strings — trailing zeros normalize away
+    ["0.0700", "7"],
+    ["0.5000", "50"],
+    ["0.0500", "5"],
+    // sub-percent precision survives
+    ["0.005", "0.5"],
+    ["0.00125", "0.125"],
+    // negatives and zero (never "-0", never "000")
+    ["-0.10", "-10"],
+    ["0", "0"],
+    ["0.0000", "0"],
+    ["-0.0000", "0"],
+  ])("fractionToPercent(%p) → %p", (fraction, expected) => {
+    expect(fractionToPercent(fraction)).toBe(expected);
+  });
+
+  it.each(["25", "0.5", "-10", "7", "14"])(
+    "round-trip percentToFraction(%p)",
+    (p) => {
+      expect(fractionToPercent(percentToFraction(p))).toBe(p);
+    },
+  );
+});
+
 describe("roundMoney (re-exported behavior)", () => {
   it.each([
     [1.005, 1.01],
@@ -169,9 +206,10 @@ describe("malformed decimal operands (U-192 round-2)", () => {
   );
 
   it.each(["1e", "12abc", "1e2.5"] as const)(
-    "percentToFraction(%p) → 0 (legacy toNum/100 non-finite)",
-    (pct) => {
-      expect(percentToFraction(pct)).toBe("0");
+    "percentToFraction(%p) and fractionToPercent(%p) → 0 (legacy toNum/100 non-finite)",
+    (bad) => {
+      expect(percentToFraction(bad)).toBe("0");
+      expect(fractionToPercent(bad)).toBe("0");
     },
   );
 

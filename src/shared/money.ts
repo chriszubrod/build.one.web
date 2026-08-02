@@ -1,5 +1,7 @@
 /**
- * Exact-decimal line-item money math (qty × rate, markup, cent rounding).
+ * Exact-decimal line-item money math (qty × rate, markup, cent rounding), plus
+ * the percent↔fraction shims that feed it (`percentToFraction` /
+ * `fractionToPercent` — decimal-point shifts, not float × 100 or ÷ 100).
  *
  * Parsing, multiply, and cent rounding (steps 2–4) never use IEEE doubles on
  * the value path — operand size is irrelevant and results are exact for
@@ -243,4 +245,31 @@ export function percentToFraction(pct: Decimalish): string {
   if (!isWellFormedBoundedDecimal(s)) return "0";
   const p = parseDecimal(s);
   return formatDecimal(p.mant, p.scale + 2, p.sign);
+}
+
+/**
+ * Takes a FRACTION (0.07) and returns a PERCENT string ("7"). Exact inverse of
+ * `percentToFraction`. Exists because `String(fraction * 100)` renders 0.07 as
+ * "7.000000000000001" and 0.14 as "14.000000000000002" straight into a
+ * user-facing number input. DISPLAY helper only — callers must keep their own
+ * null/blank guards; malformed input totals to "0", and a "0" where the caller
+ * wanted "" would persist a markup of 0 instead of NULL.
+ */
+export function fractionToPercent(fraction: Decimalish): string {
+  const s = canonicalDecimalString(fraction);
+  // Malformed input totals to "0", exactly like percentToFraction.
+  if (!isWellFormedBoundedDecimal(s)) return "0";
+  const f = parseDecimal(s);
+  let mant = f.mant;
+  let scale = f.scale - 2;
+  // Strip trailing fractional zeros so a DECIMAL(18,4) string like "0.0700"
+  // renders "7" and not "7.00" — the consumer is <input type=number step=0.01>.
+  while (scale > 0 && mant % 10n === 0n) {
+    mant /= 10n;
+    scale--;
+  }
+  // Zero must short-circuit: formatDecimal(0n, -2) would emit "000", and a
+  // negative sign would emit "-0".
+  if (mant === 0n) return "0";
+  return formatDecimal(mant, scale, f.sign);
 }
