@@ -14,6 +14,7 @@ const BUDGET_ID = "bud-1";
 const REV_ID = "rev-1";
 const CREATE_LI_PATH = "/api/v1/create/budget-line-item";
 const LINE_ITEMS_PATH = `/api/v1/get/budget-line-items/by-revision/${REV_ID}`;
+const updateLiPath = (publicId: string) => `/api/v1/update/budget-line-item/${publicId}`;
 
 const mockGetList = vi.fn();
 const mockGetOne = vi.fn();
@@ -89,12 +90,28 @@ function sampleRevision(overrides: Partial<BudgetRevision> = {}): BudgetRevision
   };
 }
 
-function setupMocks() {
+function sampleLineItem(overrides: Partial<BudgetLineItem> = {}): BudgetLineItem {
+  return {
+    public_id: "bli-1",
+    row_version: "bli-rv-1",
+    budget_revision_id: 1,
+    sub_cost_code_id: null,
+    description: "existing",
+    quantity: null,
+    rate: null,
+    amount: null,
+    markup: null,
+    price: null,
+    ...overrides,
+  };
+}
+
+function setupMocks(seed: BudgetLineItem[] = []) {
   const rev = sampleRevision();
   // What the server currently holds. saveAll POSTs a create and then awaits an
   // invalidate, so the refetch must observe the new row — that second read is
   // what drives the hydrate uid-reuse path exercised by the third spec.
-  const serverLineItems: BudgetLineItem[] = [];
+  const serverLineItems: BudgetLineItem[] = seed.map((li) => ({ ...li }));
 
   mockGetOne.mockImplementation((path: string) => {
     if (path === `/api/v1/get/budget/${BUDGET_ID}`) {
@@ -121,29 +138,38 @@ function setupMocks() {
 
   mockPost.mockImplementation((path: string, body: { description: string | null }) => {
     if (path === CREATE_LI_PATH) {
-      const created: BudgetLineItem = {
-        public_id: "bli-1",
-        row_version: "bli-rv-1",
-        budget_revision_id: 1,
-        sub_cost_code_id: null,
+      const created: BudgetLineItem = sampleLineItem({
         // Echo the description back CHANGED. That makes the persisted value
         // distinguishable from the one typed locally, so a spec can prove the
         // refetch actually reached the component instead of reading back its
         // own keystrokes (U-152 rule 3: propagation before outcome).
         description: `${body.description} [persisted]`,
-        quantity: null,
-        rate: null,
-        amount: null,
-        markup: null,
-        price: null,
-      };
+      });
       serverLineItems.push(created);
       return Promise.resolve(created);
     }
     return Promise.reject(new Error(`unexpected post: ${path}`));
   });
 
-  mockPut.mockRejectedValue(new Error("unexpected put"));
+  mockPut.mockImplementation((path: string, body: Record<string, unknown>) => {
+    const prefix = updateLiPath("");
+    if (path.startsWith(prefix)) {
+      const publicId = path.slice(prefix.length);
+      const idx = serverLineItems.findIndex((li) => li.public_id === publicId);
+      if (idx === -1) {
+        return Promise.reject(new Error(`update: line not found: ${publicId}`));
+      }
+      const old = serverLineItems[idx];
+      const updated: BudgetLineItem = {
+        ...old,
+        ...(body as Partial<BudgetLineItem>),
+        row_version: `${old.row_version}-v2`,
+      };
+      serverLineItems[idx] = updated;
+      return Promise.resolve(updated);
+    }
+    return Promise.reject(new Error(`unexpected put: ${path}`));
+  });
 }
 
 let container: HTMLDivElement;
@@ -189,6 +215,18 @@ function labeledInputInCard(card: Element, label: string): HTMLInputElement {
   throw new Error(`input not found for label: ${label}`);
 }
 
+/** Display-only computed cell (e.g. Amount (cost)) — span.inline-li-computed under the label. */
+function computedTextInCard(card: Element, label: string): string {
+  for (const el of card.querySelectorAll("label")) {
+    if (el.textContent?.trim() === label) {
+      const span = el.parentElement?.querySelector("span.inline-li-computed");
+      if (!span) throw new Error(`no inline-li-computed under label: ${label}`);
+      return span.textContent ?? "";
+    }
+  }
+  throw new Error(`computed cell not found for label: ${label}`);
+}
+
 function addLineButton(): HTMLButtonElement | undefined {
   return Array.from(container.querySelectorAll("button")).find(
     (b) => b.textContent?.trim() === "+ Add Line",
@@ -199,6 +237,20 @@ function saveButton(): HTMLButtonElement | undefined {
   return Array.from(container.querySelectorAll("button")).find(
     (b) => b.textContent?.trim() === "Save",
   );
+}
+
+/** Clicks Save, waits for the PUT for `publicId`, and hard-asserts it landed. */
+async function saveAndPutBody(publicId: string): Promise<Record<string, unknown>> {
+  const path = updateLiPath(publicId);
+  const btn = saveButton();
+  expect(btn, "Save button not rendered").toBeDefined();
+  await act(async () => {
+    btn!.click();
+  });
+  await flushUntil(() => mockPut.mock.calls.some((c) => c[0] === path));
+  const call = mockPut.mock.calls.find((c) => c[0] === path);
+  expect(call, "Save did not PUT update budget-line-item").toBeDefined();
+  return call![1] as Record<string, unknown>;
 }
 
 /** runAllTimersAsync is LOAD-BEARING here — do not "simplify" it away (it was
@@ -408,5 +460,160 @@ describe("BudgetEdit (U-189)", () => {
     // li-uid-N -> li-pid-bli-1, React remounts the row, and focus/selection die
     // under the user mid-edit. That is the exact defect U-176 warned about.
     expect(afterSave).toBe(beforeSave);
+  });
+});
+
+describe("BudgetEdit lump-sum preservation (U-190)", () => {
+  it("preserves a lump-sum amount instead of persisting null (U-190)", async () => {
+    setupMocks([
+      sampleLineItem({
+        public_id: "bli-lump",
+        row_version: "bli-lump-rv-1",
+        description: "03.00 Concrete",
+        amount: "412000.00",
+        markup: null,
+      }),
+    ]);
+
+    renderEdit();
+    await waitForAddLineButton();
+
+    expect(lineCards()).toHaveLength(1);
+    const card = lineCards()[0];
+    expect(labeledInputInCard(card, "Description").value).toBe("03.00 Concrete");
+
+    await act(async () => {
+      setInputValue(labeledInputInCard(card, "Description"), "03.00 Concrete - rev");
+    });
+    expect(labeledInputInCard(card, "Description").value).toBe("03.00 Concrete - rev");
+
+    mockPut.mockClear();
+    const body = (await saveAndPutBody("bli-lump")) as { amount: number | null; price: number | null };
+    // Reverting to the old local compute() makes this RED: amount arrives as null
+    // and dbo.budget_line_item UPDATE has no preserve-on-null guard, so 412000 is lost.
+    expect(body.amount).toBe(412000);
+    // price = amount × (1 + markup); seeded markup is NULL, so price === amount.
+    // The OLD local compute() persisted price as null here too (applyMarkup(0, markup) -> "" -> null),
+    // so this is a repair, not a regression: it fixes the BudgetPrice half of dbo.budget_variance
+    // (SUM(ISNULL(Price,0))) the same way the amount fix repairs BudgetAmount.
+    // Pinned because it is a persisted money column that moves; adjudicated from Codex Pass-1 P1.
+    expect(body.price).toBe(412000);
+  });
+
+  it("converts a unit line to lump-sum when both qty and rate are cleared (documented delta)", async () => {
+    // The shared computeBillLine guard preserves the stored amount whenever qty OR rate is blank,
+    // so clearing both converts the row to a lump sum rather than zeroing it. Under the OLD local
+    // compute() this same sequence persisted amount null — the exact U-190 money loss. The retained
+    // amount stays VISIBLE in the Amount cell, so it is recoverable by the user; a silent zero was not.
+    // This spec locks the tradeoff so a future edit cannot flip it unnoticed (adjudicated from Codex Pass-1 P2).
+    setupMocks([
+      sampleLineItem({
+        public_id: "bli-unit",
+        row_version: "bli-unit-rv-1",
+        description: "Framing",
+        quantity: "2",
+        rate: "50",
+        amount: "100.00",
+        markup: null,
+        price: "100.00",
+      }),
+    ]);
+
+    renderEdit();
+    await waitForAddLineButton();
+
+    expect(lineCards()).toHaveLength(1);
+    const card = lineCards()[0];
+    expect(labeledInputInCard(card, "Qty").value).toBe("2");
+    expect(labeledInputInCard(card, "Rate").value).toBe("50");
+    expect(computedTextInCard(card, "Amount (cost)")).toBe("$100.00");
+
+    await act(async () => {
+      setInputValue(labeledInputInCard(card, "Qty"), "");
+      setInputValue(labeledInputInCard(card, "Rate"), "");
+    });
+    expect(labeledInputInCard(card, "Qty").value).toBe("");
+    expect(labeledInputInCard(card, "Rate").value).toBe("");
+    expect(computedTextInCard(card, "Amount (cost)")).toBe("$100.00");
+
+    mockPut.mockClear();
+    const body = (await saveAndPutBody("bli-unit")) as {
+      quantity: number | null;
+      rate: number | null;
+      amount: number | null;
+      price: number | null;
+    };
+    expect(body.quantity).toBeNull();
+    expect(body.rate).toBeNull();
+    expect(body.amount).toBe(100);
+    expect(body.price).toBe(100);
+  });
+
+  it("preserves the amount when only one of quantity/rate is present", async () => {
+    setupMocks([
+      sampleLineItem({
+        public_id: "bli-partial",
+        row_version: "bli-partial-rv-1",
+        description: "Partial",
+        quantity: "3",
+        rate: null,
+        amount: "500.00",
+        markup: null,
+      }),
+    ]);
+
+    renderEdit();
+    await waitForAddLineButton();
+
+    expect(lineCards()).toHaveLength(1);
+    const card = lineCards()[0];
+    expect(labeledInputInCard(card, "Description").value).toBe("Partial");
+
+    await act(async () => {
+      setInputValue(labeledInputInCard(card, "Description"), "Partial - touched");
+    });
+    expect(labeledInputInCard(card, "Description").value).toBe("Partial - touched");
+
+    mockPut.mockClear();
+    const body = (await saveAndPutBody("bli-partial")) as { amount: number | null };
+    expect(body.amount).toBe(500);
+  });
+
+  it("still derives amount from quantity x rate on a real unit line (unchanged)", async () => {
+    renderEdit();
+    await waitForAddLineButton();
+
+    await act(async () => {
+      addLineButton()!.click();
+    });
+
+    expect(lineCards()).toHaveLength(1);
+    const card = lineCards()[0];
+
+    await act(async () => {
+      setInputValue(labeledInputInCard(card, "Qty"), "2");
+      setInputValue(labeledInputInCard(card, "Rate"), "50");
+      setInputValue(labeledInputInCard(card, "Markup"), "0.1");
+    });
+    expect(labeledInputInCard(card, "Qty").value).toBe("2");
+    expect(labeledInputInCard(card, "Rate").value).toBe("50");
+    expect(labeledInputInCard(card, "Markup").value).toBe("0.1");
+
+    mockPost.mockClear();
+
+    const btn = saveButton();
+    expect(btn, "Save button not rendered").toBeDefined();
+    await act(async () => {
+      btn!.click();
+    });
+
+    await flushUntil(() => mockPost.mock.calls.some((c) => c[0] === CREATE_LI_PATH));
+    const call = mockPost.mock.calls.find((c) => c[0] === CREATE_LI_PATH);
+    expect(call, "Save did not POST create budget-line-item").toBeDefined();
+
+    const body = call![1] as { amount: number; price: number };
+    // Pins qty×rate derivation as unmoved by the computeBillLine swap (U-190).
+    expect(body.amount).toBe(100);
+    expect(body.price).toBe(110);
   });
 });

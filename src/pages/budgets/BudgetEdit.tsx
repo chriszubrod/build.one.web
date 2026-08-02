@@ -21,7 +21,7 @@ import {
   STATUS_LABELS,
 } from "../../api/budget";
 import type { LookupSubCostCode, BudgetRevision } from "../../types/api";
-import { applyMarkup, computeAmount } from "../../shared/money";
+import { computeBillLine } from "../bills/lineMath";
 import {
   newLineItemUid,
   persistedLineItemUid,
@@ -53,20 +53,6 @@ function newRow(): LineRow {
     amount: "",
     markup: "",
     price: "",
-  };
-}
-
-/** amount = qty x rate; price = amount x (1 + markup). Both come back from
- * shared/money already rounded to cents (half away from zero) before
- * formatting; these are the values sent to the server (mirrors
- * computeBillLine). Empty strings coalesce to 0 inside the helpers. */
-function compute(li: LineRow): LineRow {
-  const amount = computeAmount(li.quantity, li.rate);
-  const price = applyMarkup(amount, li.markup);
-  return {
-    ...li,
-    amount: amount ? amount.toFixed(2) : "",
-    price: price ? price.toFixed(2) : "",
   };
 }
 
@@ -177,7 +163,15 @@ export default function BudgetEdit() {
 
   const updateField = (idx: number, key: keyof LineRow, value: string) => {
     setRows((prev) =>
-      prev.map((r, i) => (i === idx ? compute({ ...r, [key]: value }) : r)),
+      prev.map((r, i) =>
+        // U-190 / U-167: computeBillLine keeps a stored amount when qty/rate are
+        // blank (lump-sum schedule-of-values rows); the old local compute always
+        // did qty×rate and wiped amount, persisting null and corrupting variance.
+        // Deliberately recompute ONLY the edited row (BillEdit.tsx:644-647 map-recomputes
+        // every row): map-all here would materialize price on untouched lump-sum rows
+        // the user never edited — do not "align" the two pages by widening this.
+        i === idx ? computeBillLine({ ...r, [key]: value }) : r,
+      ),
     );
   };
   const removeRow = (idx: number) =>
