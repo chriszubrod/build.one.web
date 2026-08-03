@@ -59,23 +59,8 @@ function lineAmount(row: ContractLaborLineItem): number {
 // (that shim is a ContractLaborEdit-only concern, because Edit holds markup_percent).
 function linePrice(row: ContractLaborLineItem): number {
   const amount = lineAmount(row);
-  // SHIM with a known root cause and a scheduled removal — see web TODO.md.
-  // `shared/money.ts`'s `canonicalDecimalString` handles a malformed STRING
-  // correctly (it fails the well-formed gate and falls through to the float
-  // path, so NaN propagates), but maps any non-finite NUMBER to "0". A
-  // malformed hours/rate makes `lineAmount` return exactly that, so an
-  // unguarded `applyMarkup` renders a plausible $0.00 over broken data: the
-  // Price column would silently swallow a row the Amount column flags as NaN,
-  // and the row would drop out of the Total Price footer while Total Amount
-  // still shows NaN. Keeping the legacy float spelling on this path preserves
-  // the pre-U-198 rendering exactly.
-  // `Number.isFinite`, NOT `Number.isNaN`: the two differ on Infinity, where
-  // applyMarkup(Infinity, "-1") returns 0 but the float spelling gives NaN.
-  // ContractLaborEdit.tsx has the identical unguarded shape and still renders
-  // $0.00 here — a pre-existing divergence this unit does not introduce and
-  // deliberately does not reach into. The right-depth fix is in money.ts, and
-  // it retires this whole branch.
-  if (!Number.isFinite(amount)) return amount * (1 + Number(row.markup ?? 0));
+  // U-198 view shim retired: shared/money.ts now propagates non-finite values
+  // through applyMarkup instead of mapping them to zero.
   return applyMarkup(amount, row.markup ?? 0);
 }
 

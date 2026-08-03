@@ -268,10 +268,12 @@ describe("ContractLaborView line money — malformed hours (U-198)", () => {
     expect(footerValue("Total Price")).toBe("NaN");
   });
 
-  // Pins the guard's SHAPE, not just its presence. `Number.isFinite` and
-  // `Number.isNaN` differ only on Infinity, so without this spec the guard can
-  // be silently narrowed to isNaN and every other spec stays green — the one
-  // mutation that survived the first matrix run.
+  // U-202 retired the local `Number.isFinite` guard this spec was written
+  // against; all three specs above are now satisfied by the root cause in
+  // `shared/money.ts` (canonicalDecimalString no longer maps a non-finite
+  // NUMBER to "0"), and the U-202 mutation matrix confirmed all three go RED
+  // when that branch is restored. Keep this one separate from the NaN pair:
+  // Infinity is the case a NaN-only fix would silently miss.
   it("overflowing row Price cell renders Infinity, not a plausible $0.00", async () => {
     lineItems = [
       sampleLineItem({ id: 1, public_id: "cli-huge", hours: "1e400", rate: "80", markup: "0.25" }),

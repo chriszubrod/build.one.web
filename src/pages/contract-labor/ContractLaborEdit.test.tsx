@@ -376,6 +376,39 @@ describe("ContractLaborEdit save payload (U-185)", () => {
     const body = call![1] as { line_items: { price: number }[] };
     expect(body.line_items[0].price).toBe(100.03);
   });
+
+  it("does not persist price 0 when hours×rate overflows to Infinity (U-202)", async () => {
+    // Before U-202 this persisted price 0 — a plausible $0.00 written over broken data.
+    renderEdit();
+    await waitForLineForm();
+
+    await act(async () => {
+      setInputValue(labeledInput("Hours"), "1e200");
+      setInputValue(labeledInput("Rate (per hour)"), "1e200");
+      setInputValue(labeledInput("Markup (%)"), "25");
+    });
+    expect(labeledInput("Hours").value).toBe("1e200");
+    expect(labeledInput("Rate (per hour)").value).toBe("1e200");
+    expect(labeledInput("Markup (%)").value).toBe("25");
+
+    mockPut.mockClear();
+
+    const btn = saveChangesButton();
+    expect(btn, "Save Changes button not rendered").toBeDefined();
+    await act(async () => {
+      btn!.click();
+    });
+
+    await flushUntil(() => mockPut.mock.calls.some((c) => c[0] === `${CL_PATH}/bill`));
+    const call = mockPut.mock.calls.find((c) => c[0] === `${CL_PATH}/bill`);
+    expect(call, "Save Changes did not PUT the bill endpoint").toBeDefined();
+
+    const body = call![1] as { line_items: { price: number }[] };
+    // `isFinite === false` already excludes 0; the wire assertion is the one
+    // that carries the money claim — a NULL price, not a plausible $0.00.
+    expect(Number.isFinite(body.line_items[0].price)).toBe(false);
+    expect(JSON.parse(JSON.stringify(body)).line_items[0].price).toBe(null);
+  });
 });
 
 describe("ContractLaborEdit markup display (U-195)", () => {

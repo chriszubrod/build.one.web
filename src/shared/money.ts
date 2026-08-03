@@ -13,6 +13,13 @@
  * already parsed to a number rely on `String(n)` recovering the shortest
  * round-trip decimal — the same assumption documented on `roundMoney`, so this
  * is never weaker than the status quo.
+ *
+ * A non-finite number reaching `computeAmount` / `applyMarkup` propagates as
+ * NaN/Infinity via the float fallback rather than being silently valued at zero
+ * (U-202) — a plausible $0.00 over broken data is worse than a visible NaN, and
+ * on a persisting call site it is a silent money-write. The percent shims
+ * `percentToFraction` / `fractionToPercent` deliberately do NOT propagate: they
+ * still total malformed and non-finite input to "0", as their own docstrings say.
  */
 
 export type Decimalish = string | number;
@@ -46,7 +53,6 @@ function isWellFormedBoundedDecimal(raw: string): boolean {
 function canonicalDecimalString(v: Decimalish | null | undefined): string {
   if (v === null || v === undefined || v === "") return "0";
   if (typeof v === "string") return v;
-  if (!Number.isFinite(v)) return "0";
   return String(v);
 }
 

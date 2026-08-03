@@ -131,6 +131,23 @@ describe("computeBillLine", () => {
       }
     },
   );
+
+  it("NaN qty/rate still blanks amount and price (unchanged — NaN is falsy at toFixed gate)", () => {
+    const line = computeBillLine(row({ quantity: "12abc", rate: "1", markup: "0" }));
+    expect(line.amount).toBe("");
+    expect(line.price).toBe("");
+  });
+
+  it("overflow row shows Price Infinity beside Amount Infinity (U-202)", () => {
+    // An overflowed row must not show a blank Price beside an Infinity Amount.
+    // Wire payload is unchanged: BillEdit.tsx:441 / BudgetEdit.tsx:216 do
+    // Number(price) → Infinity and JSON.stringify(Infinity) === "null", identical
+    // to the old "" → null path.
+    const line = computeBillLine(row({ quantity: "1e400", rate: "80", markup: "0.25" }));
+    expect(line.amount).toBe("Infinity");
+    expect(line.price).toBe("Infinity");
+    expect(JSON.parse(JSON.stringify({ price: Number(line.price) })).price).toBe(null);
+  });
 });
 
 describe("roundMoney", () => {

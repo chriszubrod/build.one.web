@@ -38,10 +38,14 @@ describe("parse / canonical inputs", () => {
     expect(computeAmount(qty, rate)).toBe(expected);
   });
 
-  it("treats empty and non-finite as zero", () => {
+  it("treats empty operands as zero", () => {
     expect(computeAmount("", "")).toBe(0);
-    expect(computeAmount(Number.NaN, "1")).toBe(0);
-    expect(computeAmount("2", Number.POSITIVE_INFINITY)).toBe(0);
+  });
+
+  it("propagates a non-finite NUMBER instead of valuing it at zero (U-202)", () => {
+    // These two assertions WERE the defect written as a contract.
+    expect(Number.isNaN(computeAmount(Number.NaN, "1"))).toBe(true);
+    expect(computeAmount("2", Number.POSITIVE_INFINITY)).toBe(Number.POSITIVE_INFINITY);
   });
 
   it("handles negative operands and half-away-from-zero on negatives", () => {
@@ -180,6 +184,30 @@ describe("MAX_SAFE_INTEGER guard", () => {
     const floatFallback = roundMoney(Number(hugeQty) * 1);
     expect(fromExact).toBe(floatFallback);
     expect(Number.isFinite(fromExact)).toBe(true);
+  });
+});
+
+describe("non-finite propagation (U-202)", () => {
+  it("applyMarkup propagates NaN instead of returning 0", () => {
+    expect(Number.isNaN(applyMarkup(Number.NaN, "0.25"))).toBe(true);
+  });
+
+  it("applyMarkup propagates positive and negative Infinity", () => {
+    expect(applyMarkup(Number.POSITIVE_INFINITY, "0.25")).toBe(Number.POSITIVE_INFINITY);
+    expect(applyMarkup(Number.NEGATIVE_INFINITY, "0.25")).toBe(Number.NEGATIVE_INFINITY);
+  });
+
+  it("computeAmount propagates negative Infinity", () => {
+    expect(computeAmount(Number.NEGATIVE_INFINITY, "1")).toBe(Number.NEGATIVE_INFINITY);
+  });
+
+  it("fractionToPercent still maps non-finite to 0 (unchanged by U-202)", () => {
+    expect(fractionToPercent(Number.NaN)).toBe("0");
+    expect(fractionToPercent(Number.POSITIVE_INFINITY)).toBe("0");
+  });
+
+  it("percentToFraction maps NaN to 0 (post-change pin)", () => {
+    expect(percentToFraction(Number.NaN)).toBe("0");
   });
 });
 
