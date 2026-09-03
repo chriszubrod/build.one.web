@@ -3,17 +3,17 @@
   "freshness": {
     "class": "derived",
     "live": false,
-    "source_commit": "2d38d3d",
-    "source_commit_date": "2026-09-02T21:13:40-05:00",
+    "source_commit": "fa84eb7",
+    "source_commit_date": "2026-09-02T21:25:18-05:00",
     "source_branch": "master",
-    "generated_at": "2026-09-03T02:24:49.641198+00:00",
+    "generated_at": "2026-09-03T02:28:05.011327+00:00",
     "note": "iOS cannot be introspected at runtime from the web. This is a build-time snapshot of the build.one.ios source, regenerated on each release. The shipping App Store / TestFlight build may differ if this was not regenerated."
   },
   "app": {
     "name": "Build.One",
     "bundle_id": "one.build.app",
     "marketing_version": "0.1.0",
-    "build": "11",
+    "build": "10",
     "min_ios": "17.0"
   },
   "architecture": {
