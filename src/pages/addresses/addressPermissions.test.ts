@@ -72,4 +72,12 @@ describe("hasAddressPermission", () => {
     });
     expect(hasAddressPermission(me, "can_create")).toBe(false);
   });
+
+  it("does not grant access from Projects-only (intentional VENDORS catalog owner)", () => {
+    const me = makeUser({
+      modules: [makeModule(Modules.PROJECTS, { can_read: true, can_create: true })],
+    });
+    expect(hasAddressPermission(me, "can_read")).toBe(false);
+    expect(hasAddressPermission(me, "can_create")).toBe(false);
+  });
 });
