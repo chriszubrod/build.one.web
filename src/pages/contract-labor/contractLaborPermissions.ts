@@ -21,9 +21,10 @@ export interface ContractLaborEditActions {
    * Submit For Review pre-saves via PUT /api/v1/contract-labor/{id}/bill
    * (Contract Labor can_update), then POSTs
    * /api/v1/submit/review/contract-labor/{id} — which the API gates on
-   * Modules.TIME_TRACKING can_update ("distinct from Modules.CONTRACT_LABOR
-   * which gates the CRUD pages", review/api/router.py). Compound action:
-   * both are required.
+   * Modules.TIME_TRACKING can_submit ("distinct from Modules.CONTRACT_LABOR
+   * which gates the CRUD pages", review/api/router.py; migrated from
+   * can_update 2026-09-06, see docs/design/rolemodule-can_submit-audit.md in
+   * build.one.api). Compound action: both are required.
    */
   canSubmit: boolean;
 }
@@ -38,6 +39,6 @@ export function resolveContractLaborEditActions(
   return {
     canEdit,
     canDelete: hasContractLaborPermission(me, "can_delete"),
-    canSubmit: canEdit && hasModulePermission(me, Modules.TIME_TRACKING, "can_update"),
+    canSubmit: canEdit && hasModulePermission(me, Modules.TIME_TRACKING, "can_submit"),
   };
 }

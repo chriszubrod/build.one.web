@@ -22,9 +22,12 @@ const URL_SLUG: Record<ReviewParentType, string> = {
 };
 
 // dbo.Modules.Name per parent. Buttons hide if the current user lacks
-// can_update on this module (the same gate the API enforces). ContractLabor
-// review actions are gated on "Time Tracking" rather than "Contract Labor"
-// because TimeTracking-sourced rows share an actor with TimeEntry review.
+// can_submit on this module (the same gate /submit|advance|decline/review/*
+// enforce in build.one.api's entities/review/api/router.py — migrated from
+// can_update 2026-09-06, see docs/design/rolemodule-can_submit-audit.md).
+// ContractLabor review actions are gated on "Time Tracking" rather than
+// "Contract Labor" because TimeTracking-sourced rows share an actor with
+// TimeEntry review.
 const MODULE_NAME: Record<ReviewParentType, ModuleName> = {
   bill: Modules.BILLS,
   expense: Modules.EXPENSES,
@@ -87,7 +90,7 @@ export default function ReviewTimeline({
 
   const { data: me } = useCurrentUser();
   const canAct =
-    !readOnly && hasModulePermission(me, MODULE_NAME[parentType], "can_update");
+    !readOnly && hasModulePermission(me, MODULE_NAME[parentType], "can_submit");
 
   const slug = URL_SLUG[parentType];
   const fetchPath = `/api/v1/get/reviews/${slug}/${parentPublicId}`;

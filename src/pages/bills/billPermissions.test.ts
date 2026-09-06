@@ -109,14 +109,35 @@ describe("hasBillPermission", () => {
 });
 
 describe("resolveBillEditActions", () => {
-  it("grants edit and submit-for-review when Bills row has can_update only", () => {
+  it("grants edit but NOT submit-for-review when Bills row has can_update only", () => {
+    // POST /submit/review/bill is gated on can_submit (migrated from can_update
+    // 2026-09-06) — can_update alone only covers the pre-save PUT /update/bill.
     const me = makeUser({
       modules: [makeModule(Modules.BILLS, { can_update: true })],
     });
     expect(resolveBillEditActions(me)).toEqual({
       canEdit: true,
       canDelete: false,
-      canSubmitForReview: true,
+      canSubmitForReview: false,
+      canComplete: false,
+    });
+  });
+
+  it("grants submit-for-review when Bills row has can_update AND can_submit", () => {
+    const me = makeUser({
+      modules: [makeModule(Modules.BILLS, { can_update: true, can_submit: true })],
+    });
+    expect(resolveBillEditActions(me).canSubmitForReview).toBe(true);
+  });
+
+  it("does not grant submit-for-review with can_submit alone (no can_update for the pre-save)", () => {
+    const me = makeUser({
+      modules: [makeModule(Modules.BILLS, { can_submit: true })],
+    });
+    expect(resolveBillEditActions(me)).toEqual({
+      canEdit: false,
+      canDelete: false,
+      canSubmitForReview: false,
       canComplete: false,
     });
   });

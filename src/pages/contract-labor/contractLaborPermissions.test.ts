@@ -61,7 +61,8 @@ describe("hasContractLaborPermission", () => {
 describe("resolveContractLaborEditActions", () => {
   it("grants edit — but NOT submit — with Contract Labor can_update alone", () => {
     // Submit's headline route POST /submit/review/contract-labor/{id} is gated
-    // on Modules.TIME_TRACKING can_update; CL can_update only covers the pre-save.
+    // on Modules.TIME_TRACKING can_submit (migrated from can_update 2026-09-06);
+    // CL can_update only covers the pre-save.
     const me = makeUser({
       modules: [makeModule(Modules.CONTRACT_LABOR, { can_update: true })],
     });
@@ -72,11 +73,11 @@ describe("resolveContractLaborEditActions", () => {
     });
   });
 
-  it("grants submit only with Contract Labor can_update AND Time Tracking can_update", () => {
+  it("grants submit only with Contract Labor can_update AND Time Tracking can_submit", () => {
     const me = makeUser({
       modules: [
         makeModule(Modules.CONTRACT_LABOR, { can_update: true }),
-        makeModule(Modules.TIME_TRACKING, { can_update: true }),
+        makeModule(Modules.TIME_TRACKING, { can_submit: true }),
       ],
     });
     expect(resolveContractLaborEditActions(me)).toEqual({
@@ -86,9 +87,23 @@ describe("resolveContractLaborEditActions", () => {
     });
   });
 
-  it("does not grant submit with Time Tracking can_update alone (no CL can_update for the pre-save)", () => {
+  it("does not grant submit with Time Tracking can_update alone — needs can_submit now", () => {
     const me = makeUser({
-      modules: [makeModule(Modules.TIME_TRACKING, { can_update: true })],
+      modules: [
+        makeModule(Modules.CONTRACT_LABOR, { can_update: true }),
+        makeModule(Modules.TIME_TRACKING, { can_update: true }),
+      ],
+    });
+    expect(resolveContractLaborEditActions(me)).toEqual({
+      canEdit: true,
+      canDelete: false,
+      canSubmit: false,
+    });
+  });
+
+  it("does not grant submit with Time Tracking can_submit alone (no CL can_update for the pre-save)", () => {
+    const me = makeUser({
+      modules: [makeModule(Modules.TIME_TRACKING, { can_submit: true })],
     });
     expect(resolveContractLaborEditActions(me)).toEqual({
       canEdit: false,
