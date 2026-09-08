@@ -3,10 +3,10 @@
   "freshness": {
     "class": "derived",
     "live": false,
-    "source_commit": "64d5fea",
-    "source_commit_date": "2026-09-08T07:35:54-05:00",
+    "source_commit": "051c0ab",
+    "source_commit_date": "2026-09-08T07:35:59-05:00",
     "source_branch": "master",
-    "generated_at": "2026-09-08T12:35:59.875653+00:00",
+    "generated_at": "2026-09-08T14:26:13.058315+00:00",
     "note": "iOS cannot be introspected at runtime from the web. This is a build-time snapshot of the build.one.ios source, regenerated on each release. The shipping App Store / TestFlight build may differ if this was not regenerated."
   },
   "app": {
@@ -142,12 +142,6 @@
       "method": "GET",
       "path": "/api/v1/get/companies",
       "file": "CompanyEndpoints.swift"
-    },
-    {
-      "name": "GetContactEndpoint",
-      "method": "GET",
-      "path": "/api/v1/get/contact/\\(publicId)",
-      "file": "ContactEndpoints.swift"
     },
     {
       "name": "GetContactsByUserEndpoint",
@@ -441,7 +435,7 @@
   "counts": {
     "features": 13,
     "services": 19,
-    "endpoints": 50,
+    "endpoints": 49,
     "core_data_entities": 15,
     "user_scoped_entities": 10
   }
