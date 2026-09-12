@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 interface EntryCardProps {
   projectAbbrev: string;
   projectName: string;
@@ -5,6 +7,12 @@ interface EntryCardProps {
   duration: string;
   active?: boolean;
   workerName?: string;
+  /**
+   * Optional trailing badge, under the `duration` line (U-452). Bills carry a
+   * lifecycle badge that has nowhere to live in the Labor shape; Labor passes
+   * nothing and renders exactly as before.
+   */
+  badge?: ReactNode;
   onClick?: () => void;
 }
 
@@ -15,6 +23,7 @@ export default function EntryCard({
   duration,
   active,
   workerName,
+  badge,
   onClick,
 }: EntryCardProps) {
   const metaLine = workerName ? `${workerName} · ${meta}` : meta;
@@ -28,7 +37,10 @@ export default function EntryCard({
         </div>
         <div className="entry-card-meta">{metaLine}</div>
       </div>
-      <div className="entry-card-duration">{duration}</div>
+      <div className="entry-card-trailing">
+        <div className="entry-card-duration">{duration}</div>
+        {badge && <div className="entry-card-badge">{badge}</div>}
+      </div>
     </>
   );
 

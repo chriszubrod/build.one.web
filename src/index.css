@@ -4736,18 +4736,18 @@ a.buildone-record-header-link:hover .buildone-record-name {
 
 /* Labor list — multi-field filter bar (name + date range + clear).
    Stacks on phones, lays out as a row on tablet / desktop. */
-.labor-filter-bar {
+.list-filter-bar {
   padding: var(--space-sm) var(--space-sm) 0;
 }
 
-.labor-filter-row {
+.list-filter-row {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-sm);
   align-items: flex-end;
 }
 
-.labor-filter-field {
+.list-filter-field {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -4755,12 +4755,12 @@ a.buildone-record-header-link:hover .buildone-record-name {
   flex: 0 0 auto;
 }
 
-.labor-filter-field-grow {
+.list-filter-field-grow {
   flex: 1 1 220px;
   min-width: 180px;
 }
 
-.labor-filter-label {
+.list-filter-label {
   font-size: var(--font-size-caption);
   font-weight: 600;
   color: var(--color-text-muted);
@@ -4769,7 +4769,7 @@ a.buildone-record-header-link:hover .buildone-record-name {
   padding-left: var(--space-sm);
 }
 
-.labor-filter-input {
+.list-filter-input {
   width: 100%;
   padding: 10px var(--space-md);
   border: 1px solid var(--color-border);
@@ -4782,21 +4782,21 @@ a.buildone-record-header-link:hover .buildone-record-name {
   appearance: none;
 }
 
-.labor-filter-input:focus {
+.list-filter-input:focus {
   outline: none;
   border-color: var(--color-primary);
   box-shadow: 0 0 0 2px var(--color-focus-ring);
 }
 
-.labor-filter-input::placeholder {
+.list-filter-input::placeholder {
   color: var(--color-text-muted);
 }
 
-.labor-filter-input[type="date"] {
+.list-filter-input[type="date"] {
   min-width: 150px;
 }
 
-.labor-filter-clear {
+.list-filter-clear {
   height: 40px;
   padding: 0 var(--space-md);
   border: 1px solid var(--color-border);
@@ -4810,11 +4810,11 @@ a.buildone-record-header-link:hover .buildone-record-name {
   flex: 0 0 auto;
 }
 
-.labor-filter-clear:hover:not(:disabled) {
+.list-filter-clear:hover:not(:disabled) {
   background: var(--color-surface-tint);
 }
 
-.labor-filter-clear:disabled {
+.list-filter-clear:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
@@ -5638,4 +5638,18 @@ a.buildone-record-header-link:hover .buildone-record-name {
 .line-items-edit-table .inline-li-computed {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* EntryCard trailing stack (U-452) — Labor passes only a duration and renders
+   exactly as before; Bills adds a lifecycle badge beneath it. */
+.entry-card-trailing {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.entry-card-badge {
+  display: flex;
 }

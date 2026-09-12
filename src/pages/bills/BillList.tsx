@@ -5,13 +5,17 @@ import { useIdNameMap } from "../../hooks/useIdNameMap";
 import { uploadFile, getOne, rawRequest } from "../../api/client";
 import Pagination from "../../components/Pagination";
 import PageHeader from "../../components/PageHeader";
-import MoneyCell from "../../components/MoneyCell";
 import SegmentedControl from "../../components/ui/SegmentedControl";
+import EntryCard from "../../components/ui/EntryCard";
 import {
   DEFAULT_STATUS_TAB,
   STATUS_TABS,
   billListQuery,
   isStatusTab,
+  isIsoDate,
+  EMPTY_COPY,
+  NO_MATCH_COPY,
+  SECTION_LABEL,
   type BillStatusTab,
 } from "./billStatusTabs";
 import type { Bill, Vendor } from "../../types/api";
@@ -28,6 +32,18 @@ interface FolderSummary {
   folder_name?: string;
   folder_web_url?: string;
   file_count?: number;
+}
+
+function fmtMoney(v: string | null): string {
+  if (v === null || v === undefined || v === "") return "$0.00";
+  const n = Number(v);
+  if (isNaN(n)) return "$0.00";
+  return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
+}
+
+/** Card tile initials, same rule LaborList uses for its worker names. */
+function abbrev(name: string): string {
+  return name.replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase() || "—";
 }
 
 function fmtDate(v: string | null): string {
@@ -63,27 +79,23 @@ export default function BillList() {
   const statusFilter: BillStatusTab = isStatusTab(statusParam)
     ? statusParam
     : DEFAULT_STATUS_TAB;
-  const [sortKey, setSortKey] = useState<string | null>(() => {
-    try { return sessionStorage.getItem("buildOne.billList.sortKey") || null; } catch { return null; }
-  });
-  const [sortDir, setSortDir] = useState<"asc" | "desc">(() => {
-    try { return (sessionStorage.getItem("buildOne.billList.sortDir") as "asc" | "desc") || "asc"; } catch { return "asc"; }
-  });
-
-  const handleSort = (key: string) => {
-    let newDir: "asc" | "desc";
-    if (sortKey === key) {
-      newDir = sortDir === "asc" ? "desc" : "asc";
-    } else {
-      newDir = "asc";
-    }
-    setSortKey(key);
-    setSortDir(newDir);
-    try {
-      sessionStorage.setItem("buildOne.billList.sortKey", key);
-      sessionStorage.setItem("buildOne.billList.sortDir", newDir);
-    } catch { /* ignore */ }
+  /** One writer for every URL-backed filter, so they cannot fight each other. */
+  const setParam = (key: string, value: string) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (value) next.set(key, value);
+        else next.delete(key);
+        return next;
+      },
+      { replace: true },
+    );
   };
+
+  const fromRaw = searchParams.get("from");
+  const toRaw = searchParams.get("to");
+  const fromDate = isIsoDate(fromRaw) ? fromRaw! : "";
+  const toDate = isIsoDate(toRaw) ? toRaw! : "";
   const [folderSummary, setFolderSummary] = useState<FolderSummary | null>(null);
   const [processingFolder, setProcessingFolder] = useState(false);
   const [folderProgress, setFolderProgress] = useState<{ total: number; done: number; currentFile: string | null } | null>(null);
@@ -139,7 +151,10 @@ export default function BillList() {
     }
   };
 
-  const extraParams = billListQuery(statusFilter);
+  const extraParams =
+    billListQuery(statusFilter) +
+    (fromDate ? `&start_date=${encodeURIComponent(fromDate)}` : "") +
+    (toDate ? `&end_date=${encodeURIComponent(toDate)}` : "");
   const {
     items, total, page, pageSize, totalPages,
     loading, error, setPage, setSearch, search, reload,
@@ -147,10 +162,38 @@ export default function BillList() {
     staleWhileRevalidate: true,
     sessionPersistenceKey: "buildOne.billList",
   });
+  // The TAB is not a "filter" for this purpose — it always has a value, so
+  // counting it would leave Clear permanently enabled and the count chip
+  // permanently on.
+  const hasActiveFilters = Boolean(search || fromDate || toDate);
+
+  // `page` is persisted in sessionStorage and shared across every tab and date
+  // combination, but only INTERACTIVE changes reset it (Codex P1). Open a
+  // shared `/bills?status=draft` link after last leaving the Completed tab on
+  // page 40 and the API answers with a real total and an out-of-range, empty
+  // page — the UI then says "no bills match" while bills plainly match.
+  useEffect(() => {
+    if (!loading && items.length === 0 && total > 0 && page > 1) setPage(1);
+  }, [loading, items.length, total, page, setPage]);
+
+  const clearFilters = () => {
+    setSearch("");
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("from");
+        next.delete("to");
+        return next;
+      },
+      { replace: true },
+    );
+    setPage(1);
+  };
+
   const vendorMap = useIdNameMap<Vendor>("/api/v1/get/vendors", (v) => v.name);
   const projectMap = useIdNameMap<{ id: number; name: string }>("/api/v1/get/projects", (p) => p.name);
 
-  // Resolve display values for sorting
+  // Resolve vendor + project names for the card face.
   const resolvedItems = items.map((bill) => ({
     ...bill,
     _vendor: vendorMap.get(bill.vendor_id) ?? "",
@@ -158,27 +201,6 @@ export default function BillList() {
     _date: bill.bill_date ?? "",
     _amount: bill.total_amount ? Number(bill.total_amount) : 0,
   }));
-
-  const sortedItems = sortKey
-    ? [...resolvedItems].sort((a, b) => {
-        const av = (a as any)[sortKey];
-        const bv = (b as any)[sortKey];
-        if (av == null && bv == null) return 0;
-        if (av == null) return 1;
-        if (bv == null) return -1;
-        const aStr = String(av);
-        const bStr = String(bv);
-        const aNum = Number(aStr);
-        const bNum = Number(bStr);
-        let cmp: number;
-        if (!isNaN(aNum) && !isNaN(bNum)) {
-          cmp = aNum - bNum;
-        } else {
-          cmp = aStr.localeCompare(bStr, undefined, { sensitivity: "base" });
-        }
-        return sortDir === "asc" ? cmp : -cmp;
-      })
-    : resolvedItems;
 
   const addFiles = useCallback((files: FileList | File[]) => {
     const newFiles: PendingFile[] = [];
@@ -397,100 +419,126 @@ export default function BillList() {
       <SegmentedControl<BillStatusTab>
         options={STATUS_TABS}
         value={statusFilter}
-        onChange={(next) => {
-          setSearchParams(
-            (prev) => {
-              const p = new URLSearchParams(prev);
-              p.set("status", next);
-              return p;
-            },
-            { replace: true },
-          );
-          setPage(1);
-        }}
+        onChange={(next) => { setParam("status", next); setPage(1); }}
       />
 
-      <div className="table-search">
-        <input
-          type="text"
-          className="table-search-input"
-          placeholder="Search bills..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <span className="table-search-count">{total.toLocaleString()} results</span>
+      {/* Labor's filter bar (U-452). Search and the date bounds are applied
+          SERVER-SIDE, unlike LaborList which filters its fully-fetched status
+          set in the browser — that shape cannot work here. Narrowing a page in
+          JS would leave `count` describing the unfiltered set, which is exactly
+          the inconsistency U-447 removed. */}
+      <div className="list-filter-bar">
+        <div className="list-filter-row">
+          <label className="list-filter-field list-filter-field-grow">
+            <span className="list-filter-label">Search</span>
+            <input
+              type="search"
+              className="list-filter-input"
+              placeholder="Vendor, bill number, memo…"
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              autoComplete="off"
+              aria-label="Search bills by vendor, bill number or memo"
+            />
+          </label>
+          <label className="list-filter-field">
+            <span className="list-filter-label">From</span>
+            <input
+              type="date"
+              className="list-filter-input"
+              value={fromDate}
+              onChange={(e) => { setParam("from", e.target.value); setPage(1); }}
+              aria-label="Bill date from"
+            />
+          </label>
+          <label className="list-filter-field">
+            <span className="list-filter-label">To</span>
+            <input
+              type="date"
+              className="list-filter-input"
+              value={toDate}
+              onChange={(e) => { setParam("to", e.target.value); setPage(1); }}
+              aria-label="Bill date to"
+            />
+          </label>
+          <button
+            type="button"
+            className="list-filter-clear"
+            onClick={clearFilters}
+            disabled={!hasActiveFilters}
+            aria-label="Clear all filters"
+          >
+            Clear
+          </button>
+        </div>
       </div>
 
-      <table className="data-table">
-        <thead>
-          <tr>
-            {([
-              { key: "_vendor", label: "Vendor" },
-              { key: "bill_number", label: "Bill #" },
-              { key: "_date", label: "Date" },
-              { key: "_project", label: "Project" },
-              { key: "_amount", label: "Amount", align: "right" },
-              { key: "is_draft", label: "Status" },
-              { key: "review_status", label: "Review" },
-            ] as { key: string; label: string; align?: "right" }[]).map((col) => (
-              <th
-                key={col.key}
-                className="sortable-th"
-                style={col.align === "right" ? { textAlign: "right" } : undefined}
-                onClick={() => handleSort(col.key)}
-              >
-                {col.label}
-                {sortKey === col.key && (
-                  <span className="sort-indicator">{sortDir === "asc" ? " ▲" : " ▼"}</span>
-                )}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {sortedItems.map((bill) => {
-            const status = documentStatus(bill);
-            return (
-            <tr
-              key={bill.public_id}
-              className="clickable-row"
-              onClick={() => navigate(`/bill/${bill.public_id}`)}
-            >
-              <td>{bill._vendor}</td>
-              <td>{bill.bill_number}</td>
-              <td>{fmtDate(bill.bill_date)}</td>
-              <td>{bill._project}</td>
-              <td style={{ textAlign: "right" }}>
-                <MoneyCell value={bill.total_amount} />
-              </td>
-              <td>
+      <div className="section-label-prose list-meta">
+        <span>{SECTION_LABEL[statusFilter]}</span>
+        {hasActiveFilters && total > 0 && (
+          <span className="list-count">
+            {items.length} of {total.toLocaleString()}
+          </span>
+        )}
+      </div>
+
+      {/* Gated on `loading`, like LaborList (Codex P2). usePaginatedList keeps
+          `staleWhileRevalidate` items on a cache MISS — it sets loading but
+          never clears `items` — so switching tabs briefly rendered the previous
+          tab's bills underneath the new tab's heading. A bill shown under the
+          wrong lifecycle heading is worse than a flash of "Loading…". */}
+      {loading && (
+        <div className="page-loading" style={{ padding: "var(--space-xl) 0" }}>
+          Loading…
+        </div>
+      )}
+
+      {!loading && resolvedItems.length === 0 && (
+        <div className="page-loading" style={{ padding: "var(--space-xl) 0" }}>
+          {hasActiveFilters ? NO_MATCH_COPY : EMPTY_COPY[statusFilter]}
+        </div>
+      )}
+
+      {!loading && resolvedItems.map((bill) => {
+        const status = documentStatus(bill);
+        const meta = [
+          bill.bill_number || "—",
+          fmtDate(bill.bill_date),
+          bill._project || "No project",
+        ].join(" · ");
+        return (
+          <EntryCard
+            key={bill.public_id}
+            projectAbbrev={abbrev(bill._vendor)}
+            projectName={bill._vendor || "Unknown vendor"}
+            meta={meta}
+            duration={fmtMoney(bill.total_amount)}
+            badge={
+              <>
                 <span className={`status-badge ${documentStatusBadgeClass(status)}`}>
                   {DOCUMENT_STATUS_LABELS[status] ?? status}
                 </span>
-              </td>
-              <td>
-                {bill.review_status ? (
-                  <span
-                    className={`status-badge ${documentReviewBadgeClass(documentReviewKind(bill))}`}
-                  >
-                    {bill.review_status}
-                  </span>
-                ) : (
-                  <span className="text-muted">—</span>
-                )}
-              </td>
-            </tr>
-            );
-          })}
-          {sortedItems.length === 0 && (
-            <tr>
-              <td colSpan={7} className="empty-state">
-                {search ? "No matching bills." : "No bills found."}
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+                {/* The table carried Status AND Review as separate columns.
+                    Dropping the second was an unflagged loss: `review_status`
+                    is the ADMIN-EDITABLE stage name, so once someone adds a
+                    custom stage it is the only place that stage is visible —
+                    the lifecycle badge collapses every intermediate one to
+                    "In Review". Shown only when it says something the status
+                    badge does not. */}
+                {bill.review_status &&
+                  bill.review_status !== (DOCUMENT_STATUS_LABELS[status] ?? status) && (
+                    <span
+                      className={`status-badge ${documentReviewBadgeClass(documentReviewKind(bill))}`}
+                    >
+                      {bill.review_status}
+                    </span>
+                  )}
+              </>
+            }
+            onClick={() => navigate(`/bill/${bill.public_id}`)}
+          />
+        );
+      })}
 
       <Pagination
         page={page}

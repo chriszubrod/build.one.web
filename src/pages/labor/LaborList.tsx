@@ -211,13 +211,13 @@ export default function LaborList() {
         onChange={setStatus}
       />
 
-      <div className="labor-filter-bar">
-        <div className="labor-filter-row">
-          <label className="labor-filter-field labor-filter-field-grow">
-            <span className="labor-filter-label">Search</span>
+      <div className="list-filter-bar">
+        <div className="list-filter-row">
+          <label className="list-filter-field list-filter-field-grow">
+            <span className="list-filter-label">Search</span>
             <input
               type="search"
-              className="labor-filter-input"
+              className="list-filter-input"
               placeholder="Name, project, sub cost code…"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -225,21 +225,21 @@ export default function LaborList() {
               aria-label="Search labor entries by name, project, or sub cost code"
             />
           </label>
-          <label className="labor-filter-field">
-            <span className="labor-filter-label">From</span>
+          <label className="list-filter-field">
+            <span className="list-filter-label">From</span>
             <input
               type="date"
-              className="labor-filter-input"
+              className="list-filter-input"
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
               aria-label="Work date from"
             />
           </label>
-          <label className="labor-filter-field">
-            <span className="labor-filter-label">To</span>
+          <label className="list-filter-field">
+            <span className="list-filter-label">To</span>
             <input
               type="date"
-              className="labor-filter-input"
+              className="list-filter-input"
               value={toDate}
               onChange={(e) => setToDate(e.target.value)}
               aria-label="Work date to"
@@ -247,7 +247,7 @@ export default function LaborList() {
           </label>
           <button
             type="button"
-            className="labor-filter-clear"
+            className="list-filter-clear"
             onClick={clearFilters}
             disabled={!hasActiveFilters}
             aria-label="Clear all filters"
