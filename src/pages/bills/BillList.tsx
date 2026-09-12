@@ -1,12 +1,27 @@
 import { useState, useCallback, useEffect, useRef, type DragEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
 import { uploadFile, getOne, rawRequest } from "../../api/client";
 import Pagination from "../../components/Pagination";
 import PageHeader from "../../components/PageHeader";
 import MoneyCell from "../../components/MoneyCell";
+import SegmentedControl from "../../components/ui/SegmentedControl";
+import {
+  DEFAULT_STATUS_TAB,
+  STATUS_TABS,
+  billListQuery,
+  isStatusTab,
+  type BillStatusTab,
+} from "./billStatusTabs";
 import type { Bill, Vendor } from "../../types/api";
+import {
+  DOCUMENT_STATUS_LABELS,
+  documentReviewBadgeClass,
+  documentReviewKind,
+  documentStatus,
+  documentStatusBadgeClass,
+} from "../../shared/documentLifecycle";
 
 interface FolderSummary {
   is_linked: boolean;
@@ -41,7 +56,13 @@ export default function BillList() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
-  const [statusFilter, setStatusFilter] = useState("draft");
+  // In the URL, like LaborList — so a tab is linkable, survives a refresh, and
+  // the back button steps through tabs rather than leaving the page.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const statusParam = searchParams.get("status");
+  const statusFilter: BillStatusTab = isStatusTab(statusParam)
+    ? statusParam
+    : DEFAULT_STATUS_TAB;
   const [sortKey, setSortKey] = useState<string | null>(() => {
     try { return sessionStorage.getItem("buildOne.billList.sortKey") || null; } catch { return null; }
   });
@@ -118,7 +139,7 @@ export default function BillList() {
     }
   };
 
-  const extraParams = statusFilter ? `?is_draft=${statusFilter === "draft"}` : "";
+  const extraParams = billListQuery(statusFilter);
   const {
     items, total, page, pageSize, totalPages,
     loading, error, setPage, setSearch, search, reload,
@@ -373,6 +394,22 @@ export default function BillList() {
         </div>
       )}
 
+      <SegmentedControl<BillStatusTab>
+        options={STATUS_TABS}
+        value={statusFilter}
+        onChange={(next) => {
+          setSearchParams(
+            (prev) => {
+              const p = new URLSearchParams(prev);
+              p.set("status", next);
+              return p;
+            },
+            { replace: true },
+          );
+          setPage(1);
+        }}
+      />
+
       <div className="table-search">
         <input
           type="text"
@@ -381,18 +418,7 @@ export default function BillList() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <select
-          className="table-filter-select"
-          value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-        >
-          <option value="">All Statuses</option>
-          <option value="draft">Draft</option>
-          <option value="finalized">Finalized</option>
-        </select>
-        {(search || statusFilter) && (
-          <span className="table-search-count">{total.toLocaleString()} results</span>
-        )}
+        <span className="table-search-count">{total.toLocaleString()} results</span>
       </div>
 
       <table className="data-table">
@@ -404,7 +430,7 @@ export default function BillList() {
               { key: "_date", label: "Date" },
               { key: "_project", label: "Project" },
               { key: "_amount", label: "Amount", align: "right" },
-              { key: "is_draft", label: "Draft" },
+              { key: "is_draft", label: "Status" },
               { key: "review_status", label: "Review" },
             ] as { key: string; label: string; align?: "right" }[]).map((col) => (
               <th
@@ -422,7 +448,9 @@ export default function BillList() {
           </tr>
         </thead>
         <tbody>
-          {sortedItems.map((bill) => (
+          {sortedItems.map((bill) => {
+            const status = documentStatus(bill);
+            return (
             <tr
               key={bill.public_id}
               className="clickable-row"
@@ -436,20 +464,14 @@ export default function BillList() {
                 <MoneyCell value={bill.total_amount} />
               </td>
               <td>
-                <span className={`status-badge ${bill.is_draft ? "draft" : "finalized"}`}>
-                  {bill.is_draft ? "Draft" : "Finalized"}
+                <span className={`status-badge ${documentStatusBadgeClass(status)}`}>
+                  {DOCUMENT_STATUS_LABELS[status] ?? status}
                 </span>
               </td>
               <td>
                 {bill.review_status ? (
                   <span
-                    className={`status-badge ${
-                      bill.review_status_is_declined
-                        ? "declined"
-                        : bill.review_status_is_final
-                        ? "approved"
-                        : "in-review"
-                    }`}
+                    className={`status-badge ${documentReviewBadgeClass(documentReviewKind(bill))}`}
                   >
                     {bill.review_status}
                   </span>
@@ -458,7 +480,8 @@ export default function BillList() {
                 )}
               </td>
             </tr>
-          ))}
+            );
+          })}
           {sortedItems.length === 0 && (
             <tr>
               <td colSpan={7} className="empty-state">

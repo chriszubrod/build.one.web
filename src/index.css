@@ -1627,6 +1627,11 @@ button[type="submit"]:disabled {
   color: var(--color-info-fg);
 }
 
+.status-badge.submitted {
+  background: var(--color-warning-bg);
+  color: var(--color-warning-fg);
+}
+
 /* Expense coding cockpit (U-005) */
 .expense-coding-gate-banner {
   width: 100%;

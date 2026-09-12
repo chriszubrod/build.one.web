@@ -736,9 +736,12 @@ export interface Bill {
   is_draft: boolean;
   intake_source: string | null;         // "manual" | "agent" | "script"
   intake_source_detail: string | null;  // username / agent name / script name
-  // Latest Review state — only on /get/bills list response (Wave 3 Phase D);
-  // null when no Review row exists for the bill yet.
+  // Derived lifecycle (U-357). `status` is canonical; `review_status` is the
+  // admin Name (display only) — branch on `review_status_kind`. List has
+  // carried Name + flags since Wave 3; kind + status now land on list and GET.
+  status?: string | null;
   review_status?: string | null;
+  review_status_kind?: "none" | "submitted" | "in_review" | "approved" | "declined" | null;
   review_status_is_final?: boolean | null;
   review_status_is_declined?: boolean | null;
 }
@@ -779,6 +782,13 @@ export interface Expense {
   // Additive: populated when an expense was created from a receipt email
   // (receipt-intake pipeline); null for manual / QBO-pulled expenses.
   source_email_message_id?: number | null;
+  // Derived lifecycle (U-357). Same fields as Bill. Absent on older payloads;
+  // fall back to is_draft. `review_status` is the admin Name — branch on kind.
+  status?: string | null;
+  review_status?: string | null;
+  review_status_kind?: "none" | "submitted" | "in_review" | "approved" | "declined" | null;
+  review_status_is_final?: boolean | null;
+  review_status_is_declined?: boolean | null;
 }
 
 export interface ExpenseLineItem {

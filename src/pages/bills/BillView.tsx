@@ -10,6 +10,13 @@ import ReviewTimeline from "../../components/ReviewTimeline";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
 import type { Bill, BillLineItem, Vendor } from "../../types/api";
 import type { SubCostCode, Project } from "../../types/api";
+import {
+  DOCUMENT_STATUS_LABELS,
+  documentReviewBadgeClass,
+  documentReviewKind,
+  documentStatus,
+  documentStatusBadgeClass,
+} from "../../shared/documentLifecycle";
 
 function fmtMoney(v: string | null): string {
   if (!v) return "—";
@@ -93,6 +100,9 @@ export default function BillView() {
   if (error) return <div className="page-error">{error}</div>;
   if (!item) return <div className="page-error">Not found.</div>;
 
+  const status = documentStatus(item);
+  const reviewKind = documentReviewKind(item);
+
   return (
     <DetailView
       title={`Bill ${item.bill_number}`}
@@ -109,9 +119,19 @@ export default function BillView() {
         {
           label: "Status",
           value: (
-            <span className={`status-badge ${item.is_draft ? "draft" : "finalized"}`}>
-              {item.is_draft ? "Draft" : "Finalized"}
+            <span className={`status-badge ${documentStatusBadgeClass(status)}`}>
+              {DOCUMENT_STATUS_LABELS[status] ?? status}
             </span>
+          ),
+        },
+        {
+          label: "Review",
+          value: item.review_status ? (
+            <span className={`status-badge ${documentReviewBadgeClass(reviewKind)}`}>
+              {item.review_status}
+            </span>
+          ) : (
+            "—"
           ),
         },
       ]}
