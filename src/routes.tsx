@@ -45,7 +45,10 @@ import BudgetEdit from "./pages/budgets/BudgetEdit";
 import BillList from "./pages/bills/BillList";
 import BillCreate from "./pages/bills/BillCreate";
 import BillView from "./pages/bills/BillView";
-import BillEdit from "./pages/bills/BillEdit";
+// U-462: the route renders a keyed WRAPPER, not BillEdit directly — see
+// BillEditRoute for why. Importing the wrapper keeps this file's shape:
+// still one component per route, still no shell/provider imports.
+import BillEditRoute from "./pages/bills/BillEditRoute";
 
 // Expense surface (Phase 3) — renders inside the responsive AppLayout,
 // office/AP audience (gated on the Expenses module), like Bill in U-066.
@@ -185,7 +188,7 @@ export const appRouteTree = (
         <Route path="/bill/list" element={<BillList />} />
         <Route path="/bill/create" element={<BillCreate />} />
         <Route path="/bill/:publicId" element={<BillView />} />
-        <Route path="/bill/:publicId/edit" element={<BillEdit />} />
+        <Route path="/bill/:publicId/edit" element={<BillEditRoute />} />
         <Route path="/bill/*" element={<Navigate to="/bill/list" replace />} />
 
         <Route path="/expense/list" element={<ExpenseList />} />
