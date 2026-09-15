@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { shouldDehydrateQuery, ONE_DAY_MS } from "./persistPolicy";
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { get, set, del } from "idb-keyval";
@@ -65,32 +66,27 @@ const queryClient = new QueryClient({
 // data shape changes (e.g. a TypeScript model gains a required field).
 // Bump this string whenever an entity-model migration would break
 // deserialization of an older cached payload.
-const PERSISTER_BUSTER = "bo-rq-v1";
+// U-461 bumped this to v2. `shouldDehydrateQuery` filters on WRITE, so
+// excluding entity items stops NEW ones being persisted but leaves every entry
+// already in IndexedDB to be restored on the next boot — i.e. the first load
+// after this deploy would still rehydrate a stale bill and stay wedged. The
+// buster discards the whole persisted blob on restore, so the fix takes effect
+// immediately for every user instead of after their cache happens to turn over.
+const PERSISTER_BUSTER = "bo-rq-v2";
 
 /**
- * Per-query maxAge policies. React Query persist-client exposes a
- * single global maxAge on the dehydrated state; per-query expiration
- * is implemented via `shouldDehydrateQuery` which filters which queries
- * survive into the saved snapshot.
+ * Persisted-cache policy — see `src/persistPolicy.ts`, which owns it and is
+ * specced there.
  *
- * Buckets:
- *   - 24h:  identity (['me']) + lookups (['lookups', ...]). RBAC and
- *           dropdown data can change underneath us; we want stale data
- *           rejected aggressively.
- *   - 7d:   everything else. Entity lists and detail reads. Long enough
- *           that a field user logging in after a weekend still sees
- *           something; short enough that the on-disk cache doesn't grow
- *           indefinitely.
+ * Summary: identity (`['me']`) and `['lookups', …]` live 24h because RBAC and
+ * dropdown data change underneath us. Lists live 7d, long enough that a field
+ * user logging in after a weekend still sees something. **Single-entity
+ * (`['item', …]`) payloads are never persisted at all** — U-461; they carry a
+ * `row_version` write token, and an edit page seeding that token from a disk
+ * cache of unknown age is what wedged a bill for a whole afternoon on
+ * 2026-09-15.
  */
-const ONE_HOUR_MS = 60 * 60 * 1000;
-const ONE_DAY_MS = 24 * ONE_HOUR_MS;
 
-function maxAgeForQuery(queryKey: readonly unknown[]): number {
-  const head = queryKey[0];
-  if (head === "me") return ONE_DAY_MS;
-  if (head === "lookups") return ONE_DAY_MS;
-  return 7 * ONE_DAY_MS;
-}
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -103,13 +99,10 @@ createRoot(document.getElementById("root")!).render(
         maxAge: 7 * ONE_DAY_MS,
         buster: PERSISTER_BUSTER,
         dehydrateOptions: {
-          shouldDehydrateQuery: (query) => {
-            // Don't persist queries that errored or have no data.
-            if (query.state.status !== "success") return false;
-            if (!query.state.dataUpdatedAt) return false;
-            const age = Date.now() - query.state.dataUpdatedAt;
-            return age < maxAgeForQuery(query.queryKey);
-          },
+          // U-461: the policy lives in src/persistPolicy.ts so it can be
+          // specced. Entity ITEM payloads are never persisted — see that file
+          // for the incident that rule exists to prevent.
+          shouldDehydrateQuery,
         },
       }}
     >
