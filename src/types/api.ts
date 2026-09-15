@@ -714,6 +714,11 @@ export interface Review {
   status_is_final: boolean;
   status_is_declined: boolean;
   status_color: string | null;
+  status_is_initial: boolean;
+  /** FROZEN at insert (U-455) — one of none|submitted|in_review|approved|declined.
+   *  Derived kinds would change under a ReviewStatus reconfiguration; this does
+   *  not, which is why it is the right key for "which row was the submission". */
+  review_kind: string | null;
   user_firstname: string | null;
   user_lastname: string | null;
 }

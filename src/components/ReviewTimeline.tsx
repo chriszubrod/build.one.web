@@ -217,6 +217,26 @@ export default function ReviewTimeline({
     ? " · Declined — resubmit to restart"
     : "";
 
+  // U-463: the headline names the SUBMITTER, not whoever owns the latest row.
+  //
+  // It used to read `by {fullName(current)}`, and `current` is the most recent
+  // row — which for a submitted bill is the pipeline's auto-advance into "In
+  // Review". So every bill a person submitted displayed "In Review · by Claude
+  // Agent" at the top of its timeline (reported 2026-09-15). U-463 also fixed
+  // the attribution itself, but naming the submitter explicitly is the part
+  // that stays correct no matter who advances the state afterwards — an
+  // approval by a colleague should not relabel whose submission this was.
+  //
+  // Keys on the FROZEN `review_kind` (U-455) rather than `status_is_initial`:
+  // the flag is live ReviewStatus config and moves when the initial role is
+  // reassigned, which is the exact class U-455 exists to prevent. Reviews come
+  // back newest-first, so the first match is the current cycle's submission —
+  // a resubmit after a decline correctly names whoever resubmitted.
+  //
+  // Falls back to the current row when no submitted row is visible (a partial
+  // history, or a cycle that began before the kind was frozen).
+  const submittedBy = reviews.find((r) => r.review_kind === "submitted") ?? current;
+
   return (
     <div className="review-banner" style={bannerStyle}>
       <div
@@ -230,7 +250,8 @@ export default function ReviewTimeline({
         <span style={{ fontSize: 13, fontWeight: 600 }}>Review:</span>
         <StatusPill name={current.status_name} color={current.status_color} />
         <span className="text-muted" style={{ fontSize: 12 }}>
-          by {fullName(current)} · {formatTimestamp(current.created_datetime)}
+          submitted by {fullName(submittedBy)} ·{" "}
+          {formatTimestamp(current.created_datetime)}
           {declinedNote}
         </span>
 

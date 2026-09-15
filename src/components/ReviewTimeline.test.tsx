@@ -146,3 +146,78 @@ describe("ReviewTimeline — U-464 parent invalidation", () => {
     expect(keys).not.toContain(JSON.stringify(entityItemKey("/api/v1/get/bill/bill-1")));
   });
 });
+
+describe("ReviewTimeline — U-463 the headline names the submitter", () => {
+  /**
+   * It used to read `by {fullName(current)}` — the most recent row — which for
+   * a submitted bill is the pipeline's auto-advance into "In Review". Every
+   * bill a person submitted displayed "In Review · by Claude Agent" at the top
+   * of its timeline. Reported 2026-09-15.
+   */
+  const review = (over: Record<string, unknown> = {}) => ({
+    id: 1, public_id: "rv-1", row_version: "x",
+    created_datetime: "2026-09-15 10:00:00", modified_datetime: null,
+    review_status_id: 1, user_id: 17, comments: null,
+    bill_id: 1, expense_id: null, bill_credit_id: null, invoice_id: null,
+    status_name: "Submitted", status_sort_order: 10,
+    status_is_final: false, status_is_declined: false, status_is_initial: true,
+    status_color: null, review_kind: "submitted",
+    user_firstname: "Christopher", user_lastname: "Zubrod",
+    ...over,
+  });
+
+  it("names the SUBMITTER even when the latest row belongs to someone else", async () => {
+    // Newest-first, exactly as the API returns them.
+    mockGetList.mockResolvedValue({
+      data: [
+        review({ id: 2, public_id: "rv-2", status_name: "In Review",
+                 review_kind: "in_review", status_is_initial: false,
+                 user_id: 33, user_firstname: "Claude", user_lastname: "Agent" }),
+        review(),
+      ],
+      count: 2,
+    });
+    render();
+    await flushUntil(() => container.textContent?.includes("submitted by") ?? false);
+
+    expect(container.textContent).toContain("submitted by Christopher Zubrod");
+    expect(container.textContent).not.toContain("submitted by Claude Agent");
+  });
+
+  it("keys on the FROZEN review_kind, not the live is_initial flag", async () => {
+    /* `status_is_initial` is live ReviewStatus config and moves when the
+       initial role is reassigned — the exact class U-455 froze `review_kind`
+       to prevent. Here the flags are misleading and the frozen kind is right. */
+    mockGetList.mockResolvedValue({
+      data: [
+        review({ id: 2, public_id: "rv-2", status_name: "In Review",
+                 review_kind: "in_review", status_is_initial: true,   // live flag LIES
+                 user_id: 33, user_firstname: "Claude", user_lastname: "Agent" }),
+        review({ status_is_initial: false }),                          // frozen kind is right
+      ],
+      count: 2,
+    });
+    render();
+    await flushUntil(() => container.textContent?.includes("submitted by") ?? false);
+
+    expect(container.textContent).toContain("submitted by Christopher Zubrod");
+  });
+
+  it("names whoever RESUBMITTED after a decline, not the original submitter", async () => {
+    mockGetList.mockResolvedValue({
+      data: [
+        review({ id: 4, public_id: "rv-4", status_name: "Submitted",
+                 review_kind: "submitted", user_id: 20,
+                 user_firstname: "Austin", user_lastname: "Rogers" }),
+        review({ id: 3, public_id: "rv-3", status_name: "Declined",
+                 review_kind: "declined", status_is_declined: true, status_is_initial: false }),
+        review({ id: 1 }),
+      ],
+      count: 3,
+    });
+    render();
+    await flushUntil(() => container.textContent?.includes("submitted by") ?? false);
+
+    expect(container.textContent).toContain("submitted by Austin Rogers");
+  });
+});
