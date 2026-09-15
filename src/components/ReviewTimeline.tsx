@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { getList, post, ApiError } from "../api/client";
+import { entityItemKey } from "../hooks/useEntity";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { hasModulePermission } from "../shared/permissions";
 import { Modules, type ModuleName } from "../shared/modules";
@@ -92,8 +94,14 @@ export default function ReviewTimeline({
   const canAct =
     !readOnly && hasModulePermission(me, MODULE_NAME[parentType], "can_submit");
 
+  const queryClient = useQueryClient();
   const slug = URL_SLUG[parentType];
   const fetchPath = `/api/v1/get/reviews/${slug}/${parentPublicId}`;
+  // U-464: the PARENT's item query, so a review action can tell the page its
+  // row moved. Same shape `useEntityItem` registers under — BillEdit uses
+  // `/api/v1/get/bill/${publicId}` — and `slug` already carries the per-parent
+  // spelling (bill-credit is hyphenated on the API surface).
+  const parentItemPath = `/api/v1/get/${slug}/${parentPublicId}`;
 
   const fetchReviews = async () => {
     setLoading(true);
@@ -148,6 +156,17 @@ export default function ReviewTimeline({
       // a picker here; today there's nothing to choose.
       await post<Review>(path, body);
       await fetchReviews();
+      // U-464: a review transition WRITES THE PARENT ROW — `CreateReview`
+      // sets the parent's Status — which bumps its ROWVERSION. This component
+      // holds its own local state and used to refresh only itself, so the page
+      // around it never learned the row had moved: its form kept the
+      // pre-action concurrency token and the next save (Complete runs one)
+      // came back 409 "Concurrency violation".
+      //
+      // Invalidating is additive and safe for every parent type: at worst it
+      // costs one refetch. The page still has to DO something with the fresh
+      // data — see BillEdit's server-owned-field rebase, the other half.
+      await queryClient.invalidateQueries({ queryKey: entityItemKey(parentItemPath) });
       setDialog(null);
     } catch (err: any) {
       const msg =

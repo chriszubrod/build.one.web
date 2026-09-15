@@ -261,8 +261,14 @@ export default function BillEdit() {
     };
   }, [item, fullProjects]);
 
+  // Which bill `form` was seeded from. The rebase below refuses to take a
+  // token from a DIFFERENT bill — see the guard's comment for why that is
+  // load-bearing rather than defensive.
+  const seededForRef = useRef<string | null>(null);
+
   // Init header form
   if (item && !form && fullVendors.length > 0 && fullPaymentTerms.length > 0) {
+    seededForRef.current = item.public_id;
     const vendor = fullVendors.find((v) => v.id === item.vendor_id);
     const paymentTerm = fullPaymentTerms.find((pt) => pt.id === item.payment_term_id);
     setForm({
@@ -278,6 +284,40 @@ export default function BillEdit() {
     });
   }
 
+
+  // U-464: rebase the SERVER-OWNED fields when fresh item data arrives.
+  //
+  // THE BUG. A review transition writes the parent Bill row (`CreateReview`
+  // sets its Status), bumping ROWVERSION. `ReviewTimeline` now invalidates the
+  // bill query, so fresh data arrives — but `form` is seeded ONCE
+  // (`if (item && !form …)`) and kept the pre-action token, so approving a bill
+  // and then clicking Complete returned 409 every time.
+  //
+  // ONLY `row_version` and `is_draft` are rebased. Both are read-only in this
+  // form: the user-bound inputs are bill_date, bill_number, due_date, memo,
+  // payment_term_public_id and vendor_public_id, and none of them is touched
+  // here. That is the property U-460 (reverted) lacked — it re-sent a whole
+  // page-load-era body with a fresh token, silently reverting whatever a
+  // concurrent editor had changed. Rebasing a field nobody can author cannot
+  // lose anybody's work.
+  //
+  // THE SAME-BILL GUARD IS NOT DEFENSIVE. `/bill/:publicId/edit` is one Route,
+  // so React reconciles the same instance when only the param changes and
+  // `form` keeps the PREVIOUS bill's values. Without this check, navigating
+  // between two bill-edit URLs would hand the save bill B's valid token
+  // carrying bill A's field values — a fail-safe 409 turned into silent
+  // cross-bill corruption, verified by probe during the U-460 review. U-462
+  // fixes the frozen form itself; this guard means U-464 does not have to wait
+  // for it.
+  useEffect(() => {
+    if (!item || !seededForRef.current) return;
+    if (item.public_id !== seededForRef.current) return;
+    setForm((prev: Record<string, unknown> | null) => {
+      if (!prev) return prev;
+      if (prev.row_version === item.row_version && prev.is_draft === item.is_draft) return prev;
+      return { ...prev, row_version: item.row_version, is_draft: item.is_draft };
+    });
+  }, [item]);
 
   const rowVersion = useSyncedToken(form?.row_version);
 

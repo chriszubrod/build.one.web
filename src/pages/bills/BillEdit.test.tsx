@@ -1020,3 +1020,95 @@ describe("BillEdit item cache reconciliation (U-174)", () => {
     expect(cachedBill()).toBeUndefined();
   });
 });
+
+describe("BillEdit server-owned field rebase (U-464)", () => {
+  /**
+   * THE BUG. A review transition writes the parent Bill row (`CreateReview`
+   * sets its Status), bumping ROWVERSION. `form` is seeded exactly once
+   * (`if (item && !form …)`) and kept the pre-action token, so approving a bill
+   * and then clicking Complete returned 409 "Concurrency violation" every time.
+   * Reported live on 2026-09-15, twice.
+   *
+   * ONLY `row_version` and `is_draft` rebase. Both are read-only in this form —
+   * the user-bound inputs are bill_date, bill_number, due_date, memo,
+   * payment_term_public_id and vendor_public_id. That is the property U-460
+   * (reverted) lacked: it re-sent a whole page-load-era body with a fresh token,
+   * silently reverting a concurrent editor's changes.
+   */
+  beforeEach(() => {
+    // An ordinary resolvable line — `waitForReady` keys on its description.
+    // The file-level default seeds the scope-invisible fixture, which belongs
+    // to the U-169 specs.
+    setupMocks([sampleLineItem()]);
+  });
+
+  const cachedBill = () => queryClient.getQueryData<Bill>(entityItemKey(BILL_GET_PATH));
+
+  it("picks up a row_version bumped by a review action, so the next save is not a 409", async () => {
+    renderBillEdit();
+    await waitForReady();
+
+    // What ReviewTimeline's invalidation delivers: the same bill, advanced.
+    act(() => {
+      queryClient.setQueryData(entityItemKey(BILL_GET_PATH), sampleBill({ row_version: "brv-after-approval" }));
+    });
+    // Propagation precondition — assert the fresh data actually landed before
+    // asserting what the page did with it.
+    await flushUntil(() => cachedBill()?.row_version === "brv-after-approval");
+    expect(cachedBill()?.row_version).toBe("brv-after-approval");
+
+    await clickSave();
+
+    const bodies = billHeaderPutBodies();
+    expect(bodies.length).toBeGreaterThan(0);
+    expect(bodies[bodies.length - 1].row_version).toBe("brv-after-approval");
+  });
+
+  it("does NOT overwrite fields the user has typed", async () => {
+    /* The U-460 failure, pinned: a rebase that touched editable fields would
+       silently revert in-progress work. */
+    renderBillEdit();
+    await waitForReady();
+
+    const billNumber = container.querySelector('input[name="bill_number"]') as HTMLInputElement;
+    expect(billNumber).toBeTruthy();
+    await act(async () => {
+      setInputValue(billNumber, "TYPED-BY-USER");
+    });
+
+    act(() => {
+      queryClient.setQueryData(entityItemKey(BILL_GET_PATH), sampleBill({
+        row_version: "brv-after-approval",
+        bill_number: "SERVER-VALUE",
+        memo: "server memo",
+      }));
+    });
+    await flushUntil(() => cachedBill()?.row_version === "brv-after-approval");
+
+    expect((container.querySelector('input[name="bill_number"]') as HTMLInputElement).value)
+      .toBe("TYPED-BY-USER");
+  });
+
+  it("refuses a token from a DIFFERENT bill", async () => {
+    /* `/bill/:publicId/edit` is one Route, so React reconciles the same
+       instance when the param changes and `form` keeps the previous bill's
+       values. Taking bill B's valid token under bill A's values is the
+       cross-bill corruption the U-460 review verified by probe. */
+    renderBillEdit();
+    await waitForReady();
+
+    act(() => {
+      queryClient.setQueryData(entityItemKey(BILL_GET_PATH), sampleBill({
+        public_id: "a-completely-different-bill",
+        row_version: "other-bills-token",
+      }));
+    });
+    await flushUntil(() => cachedBill()?.public_id === "a-completely-different-bill");
+
+    await clickSave();
+
+    const bodies = billHeaderPutBodies();
+    expect(bodies.length).toBeGreaterThan(0);
+    expect(bodies[bodies.length - 1].row_version).not.toBe("other-bills-token");
+  });
+});
