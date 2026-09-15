@@ -16,7 +16,7 @@ NOT shipped here.
 |---|---|
 | Launch app + render shell | ✅ (Tier 1) |
 | Browse last-viewed lists (TimeEntries, Labor) | ✅ from IndexedDB cache |
-| Browse last-viewed detail screens | ✅ |
+| Browse last-viewed detail screens | ❌ **since U-461** — see below |
 | See dropdowns (vendors, projects, SCCs) | ✅ |
 | See `/auth/me` profile + RBAC modules | ✅ (24h cache) |
 | New GET endpoints the app hasn't visited online yet | ❌ — nothing to fall back to |
@@ -89,9 +89,39 @@ with `npm test`. If those tests fail, **do not ship**.
 |---|---|---|
 | `['me']` | 24h | RBAC can change underneath us; stale identity is risky |
 | `['lookups', ...]` | 24h | Vendors/projects/SCCs update during the day |
-| Anything else | 7d | Entity lists / details — long enough for a weekend offline |
+| `['item', ...]` | **never persisted** | U-461 — see below |
+| Anything else (`['list', ...]`) | 7d | Entity lists — long enough for a weekend offline |
 
 Queries that errored or have no data are never dehydrated.
+
+### U-461 — single-entity payloads are never persisted (2026-09-15)
+
+**Offline detail reads are gone.** `['item', …]` used to fall into the 7-day
+bucket, which is what made this incident survive a reload:
+
+> A reviewer approved a Bill in the web UI. Advancing a review writes the parent
+> Bill row, bumping its ROWVERSION, so the open edit page's optimistic-concurrency
+> token went stale and every save returned 409. Ordinary so far — you reload.
+> **The reload did not help.** The bill was rehydrated from IndexedDB, and
+> `BillEdit` seeds its form from the first `item` it sees and never re-seeds, so
+> the fresh payload arriving moments later was discarded. Only a successful save
+> would replace the cached entry, and no save could succeed.
+
+An entity item carries a `row_version` — a *write token*. A token read off a disk
+cache of unknown age can serve a read but never a write, and an age limit only
+shortens that window rather than closing it: a one-hour-old token is exactly as
+stale as a seven-day-old one the moment somebody else writes the row.
+
+The trade was made deliberately: an edit page that silently stops saving is worse
+than a detail screen that needs a connection. Lists, lookups and identity still
+persist, so offline browsing survives down to the list level.
+
+`PERSISTER_BUSTER` was bumped to `bo-rq-v2` in the same change — the filter runs
+on WRITE, so without it every entry already on disk would still be restored on
+the next boot and the fix would have survived its own deployment.
+
+Policy lives in `src/persistPolicy.ts` (extracted so it can be specced; it was an
+inline closure, which is why the rule behind a production incident had no test).
 
 ## Files
 
