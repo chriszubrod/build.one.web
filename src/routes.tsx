@@ -55,14 +55,14 @@ import BillEditRoute from "./pages/bills/BillEditRoute";
 import ExpenseList from "./pages/expenses/ExpenseList";
 import ExpenseCreate from "./pages/expenses/ExpenseCreate";
 import ExpenseView from "./pages/expenses/ExpenseView";
-import ExpenseEdit from "./pages/expenses/ExpenseEdit";
+import ExpenseEditRoute from "./pages/expenses/ExpenseEditRoute";
 
 // Bill Credit surface (Phase 3) — renders inside the responsive AppLayout,
 // office/AP audience (gated on the Bill Credits module), like Expense in U-124.
 import BillCreditList from "./pages/bill-credits/BillCreditList";
 import BillCreditCreate from "./pages/bill-credits/BillCreditCreate";
 import BillCreditView from "./pages/bill-credits/BillCreditView";
-import BillCreditEdit from "./pages/bill-credits/BillCreditEdit";
+import BillCreditEditRoute from "./pages/bill-credits/BillCreditEditRoute";
 
 // Invoice surface (Phase 3) — browse-only: renders inside the responsive AppLayout,
 // office/AR audience (gated on the Invoices module). Invoices are QBO-first (created
@@ -194,13 +194,13 @@ export const appRouteTree = (
         <Route path="/expense/list" element={<ExpenseList />} />
         <Route path="/expense/create" element={<ExpenseCreate />} />
         <Route path="/expense/:publicId" element={<ExpenseView />} />
-        <Route path="/expense/:publicId/edit" element={<ExpenseEdit />} />
+        <Route path="/expense/:publicId/edit" element={<ExpenseEditRoute />} />
         <Route path="/expense/*" element={<Navigate to="/expense/list" replace />} />
 
         <Route path="/bill-credit/list" element={<BillCreditList />} />
         <Route path="/bill-credit/create" element={<BillCreditCreate />} />
         <Route path="/bill-credit/:publicId" element={<BillCreditView />} />
-        <Route path="/bill-credit/:publicId/edit" element={<BillCreditEdit />} />
+        <Route path="/bill-credit/:publicId/edit" element={<BillCreditEditRoute />} />
         <Route path="/bill-credit/*" element={<Navigate to="/bill-credit/list" replace />} />
 
         <Route path="/invoice/list" element={<InvoiceList />} />

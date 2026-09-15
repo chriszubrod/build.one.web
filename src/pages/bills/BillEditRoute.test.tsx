@@ -169,3 +169,38 @@ describe("routes.tsx wiring", () => {
     expect(executable).not.toMatch(/path="\/bill\/:publicId\/edit"\s+element=\{<BillEdit \/>\}/);
   });
 });
+
+describe("routes.tsx — every entity edit route is keyed (U-465)", () => {
+  /* The factory is inert on any route that does not use it. Bill was fixed in
+     U-462; Expense and BillCredit joined in U-465. InvoiceEdit is deliberately
+     absent — it is a dead file, not routed or imported anywhere, parked pending
+     U-128. */
+  it("Bill, Expense and BillCredit edit routes all use a keyed wrapper", async () => {
+    const src = await import("../../routes.tsx?raw").then((m) => m.default as string);
+    const executable = src
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("//") && !l.trim().startsWith("*"))
+      .join("\n");
+
+    for (const [path, wrapper] of [
+      ["/bill/:publicId/edit", "BillEditRoute"],
+      ["/expense/:publicId/edit", "ExpenseEditRoute"],
+      ["/bill-credit/:publicId/edit", "BillCreditEditRoute"],
+    ] as const) {
+      const re = new RegExp(`path="${path.replace(/\//g, "\\/")}"\\s+element=\\{<${wrapper} \\/>\\}`);
+      expect(executable, `${path} must render ${wrapper}`).toMatch(re);
+    }
+  });
+
+  it("no entity edit route renders its page component directly", async () => {
+    const src = await import("../../routes.tsx?raw").then((m) => m.default as string);
+    const executable = src
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("//") && !l.trim().startsWith("*"))
+      .join("\n");
+
+    for (const bare of ["BillEdit", "ExpenseEdit", "BillCreditEdit"]) {
+      expect(executable).not.toMatch(new RegExp(`element=\\{<${bare} \\/>\\}`));
+    }
+  });
+});

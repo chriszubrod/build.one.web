@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEntityItem, deleteEntity, entityItemKey } from "../../hooks/useEntity";
 import { useAutoSave } from "../../hooks/useAutoSave";
 import { useSyncedToken } from "../../hooks/useSyncedToken";
+import { useServerOwnedRebase } from "../../hooks/useServerOwnedRebase";
 import { useToast } from "../../components/Toast";
 import { put, post, del, getList, getOne, ApiError } from "../../api/client";
 import { useCompletionPolling } from "../../hooks/useCompletionPolling";
@@ -285,39 +286,23 @@ export default function BillEdit() {
   }
 
 
-  // U-464: rebase the SERVER-OWNED fields when fresh item data arrives.
+  // U-464/U-465: keep the SERVER-OWNED fields in step with the server.
   //
-  // THE BUG. A review transition writes the parent Bill row (`CreateReview`
-  // sets its Status), bumping ROWVERSION. `ReviewTimeline` now invalidates the
-  // bill query, so fresh data arrives — but `form` is seeded ONCE
-  // (`if (item && !form …)`) and kept the pre-action token, so approving a bill
-  // and then clicking Complete returned 409 every time.
+  // `form` is seeded once (`if (item && !form …)`), which is right for what the
+  // user types and wrong for `row_version`: a review transition writes the Bill
+  // row, bumps ROWVERSION, and the page kept the pre-action token — so approving
+  // a bill and then clicking Complete returned 409 every time.
   //
-  // ONLY `row_version` and `is_draft` are rebased. Both are read-only in this
-  // form: the user-bound inputs are bill_date, bill_number, due_date, memo,
-  // payment_term_public_id and vendor_public_id, and none of them is touched
-  // here. That is the property U-460 (reverted) lacked — it re-sent a whole
-  // page-load-era body with a fresh token, silently reverting whatever a
-  // concurrent editor had changed. Rebasing a field nobody can author cannot
-  // lose anybody's work.
-  //
-  // THE SAME-BILL GUARD IS NOT DEFENSIVE. `/bill/:publicId/edit` is one Route,
-  // so React reconciles the same instance when only the param changes and
-  // `form` keeps the PREVIOUS bill's values. Without this check, navigating
-  // between two bill-edit URLs would hand the save bill B's valid token
-  // carrying bill A's field values — a fail-safe 409 turned into silent
-  // cross-bill corruption, verified by probe during the U-460 review. U-462
-  // fixes the frozen form itself; this guard means U-464 does not have to wait
-  // for it.
-  useEffect(() => {
-    if (!item || !seededForRef.current) return;
-    if (item.public_id !== seededForRef.current) return;
-    setForm((prev: Record<string, unknown> | null) => {
-      if (!prev) return prev;
-      if (prev.row_version === item.row_version && prev.is_draft === item.is_draft) return prev;
-      return { ...prev, row_version: item.row_version, is_draft: item.is_draft };
-    });
-  }, [item]);
+  // ONLY row_version and is_draft. Both are read-only here; the bound inputs are
+  // bill_date, bill_number, due_date, memo, payment_term_public_id and
+  // vendor_public_id. Rebasing a field nobody can author cannot lose anybody's
+  // work — the property U-460 (reverted) lacked when it replayed a whole stale
+  // body. The same-entity guard lives in the hook; see its docstring for the
+  // cross-bill corruption it prevents.
+  useServerOwnedRebase(item, seededForRef, setForm, (b) => ({
+    row_version: b.row_version,
+    is_draft: b.is_draft,
+  }));
 
   const rowVersion = useSyncedToken(form?.row_version);
 

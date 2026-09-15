@@ -1,5 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
+import { useServerOwnedRebase } from "../../hooks/useServerOwnedRebase";
 import { useSyncedToken } from "../../hooks/useSyncedToken";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEntityItem, entityItemKey } from "../../hooks/useEntity";
@@ -116,7 +117,12 @@ export default function ExpenseEdit() {
   }, [item]);
 
   // Init header form
+  // U-465: which expense `form` was seeded from. The rebase below refuses a
+  // value from a different one — see useServerOwnedRebase for why.
+  const seededForRef = useRef<string | null>(null);
+
   if (item && !form) {
+      seededForRef.current = item.public_id;
     setForm({
       vendor_public_id: "",
       expense_date: item.expense_date,
@@ -127,7 +133,24 @@ export default function ExpenseEdit() {
       is_credit: item.is_credit,
       row_version: item.row_version,
     });
+
   }
+  // U-465: keep the SERVER-OWNED fields in step with the server.
+  //
+  // `form` is seeded once, which is right for what the user types and wrong
+  // for `row_version`. This page renders a ReviewTimeline, and a review
+  // transition writes the parent row and bumps ROWVERSION — so without this
+  // the next save after any review action returns 409 and the page stays
+  // wedged until a reload. Same defect Chris hit on Bill on 2026-09-15.
+  //
+  // ONLY row_version and is_draft: the bound inputs here are
+  // vendor_public_id, expense_date, reference_number, total_amount and memo.
+  // Rebasing a field nobody can author cannot lose anybody's work — the
+  // property U-460 (reverted) lacked when it replayed a whole stale body.
+  useServerOwnedRebase(item, seededForRef, setForm, (e) => ({
+    row_version: e.row_version,
+    is_draft: e.is_draft,
+  }));
 
   // Auto-save header on changes (300ms debounce)
   const autoSaveHeader = useCallback(async () => {

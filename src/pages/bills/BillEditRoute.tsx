@@ -1,5 +1,5 @@
-import { useParams } from "react-router-dom";
 import BillEdit from "./BillEdit";
+import { keyedByPublicId } from "../../routing/keyedByPublicId";
 
 /**
  * U-462 — give BillEdit a fresh instance per bill.
@@ -28,11 +28,10 @@ import BillEdit from "./BillEdit";
  * token carrying bill A's field values, verified by probe. The landmine is the
  * frozen form, not the token.
  *
- * NOT fixed here: ExpenseEdit, BillCreditEdit, InvoiceEdit and TimeEntryView all
- * have the same seed-once-never-reset shape. Booked — scoping this to Bill was
- * deliberate after a late widening went badly in the same session.
+ * U-465 moved this onto the shared `keyedByPublicId` factory and gave Expense
+ * and BillCredit the same treatment. NOT InvoiceEdit — it is a dead file, not
+ * routed or imported anywhere, parked pending U-128. NOT TimeEntryView — it
+ * already rebases via a hydrate effect that preserves in-progress input; same
+ * idea, different shape, already correct.
  */
-export default function BillEditRoute() {
-  const { publicId } = useParams<{ publicId: string }>();
-  return <BillEdit key={publicId} />;
-}
+export default keyedByPublicId(BillEdit);
