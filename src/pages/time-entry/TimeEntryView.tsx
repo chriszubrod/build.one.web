@@ -4,10 +4,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, del, getOne, post, put } from "../../api/client";
 import { useAutoSave } from "../../hooks/useAutoSave";
 import { useSyncedToken } from "../../hooks/useSyncedToken";
+import { serverDiverged } from "../../hooks/serverDiverged";
 import { useEntityList } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { canApproveTimeEntry } from "./timeEntryPermissions";
 import { useToast } from "../../components/Toast";
+import RecordChangedBanner from "../../components/RecordChangedBanner";
 import PageHeader from "../../components/PageHeader";
 import type {
   Project,
@@ -39,6 +41,23 @@ interface HeaderForm {
   user_public_id: string;
   work_date: string;
   note: string;
+}
+
+/** The write token. Everything else in HeaderForm is a bound input. */
+const TIME_ENTRY_OWNED = ["row_version"] as const;
+
+/**
+ * ONE projection for the hydrate seed, the dirty-branch base test, and
+ * the post-PUT recapture of baselineRef. A separate seed literal and a
+ * `{...prev, row_version}` patch is how this page was missed by U-465.
+ */
+function seedTimeEntryHeader(entry: TimeEntry, workerPublicId: string): HeaderForm {
+  return {
+    row_version: entry.row_version,
+    user_public_id: workerPublicId,
+    work_date: entry.work_date ?? "",
+    note: entry.note ?? "",
+  };
 }
 
 interface LogRow {
@@ -250,6 +269,9 @@ export default function TimeEntryView() {
   const formRef = useRef<HeaderForm | null>(null);
   formRef.current = form;
   const rowVersion = useSyncedToken(form?.row_version);
+  // Last-in-sync server projection for the dirty-branch base test (U-471).
+  const baselineRef = useRef<HeaderForm | null>(null);
+  const [diverged, setDiverged] = useState(false);
 
   // Self-heal the list cache: when this View fetches an entry, push the
   // user-visible fields into every cached list page so a stale row (e.g.,
@@ -309,19 +331,33 @@ export default function TimeEntryView() {
   useEffect(() => {
     if (!entry) return;
     const worker = users.find((u) => u.id === entry.user_id);
+    const incoming = seedTimeEntryHeader(entry, worker?.public_id ?? "");
+
+    const dirty = headerDirtyRef.current;
+    // Non-dirty: full re-seed — token and body advance together, and that
+    // is where the baseline is established (not lazily before this test).
+    // Dirty: rebase the token only when we HAVE a baseline and the
+    // server's editable fields still match it. No baseline means no proof;
+    // leave the token stale (the pre-U-464 409 wedge) rather than
+    // capturing this arrival as "in sync". The `dirty &&` is load-bearing:
+    // without it a non-dirty co-editor arrival would set `diverged` before
+    // the same effect re-seeds, leaving a sticky banner over a form that
+    // was just correctly refreshed.
+    const nextDiverged =
+      dirty &&
+      baselineRef.current !== null &&
+      serverDiverged(baselineRef.current, incoming, TIME_ENTRY_OWNED);
+    setDiverged((prev) => (prev === nextDiverged ? prev : nextDiverged));
+
     setForm((prev) => {
-      // If the user is mid-edit, preserve their in-progress header input and
-      // only refresh row_version (autoSaveHeader keeps it current too) — a
-      // stale autosave response patching the cache must NOT rewind the fields.
-      if (prev && headerDirtyRef.current) {
-        return { ...prev, row_version: entry.row_version };
+      if (prev && dirty) {
+        if (baselineRef.current === null || nextDiverged) return prev;
+        if (prev.row_version === incoming.row_version) return prev;
+        return { ...prev, row_version: incoming.row_version };
       }
-      return {
-        row_version: entry.row_version,
-        user_public_id: worker?.public_id ?? "",
-        work_date: entry.work_date ?? "",
-        note: entry.note ?? "",
-      };
+      // Seed / in-sync refresh — this is where the baseline is captured.
+      baselineRef.current = incoming;
+      return incoming;
     });
     setLogs((prev) => {
       const incoming = (entry.time_logs ?? []).map(logFromServer);
@@ -362,6 +398,10 @@ export default function TimeEntryView() {
       });
       rowVersion.set(updated.row_version);
       headerSaveFailedRef.current = false;
+      // The form is in sync with this PUT. Recapture so a later arrival
+      // carrying these values is not a false divergence.
+      const worker = users.find((u) => u.id === updated.user_id);
+      baselineRef.current = seedTimeEntryHeader(updated, worker?.public_id ?? sent.user_public_id);
       // Clear the dirty guard only if the current form still matches what we
       // sent — if the user kept typing, the newer edit stays dirty (and thus
       // protected from clobber) until its own autosave lands.
@@ -385,7 +425,7 @@ export default function TimeEntryView() {
     } finally {
       isSavingRef.current = false;
     }
-  }, [form, publicId, queryClient]);
+  }, [form, publicId, queryClient, rowVersion, users]);
 
   const { flush: flushAutoSave, cancel: cancelAutoSave } = useAutoSave(
     autoSaveHeader,
@@ -707,6 +747,7 @@ export default function TimeEntryView() {
 
       {/* === Header === */}
       <div className="form-card">
+        {diverged && <RecordChangedBanner entity="time entry" />}
         {headerError && <div className="form-error">{headerError}</div>}
         <div className="form-header-grid">
           {isDraft && isAdmin ? (

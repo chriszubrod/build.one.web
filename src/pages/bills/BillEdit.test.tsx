@@ -6,8 +6,8 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import BillEdit from "./BillEdit";
 import { ApiError } from "../../api/client";
 import { flushUntil } from "../../__testutils__/flush";
-import { setInputValue } from "../../__testutils__/domEvents";
-import { entityItemKey } from "../../hooks/useEntity";
+import { setInputValue, setTextareaValue } from "../../__testutils__/domEvents";
+import { entityItemKey, entityListKey } from "../../hooks/useEntity";
 import type { Bill, BillLineItem } from "../../types/api";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -1029,11 +1029,13 @@ describe("BillEdit server-owned field rebase (U-464)", () => {
    * and then clicking Complete returned 409 "Concurrency violation" every time.
    * Reported live on 2026-09-15, twice.
    *
-   * ONLY `row_version` and `is_draft` rebase. Both are read-only in this form —
-   * the user-bound inputs are bill_date, bill_number, due_date, memo,
-   * payment_term_public_id and vendor_public_id. That is the property U-460
-   * (reverted) lacked: it re-sent a whole page-load-era body with a fresh token,
-   * silently reverting a concurrent editor's changes.
+   * ONLY `row_version` and `is_draft` rebase, and only when the freshly-arrived
+   * record matches the last-in-sync baseline on every other projected key
+   * (U-471). Both are read-only in this form — the user-bound inputs are
+   * bill_date, bill_number, due_date, memo, payment_term_public_id and
+   * vendor_public_id. That is the property U-460 (reverted) lacked: it re-sent
+   * a whole page-load-era body with a fresh token, silently reverting a
+   * concurrent editor's changes.
    */
   beforeEach(() => {
     // An ordinary resolvable line — `waitForReady` keys on its description.
@@ -1110,5 +1112,162 @@ describe("BillEdit server-owned field rebase (U-464)", () => {
     const bodies = billHeaderPutBodies();
     expect(bodies.length).toBeGreaterThan(0);
     expect(bodies[bodies.length - 1].row_version).not.toBe("other-bills-token");
+  });
+
+  it("does NOT rebase the token when a co-editor changes memo — banner instead", async () => {
+    renderBillEdit();
+    await waitForReady();
+
+    act(() => {
+      queryClient.setQueryData(entityItemKey(BILL_GET_PATH), sampleBill({
+        row_version: "brv-co-editor",
+        memo: "from another window",
+      }));
+    });
+    await flushUntil(() => cachedBill()?.memo === "from another window");
+    expect(cachedBill()?.memo).toBe("from another window");
+
+    await flushUntil(() => container.textContent?.includes("This bill was changed in another window.") ?? false);
+    expect(container.textContent).toContain("This bill was changed in another window.");
+    expect(Array.from(container.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Reload")).toBe(true);
+
+    await clickSave();
+    const bodies = billHeaderPutBodies();
+    expect(bodies.length).toBeGreaterThan(0);
+    expect(bodies[bodies.length - 1].row_version).toBe("brv-1");
+    expect(bodies[bodies.length - 1].row_version).not.toBe("brv-co-editor");
+  });
+
+  it("saveAll: an arrival carrying the saved values is NOT diverged", async () => {
+    /* flushAutoSave runs autoSaveHeader first. Fail that PUT so only
+       saveAll's acceptBaseline can move the baseline — miss it and this
+       arrival looks like a co-editor. */
+    let headerPuts = 0;
+    mockPut.mockImplementation((path: string, body: Record<string, unknown>) => {
+      if (path === "/api/v1/update/bill/bill-1") {
+        headerPuts += 1;
+        if (headerPuts === 1) return Promise.reject(new Error("autosave fail"));
+        return Promise.resolve(sampleBill({
+          row_version: "brv-after-saveall",
+          memo: (body.memo as string | null) ?? "",
+        }));
+      }
+      if (path.startsWith("/api/v1/update/bill_line_item/")) {
+        const id = path.split("/").pop()!;
+        return Promise.resolve({ public_id: id, row_version: "rv-1b" });
+      }
+      return Promise.reject(new Error(`unexpected put: ${path}`));
+    });
+
+    renderBillEdit();
+    await waitForReady();
+
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    expect(memo).toBeTruthy();
+    await act(async () => {
+      setTextareaValue(memo, "saved via saveAll");
+    });
+
+    await clickSave();
+    expect(billHeaderPutBodies().length).toBeGreaterThan(0);
+
+    act(() => {
+      queryClient.setQueryData(entityItemKey(BILL_GET_PATH), sampleBill({
+        row_version: "brv-after-saveall",
+        memo: "saved via saveAll",
+      }));
+    });
+    await flushUntil(() => cachedBill()?.memo === "saved via saveAll");
+    expect(container.textContent).not.toContain("This bill was changed in another window.");
+  });
+
+  it("autoSaveHeader: an arrival carrying the saved values is NOT diverged", async () => {
+    mockPut.mockImplementation((path: string, body: Record<string, unknown>) => {
+      if (path === "/api/v1/update/bill/bill-1") {
+        return Promise.resolve(sampleBill({
+          row_version: "brv-after-autosave",
+          memo: (body.memo as string | null) ?? "",
+        }));
+      }
+      if (path.startsWith("/api/v1/update/bill_line_item/")) {
+        const id = path.split("/").pop()!;
+        return Promise.resolve({ public_id: id, row_version: "rv-1b" });
+      }
+      return Promise.reject(new Error(`unexpected put: ${path}`));
+    });
+
+    renderBillEdit();
+    await waitForReady();
+
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => {
+      setTextareaValue(memo, "saved via autosave");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    await flushUntil(() => billHeaderPutBodies().length > 0);
+    expect(billHeaderPutBodies().length).toBeGreaterThan(0);
+
+    act(() => {
+      queryClient.setQueryData(entityItemKey(BILL_GET_PATH), sampleBill({
+        row_version: "brv-after-autosave",
+        memo: "saved via autosave",
+      }));
+    });
+    await flushUntil(() => cachedBill()?.memo === "saved via autosave");
+    expect(container.textContent).not.toContain("This bill was changed in another window.");
+  });
+
+  it("deferred seed: vendors arriving after the bill do not let a co-editor rebase the token", async () => {
+    /* P0 — BillEdit's seed waits on fullVendors AND fullPaymentTerms. The
+       item GET often wins that race; a lazy [item] capture then either
+       never runs (same identity when vendors land) or captures the
+       co-editor as "in sync". Hold /get/vendors empty until the bill is
+       in cache, then enable the gate, then deliver a co-editor. */
+    const prior = mockGetList.getMockImplementation()!;
+    mockGetList.mockImplementation((path: string) => {
+      if (path === "/api/v1/get/vendors") {
+        return Promise.resolve({ data: [], count: 0 });
+      }
+      return prior(path);
+    });
+
+    renderBillEdit();
+    await flushUntil(() => cachedBill() !== undefined);
+    expect(cachedBill()?.row_version).toBe("brv-1");
+    expect(queryClient.getQueryData(entityListKey("/api/v1/get/vendors"))).toEqual({
+      data: [],
+      count: 0,
+    });
+    // Gate still closed — the page returns null until it can seed.
+    expect(
+      Array.from(container.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Save"),
+    ).toBe(false);
+
+    act(() => {
+      queryClient.setQueryData(entityListKey("/api/v1/get/vendors"), {
+        data: [{ id: 1, public_id: "v-1", name: "V" }],
+        count: 1,
+      });
+    });
+    await waitForReady();
+
+    act(() => {
+      queryClient.setQueryData(entityItemKey(BILL_GET_PATH), sampleBill({
+        row_version: "brv-co-editor",
+        memo: "from another window",
+      }));
+    });
+    await flushUntil(() => cachedBill()?.memo === "from another window");
+
+    await flushUntil(() => container.textContent?.includes("This bill was changed in another window.") ?? false);
+    expect(container.textContent).toContain("This bill was changed in another window.");
+
+    await clickSave();
+    const bodies = billHeaderPutBodies();
+    expect(bodies.length).toBeGreaterThan(0);
+    expect(bodies[bodies.length - 1].row_version).toBe("brv-1");
+    expect(bodies[bodies.length - 1].row_version).not.toBe("brv-co-editor");
   });
 });

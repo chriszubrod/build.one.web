@@ -19,6 +19,7 @@ import SelectField from "../../components/SelectField";
 import InlineLineItems, { type LineItemFieldDef } from "../../components/InlineLineItems";
 import LineItemAttachment from "../../components/LineItemAttachment";
 import ReviewTimeline from "../../components/ReviewTimeline";
+import RecordChangedBanner from "../../components/RecordChangedBanner";
 import type { Expense, ExpenseLineItem } from "../../types/api";
 import { existingUidsByPublicId, newLineItemUid, persistedLineItemUid } from "../../shared/lineItemUid";
 
@@ -121,36 +122,38 @@ export default function ExpenseEdit() {
   // value from a different one — see useServerOwnedRebase for why.
   const seededForRef = useRef<string | null>(null);
 
-  if (item && !form) {
-      seededForRef.current = item.public_id;
-    setForm({
-      vendor_public_id: "",
-      expense_date: item.expense_date,
-      reference_number: item.reference_number,
-      total_amount: item.total_amount ?? "",
-      memo: item.memo ?? "",
-      is_draft: item.is_draft,
-      is_credit: item.is_credit,
-      row_version: item.row_version,
-    });
-
-  }
-  // U-465: keep the SERVER-OWNED fields in step with the server.
-  //
-  // `form` is seeded once, which is right for what the user types and wrong
-  // for `row_version`. This page renders a ReviewTimeline, and a review
-  // transition writes the parent row and bumps ROWVERSION — so without this
-  // the next save after any review action returns 409 and the page stays
-  // wedged until a reload. Same defect Chris hit on Bill on 2026-09-15.
-  //
-  // ONLY row_version and is_draft: the bound inputs here are
-  // vendor_public_id, expense_date, reference_number, total_amount and memo.
-  // Rebasing a field nobody can author cannot lose anybody's work — the
-  // property U-460 (reverted) lacked when it replayed a whole stale body.
-  useServerOwnedRebase(item, seededForRef, setForm, (e) => ({
-    row_version: e.row_version,
+  // ONE projection for the seed, the baseline, and the divergence test.
+  // A separate seed literal and pick literal is how U-464/U-465 were
+  // allowed to rebase a token under a body they had never compared.
+  const seedFrom = (e: Expense) => ({
+    vendor_public_id: "",
+    expense_date: e.expense_date,
+    reference_number: e.reference_number,
+    total_amount: e.total_amount ?? "",
+    memo: e.memo ?? "",
     is_draft: e.is_draft,
-  }));
+    is_credit: e.is_credit,
+    row_version: e.row_version,
+  });
+
+  // U-471: rebase the write token only when the freshly-arrived record
+  // differs from the last-in-sync baseline solely in server-owned fields.
+  // A review transition still rebases; a co-editor's memo change does not.
+  // owned is exactly {row_version, is_draft}; a bound input here is a
+  // lost-update bug. The same-entity guard lives in the hook.
+  const { diverged, acceptBaseline } = useServerOwnedRebase({
+    item,
+    seededFor: seededForRef,
+    setForm,
+    seedFrom,
+    owned: ["row_version", "is_draft"],
+  });
+
+  if (item && !form) {
+    seededForRef.current = item.public_id;
+    acceptBaseline(item);
+    setForm(seedFrom(item));
+  }
 
   // Auto-save header on changes (300ms debounce)
   const autoSaveHeader = useCallback(async () => {
@@ -167,11 +170,12 @@ export default function ExpenseEdit() {
         is_credit: form.is_credit,
       });
       rowVersion.set(updated.row_version);
+      acceptBaseline(updated);
       setForm((prev: any) => prev ? { ...prev, row_version: updated.row_version } : prev);
     } catch {
       // Silent fail for auto-save
     }
-  }, [form, id, rowVersion]);
+  }, [form, id, rowVersion, acceptBaseline]);
 
   const { flush: flushAutoSave, cancel: cancelAutoSave } = useAutoSave(
     autoSaveHeader,
@@ -217,6 +221,7 @@ export default function ExpenseEdit() {
         is_credit: form.is_credit,
       });
       rowVersion.set(updated.row_version);
+      acceptBaseline(updated);
       setForm((prev: any) => ({ ...prev, row_version: updated.row_version }));
 
       // Sync line items: delete removed, update existing, create new
@@ -292,6 +297,7 @@ export default function ExpenseEdit() {
     <div className="page form-page-wide">
       <div className="page-header"><h1>Edit Expense {item?.reference_number}</h1></div>
       <form className="form-card" onSubmit={handleSubmit}>
+        {diverged && <RecordChangedBanner entity="expense" />}
         {saveError && <div className="form-error">{saveError}</div>}
 
         {id && <ReviewTimeline parentType="expense" parentPublicId={id} />}

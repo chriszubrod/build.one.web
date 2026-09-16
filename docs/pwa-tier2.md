@@ -22,7 +22,7 @@ NOT shipped here.
 | New GET endpoints the app hasn't visited online yet | ❌ — nothing to fall back to |
 | Mutations (POST/PUT/DELETE) | ❌ — surfaces typed error + toast |
 | Update to a new SW build | ✅ user-prompted Reload (Tier 1) |
-| Auto-refresh when network restored | ✅ all queries invalidated on reconnect |
+| Auto-refresh when network restored | ✅ lists, lookups and identity invalidated on reconnect (U-471 excludes `['item', …]` — see below) |
 | Storage usage visibility | ✅ Profile → Appearance |
 | Manual "Clear cached data" | ✅ Profile → Appearance |
 
@@ -32,7 +32,7 @@ NOT shipped here.
 ┌─────────────────────────────────────────────────────────────────┐
 │ React (App.tsx, components, pages)                              │
 │   • <PersistQueryClientProvider> wraps the tree                 │
-│   • <InvalidateOnReconnect /> invalidates on online event       │
+│   • <InvalidateOnReconnect /> invalidates on online, minus items │
 │   • <OfflineBanner /> shows "Synced X ago" + WiFi-off icon      │
 └──────────────────┬──────────────────────────────────────────────┘
                    │ useQuery / useMutation
@@ -116,6 +116,28 @@ The trade was made deliberately: an edit page that silently stops saving is wors
 than a detail screen that needs a connection. Lists, lookups and identity still
 persist, so offline browsing survives down to the list level.
 
+**U-471 finished the story, and corrected a wrong assumption in it.** U-461 stopped
+a stale token being *restored from disk*; it did not stop one being *fetched fresh*
+and then applied to a form whose editable fields had not moved with it. U-464/U-465
+copied `row_version` out of any freshly-arrived item, which turned the fail-safe 409
+into a **silent lost update**: editor A's stale body went to the server under editor
+B's valid token, and B's change was gone.
+
+Two things follow for anyone touching this area:
+
+1. **You cannot close this by controlling refetches.** `refetchOnReconnect` is not
+   set anywhere in `src/` and React Query defaults it to `true`, so any item query
+   past `staleTime` refetches on reconnect no matter what `InvalidateOnReconnect`
+   filters. `networkMode: "offlineFirst"` also *pauses* a failed offline GET and
+   resumes it on reconnect — a path not even `refetchOnReconnect: false` would stop.
+   **Gate the rebase, not the refetch.**
+2. **The gate is a three-way-merge base test** (`src/hooks/serverDiverged.ts`): a
+   token is rebased only when the arriving record differs from the last-in-sync
+   baseline *solely* in server-owned fields. Otherwise the token stays stale (the
+   save still 409s — fail-safe) and `RecordChangedBanner` offers a confirmed reload.
+   The `['item', …]` exclusion in `InvalidateOnReconnect` is a reduction in pointless
+   token churn, **not** the fix — do not cite it as one.
+
 `PERSISTER_BUSTER` was bumped to `bo-rq-v2` in the same change — the filter runs
 on WRITE, so without it every entry already on disk would still be restored on
 the next boot and the fix would have survived its own deployment.
@@ -141,7 +163,7 @@ build.one.web/
 │   │   ├── cacheCleanup.ts     ← clearAllUserScopedStorage()
 │   │   └── cacheCleanup.test.ts ← contract test (5 specs)
 │   ├── components/
-│   │   ├── InvalidateOnReconnect.tsx ← invalidate-on-online
+│   │   ├── InvalidateOnReconnect.tsx ← invalidate-on-online (skips items)
 │   │   └── OfflineBanner.tsx   ← "Synced X ago" pill
 │   └── hooks/
 │       ├── useOnline.ts        ← navigator.onLine + events
@@ -167,8 +189,10 @@ In addition to the Tier 1 checks (see `pwa-tier1.md`):
    `/labor/list` while online, force-close, enable Airplane Mode, relaunch
    → list should render with WiFi-off pill saying "You're offline ·
    Synced Xm ago".
-4. **Reconnect refreshes** — while offline on a list, turn network back
-   on; the list should silently refetch and update.
+4. **Reconnect refreshes** — while offline on a **list**, turn network back
+   on; the list should silently refetch and update. (Detail/edit pages are
+   deliberately excluded from the reconnect sweep since U-471; they still
+   refetch via React Query's own `refetchOnReconnect` once past `staleTime`.)
 5. **Storage estimate works** — Profile → Appearance → Storage section
    shows Used / Available / Usage % with non-zero numbers after
    browsing.

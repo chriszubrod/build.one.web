@@ -6,6 +6,9 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import BillCreditEdit from "./BillCreditEdit";
 import { Modules } from "../../shared/modules";
 import type { BillCredit, CurrentUser, CurrentUserModule } from "../../types/api";
+import { flushUntil } from "../../__testutils__/flush";
+import { setTextareaValue } from "../../__testutils__/domEvents";
+import { entityItemKey } from "../../hooks/useEntity";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -346,5 +349,123 @@ describe("BillCreditEdit permissions", () => {
     await waitForCondition(() => findSaveButton(container) !== undefined);
 
     expect(container.textContent).not.toContain("Complete Bill Credit");
+  });
+});
+
+describe("BillCreditEdit token rebase (U-471)", () => {
+  let queryClient: QueryClient;
+
+  function render() {
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    act(() => {
+      root.render(
+        createElement(
+          MemoryRouter,
+          { initialEntries: ["/bill-credit/bc-1/edit"] },
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(
+              Routes,
+              null,
+              createElement(Route, {
+                path: "/bill-credit/:publicId/edit",
+                element: createElement(BillCreditEdit),
+              }),
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  function cached() {
+    return queryClient.getQueryData<BillCredit>(entityItemKey(BILL_CREDIT_GET_PATH));
+  }
+
+  function headerPutBodies(): Record<string, unknown>[] {
+    return mockPut.mock.calls
+      .filter((c) => c[0] === "/api/v1/update/bill-credit/bc-1")
+      .map((c) => c[1] as Record<string, unknown>);
+  }
+
+  async function waitReady() {
+    await waitForCondition(() => findSaveButton(container) !== undefined);
+    expect(findSaveButton(container)).toBeDefined();
+  }
+
+  async function clickSave() {
+    const btn = findSaveButton(container);
+    expect(btn).toBeDefined();
+    await act(async () => {
+      btn!.click();
+    });
+    await flushUntil(() => {
+      const b = findSaveButton(container);
+      return b?.textContent?.trim() === "Save";
+    });
+  }
+
+  beforeEach(() => {
+    mockPut.mockImplementation((path: string, body: Record<string, unknown>) => {
+      if (path === "/api/v1/update/bill-credit/bc-1") {
+        return Promise.resolve(sampleBillCredit({
+          row_version: "rv-2",
+          memo: (body.memo as string | null) ?? "",
+          is_draft: true,
+        }));
+      }
+      if (path.startsWith("/api/v1/update/bill-credit-line-item/")) {
+        return Promise.resolve({
+          public_id: path.split("/").pop(),
+          row_version: "rv-li-upd",
+        });
+      }
+      return Promise.reject(new Error("unexpected put: " + path));
+    });
+    mockDel.mockResolvedValue({});
+  });
+
+  it("does NOT rebase the token when a co-editor changes memo — banner instead", async () => {
+    render();
+    await waitReady();
+
+    act(() => {
+      queryClient.setQueryData(entityItemKey(BILL_CREDIT_GET_PATH), sampleBillCredit({
+        row_version: "rv-co-editor",
+        memo: "from another window",
+      }));
+    });
+    await flushUntil(() => cached()?.memo === "from another window");
+
+    await flushUntil(() => container.textContent?.includes("This bill credit was changed in another window.") ?? false);
+    expect(container.textContent).toContain("This bill credit was changed in another window.");
+
+    await clickSave();
+    const bodies = headerPutBodies();
+    expect(bodies.length).toBeGreaterThan(0);
+    expect(bodies[bodies.length - 1].row_version).toBe("rv-1");
+    expect(bodies[bodies.length - 1].row_version).not.toBe("rv-co-editor");
+  });
+
+  it("saveAll: an arrival carrying the saved values is NOT diverged", async () => {
+    render();
+    await waitReady();
+
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => {
+      setTextareaValue(memo, "saved via saveAll");
+    });
+    await clickSave();
+    expect(headerPutBodies().length).toBeGreaterThan(0);
+
+    act(() => {
+      queryClient.setQueryData(entityItemKey(BILL_CREDIT_GET_PATH), sampleBillCredit({
+        row_version: "rv-2",
+        memo: "saved via saveAll",
+      }));
+    });
+    await flushUntil(() => cached()?.memo === "saved via saveAll");
+    expect(container.textContent).not.toContain("This bill credit was changed in another window.");
   });
 });

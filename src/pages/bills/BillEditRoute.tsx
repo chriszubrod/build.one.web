@@ -31,7 +31,9 @@ import { keyedByPublicId } from "../../routing/keyedByPublicId";
  * U-465 moved this onto the shared `keyedByPublicId` factory and gave Expense
  * and BillCredit the same treatment. NOT InvoiceEdit — it is a dead file, not
  * routed or imported anywhere, parked pending U-128. NOT TimeEntryView — it
- * already rebases via a hydrate effect that preserves in-progress input; same
- * idea, different shape, already correct.
+ * hydrates via an effect keyed on `entry?.public_id`, so a param change
+ * re-seeds only when the header is NOT dirty (the dirty branch keeps the
+ * in-progress form and gates the token with `serverDiverged`). It does not
+ * have the seed-once frozen-form landmine this factory exists for.
  */
 export default keyedByPublicId(BillEdit);

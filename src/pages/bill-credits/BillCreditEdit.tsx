@@ -14,6 +14,7 @@ import SelectField from "../../components/SelectField";
 import InlineLineItems, { type LineItemFieldDef } from "../../components/InlineLineItems";
 import LineItemAttachment from "../../components/LineItemAttachment";
 import ReviewTimeline from "../../components/ReviewTimeline";
+import RecordChangedBanner from "../../components/RecordChangedBanner";
 import type { BillCredit, BillCreditLineItem } from "../../types/api";
 import { existingUidsByPublicId, newLineItemUid, persistedLineItemUid } from "../../shared/lineItemUid";
 
@@ -96,35 +97,37 @@ export default function BillCreditEdit() {
   // value from a different one — see useServerOwnedRebase for why.
   const seededForRef = useRef<string | null>(null);
 
-  if (item && !form) {
-      seededForRef.current = item.public_id;
-    setForm({
-      vendor_public_id: "",
-      credit_date: item.credit_date,
-      credit_number: item.credit_number,
-      total_amount: item.total_amount ?? "",
-      memo: item.memo ?? "",
-      is_draft: item.is_draft,
-      row_version: item.row_version,
-    });
-
-  }
-  // U-465: keep the SERVER-OWNED fields in step with the server.
-  //
-  // `form` is seeded once, which is right for what the user types and wrong
-  // for `row_version`. This page renders a ReviewTimeline, and a review
-  // transition writes the parent row and bumps ROWVERSION — so without this
-  // the next save after any review action returns 409 and the page stays
-  // wedged until a reload. Same defect Chris hit on Bill on 2026-09-15.
-  //
-  // ONLY row_version and is_draft: the bound inputs here are
-  // vendor_public_id, credit_date, credit_number, total_amount and memo.
-  // Rebasing a field nobody can author cannot lose anybody's work — the
-  // property U-460 (reverted) lacked when it replayed a whole stale body.
-  useServerOwnedRebase(item, seededForRef, setForm, (bc) => ({
-    row_version: bc.row_version,
+  // ONE projection for the seed, the baseline, and the divergence test.
+  // A separate seed literal and pick literal is how U-464/U-465 were
+  // allowed to rebase a token under a body they had never compared.
+  const seedFrom = (bc: BillCredit) => ({
+    vendor_public_id: "",
+    credit_date: bc.credit_date,
+    credit_number: bc.credit_number,
+    total_amount: bc.total_amount ?? "",
+    memo: bc.memo ?? "",
     is_draft: bc.is_draft,
-  }));
+    row_version: bc.row_version,
+  });
+
+  // U-471: rebase the write token only when the freshly-arrived record
+  // differs from the last-in-sync baseline solely in server-owned fields.
+  // A review transition still rebases; a co-editor's memo change does not.
+  // owned is exactly {row_version, is_draft}; a bound input here is a
+  // lost-update bug. The same-entity guard lives in the hook.
+  const { diverged, acceptBaseline } = useServerOwnedRebase({
+    item,
+    seededFor: seededForRef,
+    setForm,
+    seedFrom,
+    owned: ["row_version", "is_draft"],
+  });
+
+  if (item && !form) {
+    seededForRef.current = item.public_id;
+    acceptBaseline(item);
+    setForm(seedFrom(item));
+  }
 
   if (loading || meLoading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
@@ -158,6 +161,7 @@ export default function BillCreditEdit() {
         is_draft: form.is_draft,
       });
       setForm((prev: any) => ({ ...prev, row_version: updated.row_version }));
+      acceptBaseline(updated);
 
       // Sync line items: delete removed, update existing, create new
       const currentIds = new Set(lineItems.filter((li) => li.public_id).map((li) => li.public_id));
@@ -236,6 +240,7 @@ export default function BillCreditEdit() {
     <div className="page form-page-wide">
       <div className="page-header"><h1>Edit Bill Credit {item?.credit_number}</h1></div>
       <form className="form-card" onSubmit={handleSubmit}>
+        {diverged && <RecordChangedBanner entity="bill credit" />}
         {saveError && <div className="form-error">{saveError}</div>}
 
         {id && <ReviewTimeline parentType="bill_credit" parentPublicId={id} />}

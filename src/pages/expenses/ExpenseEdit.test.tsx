@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import ExpenseEdit from "./ExpenseEdit";
 import type { Expense } from "../../types/api";
-import { setInputValue } from "../../__testutils__/domEvents";
+import { setInputValue, setTextareaValue } from "../../__testutils__/domEvents";
 import { flushUntil } from "../../__testutils__/flush";
 import { RefetchWitness, WITNESS_ID } from "../../__testutils__/formSeedGuardHarness";
 import {
@@ -788,5 +788,159 @@ describe("ExpenseEdit chained-save row_version", () => {
     expect(bodies.length).toBeGreaterThanOrEqual(2);
     expect(bodies[0].row_version).toBe("rv-1");
     expect(bodies[1].row_version).toBe("rv-2");
+  });
+});
+
+describe("ExpenseEdit token rebase (U-471)", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let queryClient: QueryClient;
+
+  function render() {
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    act(() => {
+      root.render(
+        createElement(
+          MemoryRouter,
+          { initialEntries: ["/expense/exp-1/edit"] },
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(
+              Routes,
+              null,
+              createElement(Route, {
+                path: "/expense/:publicId/edit",
+                element: createElement(ExpenseEdit),
+              }),
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  function cachedExpense() {
+    return queryClient.getQueryData<Expense>(entityItemKey(EXPENSE_GET_PATH));
+  }
+
+  function headerPutBodies(): Record<string, unknown>[] {
+    return mockPut.mock.calls
+      .filter((c) => c[0] === "/api/v1/update/expense/exp-1")
+      .map((c) => c[1] as Record<string, unknown>);
+  }
+
+  async function clickSave() {
+    const btn = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent?.trim() === "Save",
+    );
+    expect(btn).toBeDefined();
+    await act(async () => {
+      btn!.click();
+    });
+    await flushUntil(() => {
+      const b = Array.from(container.querySelectorAll("button")).find(
+        (x) => x.textContent?.trim() === "Save" || x.textContent?.trim() === "Saving...",
+      );
+      return b?.textContent?.trim() === "Save";
+    });
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === EXPENSE_GET_PATH) return Promise.resolve(sampleExpense());
+      return Promise.reject(new Error("unexpected getOne: " + path));
+    });
+    mockGetList.mockResolvedValue({ data: [], count: 0 });
+    mockPut.mockImplementation((path: string, body: Record<string, unknown>) => {
+      if (path === "/api/v1/update/expense/exp-1") {
+        return Promise.resolve(sampleExpense({
+          row_version: "rv-2",
+          memo: (body.memo as string | null) ?? "",
+        }));
+      }
+      return Promise.reject(new Error("unexpected put: " + path));
+    });
+    mockPost.mockResolvedValue({});
+    mockDel.mockResolvedValue({});
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    document.body.removeChild(container);
+    vi.useRealTimers();
+  });
+
+  it("does NOT rebase the token when a co-editor changes memo — banner instead", async () => {
+    render();
+    await waitForReady(container);
+
+    act(() => {
+      queryClient.setQueryData(entityItemKey(EXPENSE_GET_PATH), sampleExpense({
+        row_version: "rv-co-editor",
+        memo: "from another window",
+      }));
+    });
+    await flushUntil(() => cachedExpense()?.memo === "from another window");
+
+    await flushUntil(() => container.textContent?.includes("This expense was changed in another window.") ?? false);
+    expect(container.textContent).toContain("This expense was changed in another window.");
+
+    await clickSave();
+    const bodies = headerPutBodies();
+    expect(bodies.length).toBeGreaterThan(0);
+    expect(bodies[bodies.length - 1].row_version).toBe("rv-1");
+    expect(bodies[bodies.length - 1].row_version).not.toBe("rv-co-editor");
+  });
+
+  it("saveAll: an arrival carrying the saved values is NOT diverged", async () => {
+    render();
+    await waitForReady(container);
+
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => {
+      setTextareaValue(memo, "saved via saveAll");
+    });
+    await clickSave();
+    expect(headerPutBodies().length).toBeGreaterThan(0);
+
+    act(() => {
+      queryClient.setQueryData(entityItemKey(EXPENSE_GET_PATH), sampleExpense({
+        row_version: "rv-2",
+        memo: "saved via saveAll",
+      }));
+    });
+    await flushUntil(() => cachedExpense()?.memo === "saved via saveAll");
+    expect(container.textContent).not.toContain("This expense was changed in another window.");
+  });
+
+  it("autoSaveHeader: an arrival carrying the saved values is NOT diverged", async () => {
+    render();
+    await waitForReady(container);
+
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => {
+      setTextareaValue(memo, "saved via autosave");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    await flushUntil(() => headerPutBodies().length > 0);
+
+    act(() => {
+      queryClient.setQueryData(entityItemKey(EXPENSE_GET_PATH), sampleExpense({
+        row_version: "rv-2",
+        memo: "saved via autosave",
+      }));
+    });
+    await flushUntil(() => cachedExpense()?.memo === "saved via autosave");
+    expect(container.textContent).not.toContain("This expense was changed in another window.");
   });
 });

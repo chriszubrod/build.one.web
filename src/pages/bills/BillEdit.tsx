@@ -22,6 +22,7 @@ import TextareaField from "../../components/TextareaField";
 import SelectField from "../../components/SelectField";
 import LineItemAttachment from "../../components/LineItemAttachment";
 import ReviewTimeline from "../../components/ReviewTimeline";
+import RecordChangedBanner from "../../components/RecordChangedBanner";
 import Breadcrumb from "../../components/Breadcrumb";
 import type { Bill, BillLineItem } from "../../types/api";
 
@@ -267,42 +268,45 @@ export default function BillEdit() {
   // load-bearing rather than defensive.
   const seededForRef = useRef<string | null>(null);
 
-  // Init header form
+  // ONE projection for the seed, the baseline, and the divergence test.
+  // A separate seed literal and pick literal is how U-464/U-465 were
+  // allowed to rebase a token under a body they had never compared.
+  const seedFrom = (b: Bill) => ({
+    vendor_public_id: fullVendors.find((v) => v.id === b.vendor_id)?.public_id ?? "",
+    payment_term_public_id: fullPaymentTerms.find((pt) => pt.id === b.payment_term_id)?.public_id ?? "",
+    bill_date: b.bill_date,
+    due_date: b.due_date,
+    bill_number: b.bill_number,
+    total_amount: b.total_amount ?? "",
+    memo: b.memo ?? "",
+    is_draft: b.is_draft,
+    row_version: b.row_version,
+  });
+
+  // U-471: rebase the write token only when the freshly-arrived record
+  // differs from the last-in-sync baseline solely in server-owned fields.
+  // A review transition (U-464) still rebases; a co-editor's memo change
+  // does not — that used to 409, then U-464/U-465 made it a silent lost
+  // update. owned is exactly {row_version, is_draft}; a bound input here
+  // is a lost-update bug. The same-entity guard lives in the hook.
+  const { diverged, acceptBaseline } = useServerOwnedRebase({
+    item,
+    seededFor: seededForRef,
+    setForm,
+    seedFrom,
+    owned: ["row_version", "is_draft"],
+  });
+
+  // Init header form. Baseline is captured HERE, not lazily in the hook:
+  // this gate waits on vendor/payment-term lists, so `item` often arrives
+  // first and keeps its identity when the lists land. A lazy capture keyed
+  // on `[item]` would then miss the seed and treat a later co-editor
+  // arrival as "in sync".
   if (item && !form && fullVendors.length > 0 && fullPaymentTerms.length > 0) {
     seededForRef.current = item.public_id;
-    const vendor = fullVendors.find((v) => v.id === item.vendor_id);
-    const paymentTerm = fullPaymentTerms.find((pt) => pt.id === item.payment_term_id);
-    setForm({
-      vendor_public_id: vendor?.public_id ?? "",
-      payment_term_public_id: paymentTerm?.public_id ?? "",
-      bill_date: item.bill_date,
-      due_date: item.due_date,
-      bill_number: item.bill_number,
-      total_amount: item.total_amount ?? "",
-      memo: item.memo ?? "",
-      is_draft: item.is_draft,
-      row_version: item.row_version,
-    });
+    acceptBaseline(item);
+    setForm(seedFrom(item));
   }
-
-
-  // U-464/U-465: keep the SERVER-OWNED fields in step with the server.
-  //
-  // `form` is seeded once (`if (item && !form …)`), which is right for what the
-  // user types and wrong for `row_version`: a review transition writes the Bill
-  // row, bumps ROWVERSION, and the page kept the pre-action token — so approving
-  // a bill and then clicking Complete returned 409 every time.
-  //
-  // ONLY row_version and is_draft. Both are read-only here; the bound inputs are
-  // bill_date, bill_number, due_date, memo, payment_term_public_id and
-  // vendor_public_id. Rebasing a field nobody can author cannot lose anybody's
-  // work — the property U-460 (reverted) lacked when it replayed a whole stale
-  // body. The same-entity guard lives in the hook; see its docstring for the
-  // cross-bill corruption it prevents.
-  useServerOwnedRebase(item, seededForRef, setForm, (b) => ({
-    row_version: b.row_version,
-    is_draft: b.is_draft,
-  }));
 
   const rowVersion = useSyncedToken(form?.row_version);
 
@@ -329,13 +333,14 @@ export default function BillEdit() {
       });
       rowVersion.set(updated.row_version);
       ++headerWriteSeqRef.current;
+      acceptBaseline(updated);
       setForm((prev: any) => (prev ? { ...prev, row_version: updated.row_version } : prev));
     } catch {
       headerDirtyRef.current = true;
       // Silent fail for auto-save — stale-token loop is prevented by useSyncedToken;
       // manual Save / Complete / Submit-for-Review still surface errors via saveAll.
     }
-  }, [form, publicId, rowVersion]);
+  }, [form, publicId, rowVersion, acceptBaseline]);
 
   // Line items intentionally omitted from deps — a coalesced follow-up could run
   // before React commits a just-created row's public_id and duplicate-CREATE it.
@@ -427,6 +432,7 @@ export default function BillEdit() {
       });
       rowVersion.set(updated.row_version);
       const headerWriteSeq = ++headerWriteSeqRef.current;
+      acceptBaseline(updated);
       setForm((prev: any) => ({ ...prev, row_version: updated.row_version }));
 
       // Line-item sync (U-170). The retry-safety invariant is scoped to
@@ -595,6 +601,7 @@ export default function BillEdit() {
         )}
       </div>
       <form className="detail-card" onSubmit={handleSubmit}>
+        {diverged && <RecordChangedBanner entity="bill" />}
         {saveError && <div className="form-error">{saveError}</div>}
 
         {publicId && <ReviewTimeline parentType="bill" parentPublicId={publicId} />}

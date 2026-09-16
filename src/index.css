@@ -1146,6 +1146,20 @@ button[type="submit"]:disabled {
   margin-bottom: var(--space-lg);
 }
 
+/* U-471 — co-editor divergence. Sits where `saveError` renders so it is
+   visible without scrolling; Reload is a full navigation (see the
+   component) so keep the button on the same row as the sentence. */
+.record-changed-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.record-changed-banner button {
+  flex-shrink: 0;
+}
+
 .completion-status-bar {
   margin-top: 16px;
   padding: 12px;
