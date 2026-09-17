@@ -1,3 +1,85 @@
+## U-470 review findings — booked (2026-09-17)
+
+From the F2 correctness review + Pass-2 quality pass on U-470 (Expense list/view parity). U-470 SHIPPED
+the six-tab card layout, server-side filters, pagination, the attachment section, and both WIP defect
+fixes. These were deliberately left out.
+
+⚠️ **BillCredit (LS-03b) and Invoice (LS-03d) are booked for the same port — several items below are
+cheapest BEFORE instances 3 and 4.**
+
+- [ ] 🔴 **P1 — `tsconfig.app.json`'s exclude list hides 66 files from the PRODUCTION build.**
+  `npm run build` is `tsc -b && vite build`, so every excluded file ships never having been
+  type-checked. Measured during U-470: `src/` has 391 `.ts`/`.tsx` files, the current config checks
+  **325**, the list hides **66**. Emptying the ENTIRE 24-entry array produces exactly **4 errors, all in
+  `src/pages/employee-labor/EmployeeLaborCreate.tsx`**, from two root causes in `FormFieldProps`:
+  `"date"` missing from the `type` union, and no `multiline` prop. **So 23 of 24 entries are stale.**
+  U-470 had to delete its own line to get coverage; `bill-credits/**` and `invoices/**` are still there
+  waiting for instances 3 and 4 to repeat the ritual. Fix `FormFieldProps`, delete the whole array, keep
+  it empty. ⚠️ Honest caveat: `strict` is not set in any tsconfig, so "4 errors" reflects a lenient
+  compiler, not 66 pristine files.
+
+- [ ] 🟡 **P2 — `usePaginatedList` has no debounce and no request cancellation.** Every keystroke fires a
+  request; there is no `AbortController`, no sequence token, no staleness check in `.then`. Type "acme"
+  and if `?search=ac` resolves after `?search=acme`, the rows and total shown are `ac`'s while the box
+  reads `acme`. `.finally(() => setLoading(false))` also lets an early response clear the spinner while a
+  later one is in flight. The dev server talks to the PROD API over a WAN (`vite.config.ts`), so the
+  window is real. Pre-existing in the shared hook and Bills has it too — but U-470 newly exposes it on
+  Expenses, because the old page fetched once and filtered in-browser and could not race. Fix in the hook.
+
+- [ ] 🟡 **P2 — move the out-of-range page reset INTO `usePaginatedList`.** `ExpenseList.tsx:99-101`
+  (copied from `BillList.tsx:175-177`) guards a hazard the hook itself creates — `sessionPersistenceKey`
+  persists `page` across every filter combination. Every value the guard reads (`loading`, `items`,
+  `total`, `page`, `setPage`) is owned by the hook; the page owns none of them. Leaving it means
+  instances 3 and 4 must each remember to paste a 3-line effect guarding a bug they cannot see, or ship
+  "no matches" while matches exist.
+
+- [ ] 🟡 **P2 — extract the status-tab model before LS-03b.** `expenseStatusTabs.ts` and
+  `billStatusTabs.ts` differ by **zero behavioral lines** — every delta is an identifier rename or one of
+  four noun swaps. 98 lines x 4 entities. Target: `src/shared/documentStatusTabs.ts` exporting a factory.
+  ⚠️ Two constraints found in the types: (1) **do NOT hardcode the six states** — `BillCredit`
+  (`src/types/api.ts:819-831`) has NO `status`/`review_status`/`review_status_kind` fields at all, so
+  instance 3's tab set is either blocked on API work or is a different, smaller set; the factory must take
+  `tabs` as a parameter. (2) labels must keep deriving from `DOCUMENT_STATUS_LABELS` — both suites already
+  pin that.
+
+- [ ] 🟢 **P3 — `isIsoDate` is UTC-round-trip broken in `billStatusTabs.ts` (LATENT, unreachable here).**
+  It parses `${value}T00:00:00` as LOCAL and compares `.toISOString()` as UTC, so it returns false for
+  well-formed dates in UTC-POSITIVE zones. **Not reachable for build.one**: every US timezone is
+  UTC-negative and returns true, and UTC itself returns true, so neither users nor a normal CI runner hit
+  it. Visible only as 4 failures in `BillListTabs.test.tsx` under `TZ=Europe/Berlin`, which nothing runs.
+  U-470 fixed the Expense copy (calendar-field comparison + `value is string` predicate, which also
+  removed two non-null assertions). Fold the Bill copy in whenever `isIsoDate` is hoisted to `src/shared/`
+  — it is 14 entity-free lines duplicated verbatim.
+
+- [ ] 🟢 **P3 — `BillView.tsx:129` renders a duplicate Review value.** U-470 added
+  `review_status !== statusLabel` on the Expense LIST (matching BillList) but BillView has no such guard,
+  so a completed Bill shows "Completed" in both the Status and Review rows. ⚠️ Note U-470 also applied the
+  guard to ExpenseView, which the reviewer flags as a divergence in the other direction: on a DETAIL view
+  the two values sit in separately-labelled rows, so there is no visual duplication to suppress, and the
+  guard collapses "no Review" and "Review stage named like the lifecycle label" onto the same `—`. Decide
+  ONE rule for detail views and apply it to both entities.
+
+- [ ] 🟢 **P3 — delete the `expenseLifecycle.ts` indirection.** It re-exports four symbols from
+  `src/shared/documentLifecycle.ts` under Expense names; Bill imports the shared module directly, so this
+  is an asymmetry introduced by the port. Worse, `expenseLifecycle.test.ts` has 5 specs of which **4
+  duplicate `documentLifecycle.test.ts` near-verbatim**. Instances 3 and 4 would arrive with 4 alias files
+  and 4 near-identical suites.
+
+- [ ] 🟢 **P3 — extract a shared test mount harness.** `ExpenseListTabs.test.tsx`, `ExpenseView.test.tsx`
+  and `BillListTabs.test.tsx` each hand-roll container/`createRoot`/`act`/`unmount` — and
+  `BillListTabs.test.tsx` has **no `afterEach` unmount at all** (the Expense port correctly added one).
+  `src/__testutils__/` already holds four such modules. Add `mount.tsx` + a condition-based flush (the
+  current `flushEffects(12)` is a magic microtask count tuned to today's 3-deep promise chain).
+
+- [ ] 🟢 **P3 — `EntryCard`'s `duration` prop carries money.** `duration={fmtMoney(...)}` on two pages
+  today, four after the remaining ports. Rename to `trailing` — 4 call sites.
+
+- [ ] 🟢 **P3 — `fmtMoney`/`fmtDate` null contracts differ within one folder.** `ExpenseList.fmtMoney`
+  returns `"$0.00"` for null while `ExpenseView.fmtMoney` returns `"—"`; `ExpenseList.fmtDate` returns
+  `""` while `ExpenseView.fmtDate` returns `"—"`. Mirrors Bill exactly. Repo-wide there are 15 `fmtMoney`
+  and 15 `fmtDate` definitions — converting two here would make the codebase LESS uniform, so book the
+  consolidation rather than doing it piecemeal.
+
 # TODO — build.one.web
 
 Pending work, deferred decisions, known issues. Check off as done; prune anything stale.
