@@ -1,5 +1,62 @@
 ## U-470 review findings — booked (2026-09-17)
 
+
+## U-476 follow-ups — receipt re-homing on the Expense edit page (booked 2026-09-17)
+
+U-476 stopped permanent receipt loss: removing a line that carries the receipt used to issue a bare
+`DELETE /delete/expense_line_item/{id}`, whose server cascade destroys the Attachment row **and the Azure
+blob**. The page now plans the re-homing, writes nothing when the plan is infeasible, and restores the
+removed rows on abort. These were deliberately left out.
+
+- [ ] 🔴 **P1 — extract the shared re-home module, and do it BEFORE a third page hand-copies it.**
+  Bill and Expense now hold two DIFFERENT algorithms. Expense is strictly stronger on four axes: a
+  read-only planning pass, grouping by attachment, slot exclusivity (`nextSlot++`), all-creates-before-
+  any-delete, and row restore on abort. **Bill has none of those** — it re-scans survivors inside the
+  per-removed-line loop (O(R×S) requests), discovers infeasibility mid-write, and can pick the same
+  survivor for two different attachments. `TODO.md` already books Bill's gap ("partial rehome write then
+  abort; the 'nothing was saved' message is then inaccurate") — that is exactly what Expense's planner
+  fixes. ⚠️ Extraction is therefore **NOT behavior-preserving for Bill**: it hands Bill the planner, which
+  is a real behavior change on shipped, separately-tested code and needs its own three-pass. That is
+  precisely why U-476 did not do it — never refactor a working protection on another money page inside a
+  data-loss hotfix. The parameterisation already exists: `LineItemAttachment.tsx` holds the per-entity
+  path maps for all four entities, module-private, and both re-home helpers hardcode those strings a
+  second time. Export them as the single source of truth.
+- [ ] 🟡 **P2 — parallelise the Pass-1 reads.** The helper issues one GET per removed line plus one per
+  surviving line, strictly sequentially, before the header PUT. A 6-line expense with one receipt move is
+  ~9 serial round trips; the dev server talks to the PROD API over a WAN, so that is ~1.4–2.3s added to
+  every such Save, and a 20-line expense is worse. `Promise.all` preserves every ordering guarantee —
+  Pass 1 is read-only, all-reads-still-precede-all-writes, and `Promise.all` returns in input order so
+  slot order is byte-identical. ⚠️ Needs a **two-simultaneous-failure** test first: with two rejections
+  "first to reject" replaces "first in order", and reads the sequential version would have skipped are
+  issued. Also hoist the `attachment/id/{id}` translation GETs into the same wave — that mapping cannot
+  change, and the page already fetched it once per row when `LineItemAttachment` mounted.
+- [ ] 🟡 **P2 — removing a line now requires ATTACHMENTS grants it never needed.** The pre-flight link GET
+  is gated `ATTACHMENTS can_read`, and the re-home additionally needs `can_create` + `can_delete`, while
+  the UI still gates the Remove button on `EXPENSES can_update` alone. A user with Expenses-delete but no
+  Attachments grant now has the WHOLE save aborted with a raw permission message. It fails **closed**
+  (no delete, no header PUT), which is the right direction, and it is strictly more closed than before —
+  but the button is offered to someone who cannot complete the flow. Whether anyone holds that grant
+  combination is a live-data question. Fix = fold the Attachments permissions into
+  `resolveExpenseEditActions` and disable Remove, or catch 403 and say so plainly.
+- [ ] 🟢 **P3 — the service worker caches the decision input.** `isCacheableReadEndpoint` matches every
+  `/api/v1/get/` path, so the link lookup is NetworkFirst with a 3-second timeout and a 7-day TTL — a read
+  that decides whether a link may be destroyed. The dangerous shape (a cached "no link" driving a delete)
+  is **refuted**: NetworkFirst caches only 200/opaque, so a 404 is never cached and our authenticated
+  fetches are never opaque. Every stale-200 path degrades toward the abort. Still worth excluding
+  `expense-line-item-attachment/by-*` from the cacheable list — it is one line and removes the question.
+- [ ] 🟢 **P3 — residual non-atomic windows, documented in the code rather than hidden.** All creates and
+  their identity checks now precede every delete, so an abort during the create phase drops no link. Two
+  windows remain: a create that fails after earlier creates succeeded leaves non-destructive duplicate
+  links, and a failure mid-delete-phase (after every receipt has a verified new home) leaves earlier
+  deletes standing. No receipt is lost in either, and a retry re-plans correctly from the new server
+  state. In the second window the surfaced message is the raw delete failure, not the preserve error.
+- [x] ✅ **REFUTED, do not book: "Invoice and BillCredit are unprotected today."** Pass 2 reported both as
+  shipped exposure of the same class. Checked: `InvoiceEdit.tsx` is **not routed at all** (dead file,
+  parked pending U-128), and `BillCreditEdit.tsx` IS routed but its server-side
+  `BillCreditLineItemService.delete_by_public_id` has **no attachment cascade whatsoever** — no Attachment
+  delete, no blob delete. Neither page can lose a document this way. Recorded so the next pass does not
+  re-raise it.
+
 From the F2 correctness review + Pass-2 quality pass on U-470 (Expense list/view parity). U-470 SHIPPED
 the six-tab card layout, server-side filters, pagination, the attachment section, and both WIP defect
 fixes. These were deliberately left out.

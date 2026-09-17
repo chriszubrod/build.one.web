@@ -8,7 +8,7 @@ import { useAutoSave } from "../../hooks/useAutoSave";
 import { useCompletionPolling } from "../../hooks/useCompletionPolling";
 import { useToast } from "../../components/Toast";
 import CompletionStatusBar from "../../components/CompletionStatusBar";
-import { put, post, del, getList } from "../../api/client";
+import { put, post, del, getList, getOne, ApiError } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { resolveExpenseEditActions } from "./expensePermissions";
@@ -58,6 +58,167 @@ function newLineItem(): LineItemRow {
   };
 }
 
+interface EliaLink {
+  public_id: string;
+  attachment_id: number | null;
+}
+
+const ATTACHMENT_PRESERVE_ERROR =
+  "Could not preserve this expense's receipt — nothing was saved and the line was not removed.";
+
+/** Put removed persisted rows back in orig order; unsaved (no public_id) rows stay after them. */
+function restoreRemovedLineItems(
+  current: LineItemRow[],
+  removedIds: string[],
+  origOrder: string[],
+  knownByPublicId: Map<string, LineItemRow>,
+): LineItemRow[] {
+  if (removedIds.length === 0) return current;
+
+  const byId = new Map<string, LineItemRow>();
+  for (const row of current) {
+    if (row.public_id) byId.set(row.public_id, row);
+  }
+  for (const id of removedIds) {
+    if (byId.has(id)) continue;
+    const known = knownByPublicId.get(id);
+    if (known) byId.set(id, known);
+  }
+
+  const persisted: LineItemRow[] = [];
+  const placed = new Set<string>();
+  for (const id of origOrder) {
+    const row = byId.get(id);
+    if (row) {
+      persisted.push(row);
+      placed.add(id);
+    }
+  }
+  const rest = current.filter((r) => !r.public_id || !placed.has(r.public_id));
+  return [...persisted, ...rest];
+}
+
+/** U-476: null only on a definitive 404 (the line has no link); other errors propagate. */
+async function getEliaLinkForLine(lineItemPublicId: string): Promise<EliaLink | null> {
+  try {
+    return await getOne<EliaLink>(
+      `/api/v1/get/expense-line-item-attachment/by-expense-line-item/${lineItemPublicId}`,
+    );
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+/**
+ * U-476: an expense's receipt is linked to ONE line item, so removing that line
+ * would cascade-delete the Attachment row and the Azure blob. Before any line
+ * delete, re-home the link (create-before-delete) onto a surviving line.
+ *
+ * PLAN BEFORE MUTATING. Each line can hold a different receipt; gathering then
+ * writing per removed line is not atomic. Pass 1 is read-only: load every
+ * removed link, and every survivor link only when a removed line
+ * actually carries a receipt (we return early otherwise). Receipts that need a new home are
+ * those whose attachment is not already held by a survivor; if they outnumber
+ * distinct link-free (404) survivors, throw ATTACHMENT_PRESERVE_ERROR before
+ * any create or delete. Only a feasible plan executes, and each receipt is
+ * assigned a DISTINCT free survivor (a slot consumed this save is never reused).
+ *
+ * Idempotent-create returns an existing row if the target already has a link,
+ * so we only target a truly link-free (404) survivor and verify the returned
+ * attachment_id.
+ *
+ * Pass 2 stages every create (and identity verification) before any ELIA
+ * delete — including already-preserved old-link deletes. A throw during the
+ * create phase therefore never drops an existing link. Residual: if create
+ * N of M succeeds and a later create/verify fails, those earlier new links
+ * remain (non-destructive duplicates). A throw mid-delete, after all creates
+ * verified, can leave a mix of old and new links. saveAll still aborts
+ * before the header PUT and line-item deletes; it restores removed rows so
+ * the form is not left unsaveable.
+ */
+async function rehomeAttachmentsBeforeLineDeletes(
+  removedIds: string[],
+  survivingIds: string[],
+): Promise<void> {
+  if (removedIds.length === 0) return;
+
+  // Pass 1 — read only. A missing link, or a link with no attachment_id (the
+  // column is nullable), has nothing to preserve — never dereference
+  // attachment_id blindly (would GET /id/null).
+  const removedReceipts: { link: EliaLink; attachmentId: number }[] = [];
+  for (const removedId of removedIds) {
+    const link = await getEliaLinkForLine(removedId);
+    if (!link?.attachment_id) continue;
+    removedReceipts.push({ link, attachmentId: link.attachment_id });
+  }
+  if (removedReceipts.length === 0) return;
+
+  // Scan EVERY survivor — no early exit once enough free slots are found. A 404
+  // survivor is a free slot; a later survivor may ALREADY hold one of these
+  // receipts (retry-safe), and only a full scan can know that.
+  const heldBySurvivor = new Set<number>();
+  const linkFreeSurvivors: string[] = [];
+  for (const sid of survivingIds) {
+    const sLink = await getEliaLinkForLine(sid);
+    if (sLink === null) linkFreeSurvivors.push(sid);
+    else if (sLink.attachment_id != null) heldBySurvivor.add(sLink.attachment_id);
+  }
+
+  const alreadyPreserved: EliaLink[] = [];
+  const needHomeByAtt = new Map<number, EliaLink[]>();
+  for (const { link, attachmentId } of removedReceipts) {
+    if (heldBySurvivor.has(attachmentId)) {
+      alreadyPreserved.push(link);
+      continue;
+    }
+    const group = needHomeByAtt.get(attachmentId) ?? [];
+    group.push(link);
+    needHomeByAtt.set(attachmentId, group);
+  }
+
+  if (needHomeByAtt.size > linkFreeSurvivors.length) {
+    throw new Error(ATTACHMENT_PRESERVE_ERROR);
+  }
+
+  // Pass 2, phase A — EVERY create and its identity verification runs before any
+  // delete. Ordering is the whole point: a throw in this phase has issued no
+  // delete at all, so ATTACHMENT_PRESERVE_ERROR's "nothing was saved" is true.
+  // BillEdit.tsx's still-current shape (alreadyPreserved deletes first, then
+  // create+delete per group; booked open at TODO.md:177) could commit a delete and THEN throw on a later group, telling the
+  // user nothing happened while a receipt had permanently moved.
+  const linksToDrop: EliaLink[] = [...alreadyPreserved];
+  let nextSlot = 0;
+  for (const [attachmentId, oldLinks] of needHomeByAtt) {
+    // Unreachable given the feasibility check above (size <= linkFreeSurvivors
+    // .length) and nextSlot < size; kept as a module-boundary backstop. A slot
+    // consumed by one attachment is never reused.
+    const target = linkFreeSurvivors[nextSlot++];
+    if (!target) throw new Error(ATTACHMENT_PRESERVE_ERROR);
+
+    const att = await getOne<{ public_id: string }>(`/api/v1/get/attachment/id/${attachmentId}`);
+    const created = await post<EliaLink>("/api/v1/create/expense-line-item-attachment", {
+      expense_line_item_public_id: target,
+      attachment_public_id: att.public_id,
+    });
+    // Idempotent-create returns an existing row if target already had ANY link —
+    // verify it is OUR attachment or we would silently drop the document below.
+    if (created.attachment_id !== attachmentId) {
+      throw new Error(ATTACHMENT_PRESERVE_ERROR);
+    }
+    linksToDrop.push(...oldLinks);
+  }
+
+  // Phase B — drop old links only once every receipt has a verified new home.
+  // Residual, stated rather than hidden: if a delete here fails partway, the
+  // earlier deletes stand. No receipt is lost (each already has a new home) and
+  // a retry re-plans correctly from the new server state, but the message surfaced in that narrow
+  // window is the raw delete failure, not ATTACHMENT_PRESERVE_ERROR.
+  for (const link of linksToDrop) {
+    await del(`/api/v1/delete/expense-line-item-attachment/${link.public_id}`);
+  }
+}
+
 export default function ExpenseEdit() {
   const { publicId: id } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
@@ -75,6 +236,15 @@ export default function ExpenseEdit() {
   const [saveError, setSaveError] = useState("");
   const { toast } = useToast();
   const rowVersion = useSyncedToken(form?.row_version);
+  // U-476: a failed saveAll may have partially synced lines. false disarms
+  // auto-save until an explicit Save succeeds, so the debounce cannot keep
+  // firing header PUTs against a half-synced line set.
+  const autoSaveArmedRef = useRef(true);
+  // Last-seen persisted rows, including ones the user just removed from the DOM.
+  const knownLineItemByPublicIdRef = useRef<Map<string, LineItemRow>>(new Map());
+  for (const row of lineItems) {
+    if (row.public_id) knownLineItemByPublicIdRef.current.set(row.public_id, row);
+  }
 
   const { state: pollState, start: startPolling } = useCompletionPolling<Expense>(
     expenseItemPath,
@@ -181,7 +351,7 @@ export default function ExpenseEdit() {
     autoSaveHeader,
     [form?.vendor_public_id, form?.expense_date, form?.reference_number, form?.total_amount, form?.memo, form?.is_credit],
     300,
-    !!form && !!item && form.is_draft && !completing && actions.canEdit,
+    !!form && !!item && form.is_draft && !completing && actions.canEdit && autoSaveArmedRef.current,
   );
 
   useEffect(() => {
@@ -206,9 +376,32 @@ export default function ExpenseEdit() {
   const onChange = (name: string, value: string) => setForm((prev: any) => ({ ...prev, [name]: value }));
 
   const saveAll = async () => {
+    // Cancel before any await so a 300ms header debounce cannot fire a second
+    // PUT with the same row_version while re-home GETs are in flight.
+    cancelAutoSave();
     setSaving(true);
     setSaveError("");
     try {
+      // U-476: re-home the receipt BEFORE the header PUT and any line delete —
+      // create-before-delete. If re-home throws, restore removed rows so the
+      // message "the line was not removed" is true and the form stays saveable.
+      const survivingIds = lineItems.filter((li) => li.public_id).map((li) => li.public_id!);
+      const currentIds = new Set(survivingIds);
+      const removedIds = origLineItemPublicIds.filter((oid) => !currentIds.has(oid));
+      try {
+        await rehomeAttachmentsBeforeLineDeletes(removedIds, survivingIds);
+      } catch (err) {
+        setLineItems((prev) =>
+          restoreRemovedLineItems(
+            prev,
+            removedIds,
+            origLineItemPublicIds,
+            knownLineItemByPublicIdRef.current,
+          ),
+        );
+        throw err;
+      }
+
       // Save header
       const updated = await put<Expense>(`/api/v1/update/expense/${id}`, {
         row_version: rowVersion.read(),
@@ -224,15 +417,18 @@ export default function ExpenseEdit() {
       acceptBaseline(updated);
       setForm((prev: any) => ({ ...prev, row_version: updated.row_version }));
 
-      // Sync line items: delete removed, update existing, create new
-      const currentIds = new Set(lineItems.filter((li) => li.public_id).map((li) => li.public_id));
-      for (const origId of origLineItemPublicIds) {
-        if (!currentIds.has(origId)) {
-          await del(`/api/v1/delete/expense_line_item/${origId}`);
-        }
+      // Line-item sync (U-170). Each confirmed fact is committed through a
+      // functional updater the instant it lands — never accumulated and written
+      // back after the loop. A retry must not re-DELETE a gone row or re-CREATE
+      // a row whose public_id already landed.
+      for (const origId of removedIds) {
+        await del(`/api/v1/delete/expense_line_item/${origId}`);
+        setOrigLineItemPublicIds((prev) => prev.filter((oid) => oid !== origId));
       }
 
-      const savedItems: LineItemRow[] = [];
+      const stampRow = (uid: string, patch: Partial<LineItemRow>) =>
+        setLineItems((prev) => prev.map((r) => (r.uid === uid ? { ...r, ...patch } : r)));
+
       for (const li of lineItems) {
         const body = {
           expense_public_id: id!,
@@ -252,16 +448,20 @@ export default function ExpenseEdit() {
             ...body,
             row_version: li.row_version!,
           });
-          savedItems.push({ ...li, row_version: result.row_version });
+          stampRow(li.uid, { row_version: result.row_version });
         } else {
           const result = await post<ExpenseLineItem>("/api/v1/create/expense_line_item", body);
-          savedItems.push({ ...li, public_id: result.public_id, row_version: result.row_version });
+          stampRow(li.uid, { public_id: result.public_id, row_version: result.row_version });
+          setOrigLineItemPublicIds((prev) =>
+            prev.includes(result.public_id) ? prev : [...prev, result.public_id],
+          );
         }
       }
-      setLineItems(savedItems);
-      setOrigLineItemPublicIds(savedItems.map((li) => li.public_id!));
+      autoSaveArmedRef.current = true;
       return true;
     } catch (err: any) {
+      autoSaveArmedRef.current = false;
+      cancelAutoSave();
       setSaveError(err.message);
       return false;
     } finally {

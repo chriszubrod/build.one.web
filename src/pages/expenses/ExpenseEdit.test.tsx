@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import ExpenseEdit from "./ExpenseEdit";
+import { ApiError } from "../../api/client";
 import type { Expense } from "../../types/api";
 import { setInputValue, setTextareaValue } from "../../__testutils__/domEvents";
 import { flushUntil } from "../../__testutils__/flush";
@@ -18,6 +19,10 @@ import { entityItemKey } from "../../hooks/useEntity";
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const EXPENSE_GET_PATH = "/api/v1/get/expense/exp-1";
+const EXPENSE_UPDATE_PATH = "/api/v1/update/expense/exp-1";
+const LINE_CREATE_PATH = "/api/v1/create/expense_line_item";
+const ELIA_BY_LINE_PREFIX = "/api/v1/get/expense-line-item-attachment/by-expense-line-item/";
+const ELIA_CREATE_PATH = "/api/v1/create/expense-line-item-attachment";
 const STALE_COMPLETION_RESULT_PATH = "/api/v1/get/expense/exp-1/completion-result";
 
 const mockGetList = vi.fn();
@@ -202,6 +207,70 @@ function completeButton(container: HTMLElement): HTMLButtonElement | null {
   );
 }
 
+function elia404IfMatch(path: string): Promise<never> | undefined {
+  if (path.startsWith(ELIA_BY_LINE_PREFIX)) {
+    return Promise.reject(new ApiError(404, "Not found"));
+  }
+  return undefined;
+}
+
+function findSaveButton(container: HTMLElement): HTMLButtonElement {
+  const btn = Array.from(container.querySelectorAll("button")).find(
+    (b) => b.textContent?.trim() === "Save",
+  );
+  expect(btn).toBeDefined();
+  return btn as HTMLButtonElement;
+}
+
+function findAddRowButton(container: HTMLElement): HTMLButtonElement {
+  const btn = Array.from(container.querySelectorAll("button")).find(
+    (b) => b.textContent?.trim() === "+ Add Row",
+  );
+  expect(btn).toBeDefined();
+  return btn as HTMLButtonElement;
+}
+
+async function clickSave(container: HTMLElement) {
+  await act(async () => {
+    findSaveButton(container).click();
+  });
+  await flushUntil(() => {
+    const btn = Array.from(container.querySelectorAll("button")).find(
+      (x) => x.textContent?.trim() === "Save" || x.textContent?.trim() === "Saving...",
+    );
+    return btn?.textContent?.trim() === "Save";
+  });
+  await act(async () => {
+    for (let i = 0; i < 40; i++) {
+      await Promise.resolve();
+    }
+  });
+}
+
+function expenseHeaderPutBodies(): Record<string, unknown>[] {
+  return mockPut.mock.calls
+    .filter((c) => c[0] === EXPENSE_UPDATE_PATH)
+    .map((c) => c[1] as Record<string, unknown>);
+}
+
+function postCallsForDescription(desc: string): [string, Record<string, unknown>][] {
+  return mockPost.mock.calls.filter(
+    (c) =>
+      c[0] === LINE_CREATE_PATH &&
+      (c[1] as Record<string, unknown>).description === desc,
+  ) as [string, Record<string, unknown>][];
+}
+
+function putCallsForLineItem(id: string): [string, Record<string, unknown>][] {
+  return mockPut.mock.calls.filter(
+    (c) => c[0] === `/api/v1/update/expense_line_item/${id}`,
+  ) as [string, Record<string, unknown>][];
+}
+
+function lineDeletesFor(id: string) {
+  return mockDel.mock.calls.filter((c) => c[0] === `/api/v1/delete/expense_line_item/${id}`);
+}
+
 describe("ExpenseEdit completion polling", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -260,6 +329,8 @@ describe("ExpenseEdit completion polling", () => {
       if (path === STALE_COMPLETION_RESULT_PATH) {
         return Promise.resolve({ status_code: 200, message: "Completed" });
       }
+      const elia404 = elia404IfMatch(path);
+      if (elia404) return elia404;
       if (path !== EXPENSE_GET_PATH) {
         return Promise.reject(new Error(`unexpected getOne: ${path}`));
       }
@@ -349,6 +420,8 @@ describe("ExpenseEdit line-item delete tracking", () => {
     vi.clearAllMocks();
 
     mockGetOne.mockImplementation((path: string) => {
+      const elia404 = elia404IfMatch(path);
+      if (elia404) return elia404;
       if (path === EXPENSE_GET_PATH) {
         return Promise.resolve(sampleExpense({ is_draft: true }));
       }
@@ -504,6 +577,8 @@ describe("ExpenseEdit line-item row identity (stable uid keys)", () => {
     vi.clearAllMocks();
 
     mockGetOne.mockImplementation((path: string) => {
+      const elia404 = elia404IfMatch(path);
+      if (elia404) return elia404;
       if (path === EXPENSE_GET_PATH) {
         return Promise.resolve(sampleExpense({ is_draft: true }));
       }
@@ -594,6 +669,8 @@ describe("ExpenseEdit line-item row identity (stable uid keys)", () => {
 
     const callsBefore = mockGetOne.mock.calls.length;
     mockGetOne.mockImplementation((path: string) => {
+      const elia404 = elia404IfMatch(path);
+      if (elia404) return elia404;
       if (path === EXPENSE_GET_PATH) {
         return Promise.resolve(
           sampleExpense({ is_draft: true, row_version: refreshedRowVersion }),
@@ -683,6 +760,8 @@ describe("ExpenseEdit line-item row identity (stable uid keys)", () => {
       count: 1,
     });
     mockGetOne.mockImplementation((path: string) => {
+      const elia404 = elia404IfMatch(path);
+      if (elia404) return elia404;
       if (path === EXPENSE_GET_PATH) {
         return Promise.resolve(
           sampleExpense({ is_draft: true, row_version: refreshedExpenseRowVersion }),
@@ -715,6 +794,8 @@ describe("ExpenseEdit chained-save row_version", () => {
     vi.clearAllMocks();
 
     mockGetOne.mockImplementation((path: string) => {
+      const elia404 = elia404IfMatch(path);
+      if (elia404) return elia404;
       if (path === EXPENSE_GET_PATH) {
         // row_version "rv-1" (the fixture default) is the stale token the
         // chained save must NOT resend after the flush PUT returns "rv-2".
@@ -850,6 +931,8 @@ describe("ExpenseEdit token rebase (U-471)", () => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     mockGetOne.mockImplementation((path: string) => {
+      const elia404 = elia404IfMatch(path);
+      if (elia404) return elia404;
       if (path === EXPENSE_GET_PATH) return Promise.resolve(sampleExpense());
       return Promise.reject(new Error("unexpected getOne: " + path));
     });
@@ -944,3 +1027,953 @@ describe("ExpenseEdit token rebase (U-471)", () => {
     expect(container.textContent).not.toContain("This expense was changed in another window.");
   });
 });
+
+describe("ExpenseEdit saveAll incremental line-item sync (U-170 / U-476)", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+
+    mockGetOne.mockImplementation((path: string) => {
+      const elia404 = elia404IfMatch(path);
+      if (elia404) return elia404;
+      if (path === EXPENSE_GET_PATH) return Promise.resolve(sampleExpense({ is_draft: true }));
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+
+    mockGetList.mockResolvedValue({
+      data: [expenseLineItemFixture("li-1", "existing", "100.00")],
+      count: 1,
+    });
+
+    mockPut.mockImplementation((path: string) => {
+      if (path === EXPENSE_UPDATE_PATH) {
+        return Promise.resolve(sampleExpense({ row_version: "rv-2", is_draft: true }));
+      }
+      if (path.startsWith("/api/v1/update/expense_line_item/")) {
+        const id = path.split("/").pop()!;
+        return Promise.resolve({ public_id: id, row_version: "rv-1b" });
+      }
+      return Promise.reject(new Error(`unexpected put: ${path}`));
+    });
+
+    mockPost.mockRejectedValue(new Error("unexpected post"));
+    mockDel.mockResolvedValue({});
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    document.body.removeChild(container);
+    vi.useRealTimers();
+  });
+
+  it("a mid-loop failure leaves state safe to retry", async () => {
+    let newBPostAttempts = 0;
+
+    mockPost.mockImplementation((path: string, body: Record<string, unknown>) => {
+      if (path !== LINE_CREATE_PATH) {
+        return Promise.reject(new Error(`unexpected post: ${path}`));
+      }
+      if (body.description === "new-A") {
+        return Promise.resolve({ public_id: "li-9", row_version: "rv-9" });
+      }
+      if (body.description === "new-B") {
+        newBPostAttempts += 1;
+        if (newBPostAttempts === 1) {
+          return Promise.reject(new Error("boom"));
+        }
+        return Promise.resolve({ public_id: "li-10", row_version: "rv-10" });
+      }
+      return Promise.reject(new Error(`unexpected post body: ${String(body.description)}`));
+    });
+
+    renderExpenseEdit(root);
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+    expect(inlineLineItemRows(container)).toHaveLength(1);
+
+    await act(async () => {
+      findAddRowButton(container).click();
+    });
+    await flushUntil(() => inlineLineItemRows(container).length === 2);
+
+    await act(async () => {
+      findAddRowButton(container).click();
+    });
+    await flushUntil(() => inlineLineItemRows(container).length === 3);
+    expect(inlineLineItemRows(container)).toHaveLength(3);
+
+    await act(async () => {
+      const rows = inlineLineItemRows(container);
+      setInputValue(inlineLineItemInput(rows[1]!), "new-A");
+      setInputValue(inlineLineItemInput(rows[2]!), "new-B");
+    });
+
+    expect(inlineLineItemInput(inlineLineItemRows(container)[1]!).value).toBe("new-A");
+    expect(inlineLineItemInput(inlineLineItemRows(container)[2]!).value).toBe("new-B");
+
+    await clickSave(container);
+    expect(container.textContent).toContain("boom");
+
+    await clickSave(container);
+
+    expect(postCallsForDescription("new-A")).toHaveLength(1);
+
+    const li9Puts = putCallsForLineItem("li-9");
+    expect(li9Puts.map(([, body]) => body.description)).toContain("new-A");
+
+    const li1Puts = putCallsForLineItem("li-1");
+    expect(li1Puts.length).toBeGreaterThanOrEqual(2);
+    expect(li1Puts[0][1].row_version).toBe("rv-1");
+    expect(li1Puts[1][1].row_version).toBe("rv-1b");
+    expect(li1Puts[1][1].row_version).not.toBe("rv-1");
+  });
+
+  it("commits DELETE progress so a retry does not re-DELETE a gone row", async () => {
+    mockGetList.mockResolvedValue({
+      data: [
+        expenseLineItemFixture("li-1", "line-1", "50.00"),
+        expenseLineItemFixture("li-2", "line-2", "50.00"),
+      ],
+      count: 2,
+    });
+
+    let li2PutAttempts = 0;
+    mockPut.mockImplementation((path: string) => {
+      if (path === EXPENSE_UPDATE_PATH) {
+        return Promise.resolve(sampleExpense({ row_version: "rv-2", is_draft: true }));
+      }
+      if (path === "/api/v1/update/expense_line_item/li-2") {
+        li2PutAttempts += 1;
+        if (li2PutAttempts === 1) {
+          return Promise.reject(new Error("li-2 fail"));
+        }
+        return Promise.resolve({ public_id: "li-2", row_version: "rv-2b" });
+      }
+      if (path.startsWith("/api/v1/update/expense_line_item/")) {
+        const id = path.split("/").pop()!;
+        return Promise.resolve({ public_id: id, row_version: "rv-1b" });
+      }
+      return Promise.reject(new Error(`unexpected put: ${path}`));
+    });
+
+    renderExpenseEdit(root);
+    await flushUntil(() => inlineLineItemRows(container).length === 2);
+    expect(inlineLineItemRows(container)).toHaveLength(2);
+
+    const removeButtons = container.querySelectorAll('button[title="Remove"]');
+    expect(removeButtons.length).toBe(2);
+
+    await act(async () => {
+      removeButtons[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+    expect(inlineLineItemInput(inlineLineItemRows(container)[0]!).value).toBe("line-2");
+
+    await clickSave(container);
+    await flushUntil(() => container.textContent?.includes("li-2 fail") ?? false);
+    expect(container.textContent).toContain("li-2 fail");
+
+    await clickSave(container);
+
+    expect(lineDeletesFor("li-1")).toHaveLength(1);
+  });
+
+  it("a row created in one save and removed in a later save is deleted server-side", async () => {
+    const createdId = "li-created";
+    mockGetList.mockResolvedValue({ data: [], count: 0 });
+    mockPost.mockImplementation((path: string) => {
+      if (path === LINE_CREATE_PATH) {
+        return Promise.resolve({ public_id: createdId, row_version: "rv-created" });
+      }
+      return Promise.reject(new Error(`unexpected post: ${path}`));
+    });
+
+    renderExpenseEdit(root);
+    await waitForReady(container);
+    await flushMicrotasks();
+
+    await act(async () => {
+      findAddRowButton(container).click();
+    });
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+
+    await act(async () => {
+      setInputValue(inlineLineItemInput(inlineLineItemRows(container)[0]!), "created-in-session");
+    });
+
+    await clickSave(container);
+    expect(postCallsForDescription("created-in-session")).toHaveLength(1);
+
+    const removeBtn = container.querySelector('button[title="Remove"]');
+    expect(removeBtn).not.toBeNull();
+    await act(async () => {
+      removeBtn!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushUntil(() => inlineLineItemRows(container).length === 0);
+
+    mockDel.mockClear();
+    await clickSave(container);
+
+    expect(lineDeletesFor(createdId)).toHaveLength(1);
+  });
+});
+
+describe("ExpenseEdit receipt re-homing on line delete (U-171 / U-476)", () => {
+  const ATT_ID = 55;
+
+  let container: HTMLDivElement;
+  let root: Root;
+
+  function setup(
+    lines: ReturnType<typeof expenseLineItemFixture>[],
+    elia: Record<string, { linkId: string; attachmentId: number | null } | null>,
+  ) {
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === EXPENSE_GET_PATH) return Promise.resolve(sampleExpense({ is_draft: true }));
+      const m = path.match(/^\/api\/v1\/get\/expense-line-item-attachment\/by-expense-line-item\/(.+)$/);
+      if (m) {
+        const link = elia[m[1]];
+        return link
+          ? Promise.resolve({ public_id: link.linkId, attachment_id: link.attachmentId })
+          : Promise.reject(new ApiError(404, "Not found"));
+      }
+      if (path === `/api/v1/get/attachment/id/${ATT_ID}`) {
+        return Promise.resolve({ public_id: "att-55" });
+      }
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+    mockGetList.mockResolvedValue({ data: lines, count: lines.length });
+    mockPut.mockImplementation((path: string) => {
+      if (path === EXPENSE_UPDATE_PATH) {
+        return Promise.resolve(sampleExpense({ row_version: "rv-2", is_draft: true }));
+      }
+      if (path.startsWith("/api/v1/update/expense_line_item/")) {
+        return Promise.resolve({ public_id: path.split("/").pop()!, row_version: "rv-1b" });
+      }
+      return Promise.reject(new Error(`unexpected put: ${path}`));
+    });
+    mockDel.mockResolvedValue({});
+  }
+
+  const twoLines = () => [
+    expenseLineItemFixture("li-A", "line-A", "10"),
+    expenseLineItemFixture("li-B", "line-B", "20"),
+  ];
+
+  async function removeFirstRow() {
+    await flushUntil(() => inlineLineItemRows(container).length === 2);
+    const removeButtons = container.querySelectorAll('button[title="Remove"]');
+    await act(async () => {
+      removeButtons[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+  }
+
+  const called = (mock: typeof mockPost, p: string) =>
+    mock.mock.calls.some((c) => c[0] === p);
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    document.body.removeChild(container);
+    vi.useRealTimers();
+  });
+
+  it("re-homes the receipt to a surviving line BEFORE deleting the first line (create-before-delete)", async () => {
+    setup(twoLines(), { "li-A": { linkId: "elia-A", attachmentId: ATT_ID }, "li-B": null });
+    mockPost.mockImplementation((path: string) =>
+      path === ELIA_CREATE_PATH
+        ? Promise.resolve({ public_id: "elia-new", attachment_id: ATT_ID })
+        : Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    renderExpenseEdit(root);
+    await removeFirstRow();
+    await clickSave(container);
+
+    const rehome = mockPost.mock.calls.filter((c) => c[0] === ELIA_CREATE_PATH);
+    expect(rehome).toHaveLength(1);
+    expect((rehome[0][1] as Record<string, unknown>).expense_line_item_public_id).toBe("li-B");
+    expect((rehome[0][1] as Record<string, unknown>).attachment_public_id).toBe("att-55");
+    expect(called(mockDel, "/api/v1/delete/expense-line-item-attachment/elia-A")).toBe(true);
+    expect(called(mockDel, "/api/v1/delete/expense_line_item/li-A")).toBe(true);
+
+    const postOrder =
+      mockPost.mock.invocationCallOrder[
+        mockPost.mock.calls.findIndex((c) => c[0] === ELIA_CREATE_PATH)
+      ];
+    const oldLinkDelOrder =
+      mockDel.mock.invocationCallOrder[
+        mockDel.mock.calls.findIndex(
+          (c) => c[0] === "/api/v1/delete/expense-line-item-attachment/elia-A",
+        )
+      ];
+    const lineDelOrder =
+      mockDel.mock.invocationCallOrder[
+        mockDel.mock.calls.findIndex(
+          (c) => c[0] === "/api/v1/delete/expense_line_item/li-A",
+        )
+      ];
+    expect(postOrder).toBeLessThan(oldLinkDelOrder);
+    expect(postOrder).toBeLessThan(lineDelOrder);
+  });
+
+  it("drops the old link WITHOUT re-creating when a survivor already holds the same attachment (retry-safe)", async () => {
+    setup(twoLines(), {
+      "li-A": { linkId: "elia-A", attachmentId: ATT_ID },
+      "li-B": { linkId: "elia-B", attachmentId: ATT_ID },
+    });
+    mockPost.mockImplementation((path: string) =>
+      Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    renderExpenseEdit(root);
+    await removeFirstRow();
+    await clickSave(container);
+
+    expect(called(mockPost, ELIA_CREATE_PATH)).toBe(false);
+    expect(called(mockDel, "/api/v1/delete/expense-line-item-attachment/elia-A")).toBe(true);
+    expect(called(mockDel, "/api/v1/delete/expense_line_item/li-A")).toBe(true);
+    expect(container.textContent).not.toContain("Could not preserve");
+  });
+
+  it("aborts the save and issues NO delete when no surviving line exists", async () => {
+    setup(
+      [expenseLineItemFixture("li-A", "line-A", "10")],
+      { "li-A": { linkId: "elia-A", attachmentId: ATT_ID } },
+    );
+    mockPost.mockImplementation((path: string) =>
+      Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    renderExpenseEdit(root);
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+    const removeButtons = container.querySelectorAll('button[title="Remove"]');
+    await act(async () => {
+      removeButtons[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushUntil(() => inlineLineItemRows(container).length === 0);
+
+    await clickSave(container);
+
+    expect(lineDeletesFor("li-A")).toHaveLength(0);
+    expect(mockDel).not.toHaveBeenCalled();
+    expect(expenseHeaderPutBodies()).toHaveLength(0);
+    expect(container.textContent).toContain(
+      "Could not preserve this expense's receipt — nothing was saved and the line was not removed.",
+    );
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("aborts the save and issues NO delete when the re-home call fails", async () => {
+    setup(twoLines(), { "li-A": { linkId: "elia-A", attachmentId: ATT_ID }, "li-B": null });
+    mockPost.mockImplementation((path: string) =>
+      path === ELIA_CREATE_PATH
+        ? Promise.reject(new Error("rehome failed"))
+        : Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    renderExpenseEdit(root);
+    await removeFirstRow();
+    await clickSave(container);
+
+    expect(called(mockDel, "/api/v1/delete/expense_line_item/li-A")).toBe(false);
+    expect(lineDeletesFor("li-A")).toHaveLength(0);
+    expect(expenseHeaderPutBodies()).toHaveLength(0);
+    expect(container.textContent).toContain("rehome failed");
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  // U-476 /em mutation-check follow-up. Deleting the identity verification that
+  // follows the idempotent create left all 18 specs GREEN — a surviving mutant,
+  // so the guard was load-bearing and untested. The create endpoint is
+  // idempotent: handed a line that ALREADY has a link it returns that existing
+  // row instead of creating one. The helper only targets a survivor whose link
+  // GET 404'd, so reaching this needs a racing writer linking the target between
+  // the scan and the create. If that happens and we trust the response, the
+  // very next statement deletes the ORIGINAL link and the receipt is orphaned —
+  // the exact loss this unit exists to prevent, one race away.
+  it("aborts rather than trust an idempotent create that returned a DIFFERENT attachment", async () => {
+    setup(twoLines(), { "li-A": { linkId: "elia-A", attachmentId: ATT_ID }, "li-B": null });
+    mockPost.mockImplementation((path: string) =>
+      path === ELIA_CREATE_PATH
+        ? // A racing writer got there first: the pre-existing row is someone
+          // else's attachment, NOT our receipt.
+          Promise.resolve({ public_id: "elia-other", attachment_id: ATT_ID + 44 })
+        : Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    renderExpenseEdit(root);
+    await removeFirstRow();
+    await clickSave(container);
+
+    // The original link must survive: dropping it is what destroys the blob.
+    expect(called(mockDel, "/api/v1/delete/expense-line-item-attachment/elia-A")).toBe(false);
+    expect(called(mockDel, "/api/v1/delete/expense_line_item/li-A")).toBe(false);
+    expect(lineDeletesFor("li-A")).toHaveLength(0);
+    expect(expenseHeaderPutBodies()).toHaveLength(0);
+    expect(container.textContent).toContain(
+      "Could not preserve this expense's receipt — nothing was saved and the line was not removed.",
+    );
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("aborts with ZERO creates and ZERO deletes when two different receipts compete for one link-free survivor", async () => {
+    const ATT_B = 77;
+    setup(
+      [
+        expenseLineItemFixture("li-A", "line-A", "10"),
+        expenseLineItemFixture("li-B", "line-B", "20"),
+        expenseLineItemFixture("li-C", "line-C", "30"),
+      ],
+      {
+        "li-A": { linkId: "elia-A", attachmentId: ATT_ID },
+        "li-B": { linkId: "elia-B", attachmentId: ATT_B },
+        "li-C": null,
+      },
+    );
+    mockPost.mockImplementation((path: string) =>
+      Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    renderExpenseEdit(root);
+    await flushUntil(() => inlineLineItemRows(container).length === 3);
+    const firstRemove = container.querySelectorAll('button[title="Remove"]');
+    await act(async () => {
+      firstRemove[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushUntil(() => inlineLineItemRows(container).length === 2);
+    const secondRemove = container.querySelectorAll('button[title="Remove"]');
+    await act(async () => {
+      secondRemove[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+
+    await clickSave(container);
+
+    expect(mockPost).not.toHaveBeenCalled();
+    expect(mockDel).not.toHaveBeenCalled();
+    expect(expenseHeaderPutBodies()).toHaveLength(0);
+    expect(container.textContent).toContain(
+      "Could not preserve this expense's receipt — nothing was saved and the line was not removed.",
+    );
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("a non-404 failure on a REMOVED line's link GET aborts the save and issues NO delete", async () => {
+    setup(twoLines(), { "li-A": { linkId: "elia-A", attachmentId: ATT_ID }, "li-B": null });
+    const innerGetOne = mockGetOne.getMockImplementation()!;
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === `${ELIA_BY_LINE_PREFIX}li-A`) {
+        return Promise.reject(new ApiError(500, "boom"));
+      }
+      return innerGetOne(path);
+    });
+    mockPost.mockImplementation((path: string) =>
+      Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    renderExpenseEdit(root);
+    await removeFirstRow();
+    await clickSave(container);
+
+    expect(mockDel).not.toHaveBeenCalled();
+    expect(called(mockDel, "/api/v1/delete/expense-line-item-attachment/elia-A")).toBe(false);
+    expect(called(mockDel, "/api/v1/delete/expense_line_item/li-A")).toBe(false);
+    expect(expenseHeaderPutBodies()).toHaveLength(0);
+    expect(container.textContent).toContain("boom");
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("a non-404 failure on a SURVIVOR's link GET aborts the save and issues NO delete", async () => {
+    setup(twoLines(), { "li-A": { linkId: "elia-A", attachmentId: ATT_ID }, "li-B": null });
+    const innerGetOne = mockGetOne.getMockImplementation()!;
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === `${ELIA_BY_LINE_PREFIX}li-B`) {
+        return Promise.reject(new ApiError(502, "boom"));
+      }
+      return innerGetOne(path);
+    });
+    mockPost.mockImplementation((path: string) =>
+      Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    renderExpenseEdit(root);
+    await removeFirstRow();
+    await clickSave(container);
+
+    expect(mockDel).not.toHaveBeenCalled();
+    expect(called(mockDel, "/api/v1/delete/expense_line_item/li-A")).toBe(false);
+    expect(expenseHeaderPutBodies()).toHaveLength(0);
+    expect(container.textContent).toContain("boom");
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("does not create a duplicate link when a later survivor already holds the receipt", async () => {
+    setup(
+      [
+        expenseLineItemFixture("li-A", "line-A", "10"),
+        expenseLineItemFixture("li-B", "line-B", "20"),
+        expenseLineItemFixture("li-C", "line-C", "30"),
+      ],
+      {
+        "li-A": { linkId: "elia-A", attachmentId: ATT_ID },
+        "li-B": null,
+        "li-C": { linkId: "elia-C", attachmentId: ATT_ID },
+      },
+    );
+    mockPost.mockImplementation((path: string) =>
+      Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    renderExpenseEdit(root);
+    await flushUntil(() => inlineLineItemRows(container).length === 3);
+    const removeButtons = container.querySelectorAll('button[title="Remove"]');
+    await act(async () => {
+      removeButtons[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushUntil(() => inlineLineItemRows(container).length === 2);
+
+    await clickSave(container);
+
+    expect(called(mockPost, ELIA_CREATE_PATH)).toBe(false);
+    expect(called(mockDel, "/api/v1/delete/expense-line-item-attachment/elia-A")).toBe(true);
+    expect(called(mockDel, "/api/v1/delete/expense_line_item/li-A")).toBe(true);
+    expect(container.textContent).not.toContain("Could not preserve");
+  });
+
+  it("does not GET /attachment/id/null when the removed line's link has a null attachment_id", async () => {
+    setup(twoLines(), { "li-A": { linkId: "elia-A", attachmentId: null }, "li-B": null });
+    mockPost.mockImplementation((path: string) =>
+      Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    renderExpenseEdit(root);
+    await removeFirstRow();
+    await clickSave(container);
+
+    const paths = allMockedClientPaths();
+    expect(paths).not.toContain("/api/v1/get/attachment/id/null");
+    expect(
+      mockGetOne.mock.calls.some((c) => String(c[0]).includes("/attachment/id/null")),
+    ).toBe(false);
+    expect(called(mockDel, "/api/v1/delete/expense_line_item/li-A")).toBe(true);
+    expect(container.textContent).not.toContain("Could not preserve");
+  });
+
+  it("restores the removed row when receipt preservation aborts so a later save of other fields can proceed", async () => {
+    setup(
+      [expenseLineItemFixture("li-A", "line-A", "10")],
+      { "li-A": { linkId: "elia-A", attachmentId: ATT_ID } },
+    );
+    mockPost.mockImplementation((path: string) =>
+      Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    renderExpenseEdit(root);
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+    const removeButtons = container.querySelectorAll('button[title="Remove"]');
+    await act(async () => {
+      removeButtons[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushUntil(() => inlineLineItemRows(container).length === 0);
+
+    await clickSave(container);
+
+    expect(container.textContent).toContain(
+      "Could not preserve this expense's receipt — nothing was saved and the line was not removed.",
+    );
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+    expect(inlineLineItemRows(container)).toHaveLength(1);
+    expect(inlineLineItemInput(inlineLineItemRows(container)[0]!).value).toBe("line-A");
+    expect(lineDeletesFor("li-A")).toHaveLength(0);
+    expect(expenseHeaderPutBodies()).toHaveLength(0);
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    mockPut.mockClear();
+    mockDel.mockClear();
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    expect(memo).not.toBeNull();
+    await act(async () => {
+      setTextareaValue(memo, "kept after restore");
+    });
+    await clickSave(container);
+
+    expect(container.textContent).not.toContain("Could not preserve");
+    const puts = expenseHeaderPutBodies();
+    expect(puts.length).toBeGreaterThan(0);
+    expect(puts[puts.length - 1].memo).toBe("kept after restore");
+    expect(lineDeletesFor("li-A")).toHaveLength(0);
+    expect(mockNavigate).toHaveBeenCalledWith("/expense/exp-1");
+  });
+
+  it("does not restore a removed row when a non-rehome save step fails", async () => {
+    setup(twoLines(), { "li-A": null, "li-B": null });
+    mockPut.mockImplementation((path: string) => {
+      if (path === EXPENSE_UPDATE_PATH) {
+        return Promise.reject(new Error("header fail"));
+      }
+      if (path.startsWith("/api/v1/update/expense_line_item/")) {
+        return Promise.resolve({ public_id: path.split("/").pop()!, row_version: "rv-1b" });
+      }
+      return Promise.reject(new Error(`unexpected put: ${path}`));
+    });
+    mockPost.mockImplementation((path: string) =>
+      Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    renderExpenseEdit(root);
+    await removeFirstRow();
+    expect(inlineLineItemInput(inlineLineItemRows(container)[0]!).value).toBe("line-B");
+
+    await clickSave(container);
+
+    expect(container.textContent).toContain("header fail");
+    expect(inlineLineItemRows(container)).toHaveLength(1);
+    expect(inlineLineItemInput(inlineLineItemRows(container)[0]!).value).toBe("line-B");
+  });
+
+  it("issues ZERO link deletes when a later group's identity check fails (creates all run first)", async () => {
+    const ATT_B = 77;
+    setup(
+      [
+        expenseLineItemFixture("li-A", "line-A", "10"),
+        expenseLineItemFixture("li-B", "line-B", "20"),
+        expenseLineItemFixture("li-C", "line-C", "30"),
+        expenseLineItemFixture("li-D", "line-D", "40"),
+      ],
+      {
+        "li-A": { linkId: "elia-A", attachmentId: ATT_ID },
+        "li-B": { linkId: "elia-B", attachmentId: ATT_B },
+        "li-C": null,
+        "li-D": null,
+      },
+    );
+    const innerGetOne = mockGetOne.getMockImplementation()!;
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === `/api/v1/get/attachment/id/${ATT_B}`) {
+        return Promise.resolve({ public_id: "att-77" });
+      }
+      return innerGetOne(path);
+    });
+    let eliaCreates = 0;
+    mockPost.mockImplementation((path: string) => {
+      if (path !== ELIA_CREATE_PATH) {
+        return Promise.reject(new Error(`unexpected post: ${path}`));
+      }
+      eliaCreates += 1;
+      if (eliaCreates === 1) {
+        return Promise.resolve({ public_id: "elia-new-1", attachment_id: ATT_ID });
+      }
+      return Promise.resolve({ public_id: "elia-other", attachment_id: ATT_ID + 44 });
+    });
+
+    renderExpenseEdit(root);
+    await flushUntil(() => inlineLineItemRows(container).length === 4);
+    for (let i = 0; i < 2; i++) {
+      const removeButtons = container.querySelectorAll('button[title="Remove"]');
+      await act(async () => {
+        removeButtons[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    }
+    await flushUntil(() => inlineLineItemRows(container).length === 2);
+
+    await clickSave(container);
+
+    expect(mockPost.mock.calls.filter((c) => c[0] === ELIA_CREATE_PATH)).toHaveLength(2);
+    expect(called(mockDel, "/api/v1/delete/expense-line-item-attachment/elia-A")).toBe(false);
+    expect(called(mockDel, "/api/v1/delete/expense-line-item-attachment/elia-B")).toBe(false);
+    expect(mockDel).not.toHaveBeenCalled();
+    expect(expenseHeaderPutBodies()).toHaveLength(0);
+    expect(container.textContent).toContain(
+      "Could not preserve this expense's receipt — nothing was saved and the line was not removed.",
+    );
+  });
+
+  it("saveAll cancels an armed auto-save debounce so a slow re-home GET issues only one header PUT", async () => {
+    let releaseLiA!: () => void;
+    const liAHeld = new Promise<void>((resolve) => {
+      releaseLiA = resolve;
+    });
+
+    setup(twoLines(), { "li-A": { linkId: "elia-A", attachmentId: ATT_ID }, "li-B": null });
+    const innerGetOne = mockGetOne.getMockImplementation()!;
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === `${ELIA_BY_LINE_PREFIX}li-A`) {
+        return liAHeld.then(() => ({ public_id: "elia-A", attachment_id: ATT_ID }));
+      }
+      return innerGetOne(path);
+    });
+    mockPost.mockImplementation((path: string) =>
+      path === ELIA_CREATE_PATH
+        ? Promise.resolve({ public_id: "elia-new", attachment_id: ATT_ID })
+        : Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    renderExpenseEdit(root);
+    await removeFirstRow();
+
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    expect(memo).not.toBeNull();
+    await act(async () => {
+      setTextareaValue(memo, "typed then immediately saved");
+    });
+    expect(expenseHeaderPutBodies()).toHaveLength(0);
+
+    await act(async () => {
+      findSaveButton(container).click();
+    });
+    await act(async () => {
+      for (let i = 0; i < 40; i++) {
+        await Promise.resolve();
+      }
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(320);
+    });
+    expect(expenseHeaderPutBodies()).toHaveLength(0);
+
+    await act(async () => {
+      releaseLiA();
+      for (let i = 0; i < 40; i++) {
+        await Promise.resolve();
+      }
+    });
+    await flushUntil(() => {
+      const btn = Array.from(container.querySelectorAll("button")).find(
+        (x) => x.textContent?.trim() === "Save" || x.textContent?.trim() === "Saving...",
+      );
+      return btn?.textContent?.trim() === "Save";
+    });
+
+    expect(expenseHeaderPutBodies()).toHaveLength(1);
+  });
+
+  it("assigns DISTINCT free survivors when two different receipts need a new home", async () => {
+    const ATT_B = 77;
+    setup(
+      [
+        expenseLineItemFixture("li-A", "line-A", "10"),
+        expenseLineItemFixture("li-B", "line-B", "20"),
+        expenseLineItemFixture("li-C", "line-C", "30"),
+        expenseLineItemFixture("li-D", "line-D", "40"),
+      ],
+      {
+        "li-A": { linkId: "elia-A", attachmentId: ATT_ID },
+        "li-B": { linkId: "elia-B", attachmentId: ATT_B },
+        "li-C": null,
+        "li-D": null,
+      },
+    );
+    const innerGetOne = mockGetOne.getMockImplementation()!;
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === `/api/v1/get/attachment/id/${ATT_B}`) {
+        return Promise.resolve({ public_id: "att-77" });
+      }
+      return innerGetOne(path);
+    });
+    mockPost.mockImplementation((path: string, body: Record<string, unknown>) => {
+      if (path !== ELIA_CREATE_PATH) {
+        return Promise.reject(new Error(`unexpected post: ${path}`));
+      }
+      const attPub = String(body.attachment_public_id);
+      const attachmentId = attPub === "att-55" ? ATT_ID : ATT_B;
+      return Promise.resolve({
+        public_id: `elia-new-${attachmentId}`,
+        attachment_id: attachmentId,
+      });
+    });
+
+    renderExpenseEdit(root);
+    await flushUntil(() => inlineLineItemRows(container).length === 4);
+    for (let i = 0; i < 2; i++) {
+      const removeButtons = container.querySelectorAll('button[title="Remove"]');
+      await act(async () => {
+        removeButtons[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    }
+    await flushUntil(() => inlineLineItemRows(container).length === 2);
+
+    await clickSave(container);
+
+    const creates = mockPost.mock.calls.filter((c) => c[0] === ELIA_CREATE_PATH);
+    expect(creates).toHaveLength(2);
+    const targets = creates.map(
+      (c) => (c[1] as Record<string, unknown>).expense_line_item_public_id,
+    );
+    expect(new Set(targets).size).toBe(2);
+    expect(targets).toEqual(expect.arrayContaining(["li-C", "li-D"]));
+  });
+
+  it("re-homes a shared attachment once: one create and two old-link deletes", async () => {
+    setup(
+      [
+        expenseLineItemFixture("li-A", "line-A", "10"),
+        expenseLineItemFixture("li-B", "line-B", "20"),
+        expenseLineItemFixture("li-C", "line-C", "30"),
+      ],
+      {
+        "li-A": { linkId: "elia-A", attachmentId: ATT_ID },
+        "li-B": { linkId: "elia-B", attachmentId: ATT_ID },
+        "li-C": null,
+      },
+    );
+    mockPost.mockImplementation((path: string) =>
+      path === ELIA_CREATE_PATH
+        ? Promise.resolve({ public_id: "elia-new", attachment_id: ATT_ID })
+        : Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    renderExpenseEdit(root);
+    await flushUntil(() => inlineLineItemRows(container).length === 3);
+    for (let i = 0; i < 2; i++) {
+      const removeButtons = container.querySelectorAll('button[title="Remove"]');
+      await act(async () => {
+        removeButtons[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    }
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+
+    await clickSave(container);
+
+    const creates = mockPost.mock.calls.filter((c) => c[0] === ELIA_CREATE_PATH);
+    expect(creates).toHaveLength(1);
+    expect((creates[0][1] as Record<string, unknown>).expense_line_item_public_id).toBe("li-C");
+    expect(called(mockDel, "/api/v1/delete/expense-line-item-attachment/elia-A")).toBe(true);
+    expect(called(mockDel, "/api/v1/delete/expense-line-item-attachment/elia-B")).toBe(true);
+    expect(
+      mockDel.mock.calls.filter((c) =>
+        String(c[0]).includes("expense-line-item-attachment"),
+      ),
+    ).toHaveLength(2);
+    expect(container.textContent).not.toContain("Could not preserve");
+  });
+});
+
+describe("ExpenseEdit auto-save disarm after failed save (U-476)", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+
+    mockGetOne.mockImplementation((path: string) => {
+      const elia404 = elia404IfMatch(path);
+      if (elia404) return elia404;
+      if (path === EXPENSE_GET_PATH) return Promise.resolve(sampleExpense({ is_draft: true }));
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+
+    mockGetList.mockResolvedValue({
+      data: [expenseLineItemFixture("li-1", "existing", "10")],
+      count: 1,
+    });
+
+    mockPut.mockImplementation((path: string) => {
+      if (path === EXPENSE_UPDATE_PATH) {
+        return Promise.resolve(sampleExpense({ row_version: "rv-2", is_draft: true }));
+      }
+      if (path.startsWith("/api/v1/update/expense_line_item/")) {
+        return Promise.reject(new Error("line fail"));
+      }
+      return Promise.reject(new Error(`unexpected put: ${path}`));
+    });
+
+    mockPost.mockRejectedValue(new Error("unexpected post"));
+    mockDel.mockResolvedValue({});
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    document.body.removeChild(container);
+    vi.useRealTimers();
+  });
+
+  it("a failed save disarms auto-save", async () => {
+    renderExpenseEdit(root);
+    await waitForReady(container);
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+
+    await clickSave(container);
+    await flushUntil(() => container.textContent?.includes("line fail") ?? false);
+    expect(container.textContent).toContain("line fail");
+
+    const putsAfterFail = expenseHeaderPutBodies().length;
+    expect(putsAfterFail).toBeGreaterThan(0);
+
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    expect(memo).not.toBeNull();
+    await act(async () => {
+      setTextareaValue(memo, "typed after failed save");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    await act(async () => {
+      for (let i = 0; i < 40; i++) {
+        await Promise.resolve();
+      }
+    });
+
+    expect(expenseHeaderPutBodies()).toHaveLength(putsAfterFail);
+  });
+
+  it("cancels an already-armed debounce so a failed save does not fire a follow-up header PUT", async () => {
+    renderExpenseEdit(root);
+    await waitForReady(container);
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    expect(memo).not.toBeNull();
+    await act(async () => {
+      setTextareaValue(memo, "typed before failing save");
+    });
+    // Timer is armed (300ms) but must not fire before Save.
+    expect(expenseHeaderPutBodies()).toHaveLength(0);
+
+    await clickSave(container);
+    await flushUntil(() => container.textContent?.includes("line fail") ?? false);
+    expect(container.textContent).toContain("line fail");
+
+    const putsAfterFail = expenseHeaderPutBodies().length;
+    expect(putsAfterFail).toBe(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    await act(async () => {
+      for (let i = 0; i < 40; i++) {
+        await Promise.resolve();
+      }
+    });
+
+    expect(expenseHeaderPutBodies()).toHaveLength(putsAfterFail);
+  });
+});
+
