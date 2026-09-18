@@ -23,8 +23,7 @@ describe("expenses status tabs (U-470)", () => {
   it("has no 'All' tab", () => {
     // Deliberate (Chris, 2026-09-11), same product decision as Bills. Pinned
     // because re-adding it is a product decision, not a tidy-up — with no All
-    // tab there is no single view of every in-flight expense, which is why
-    // the default moved to in_review.
+    // tab there is no single view of every expense.
     expect(STATUS_TABS.some((t) => t.value === ("" as string))).toBe(false);
     expect(STATUS_TABS.some((t) => /all/i.test(t.label))).toBe(false);
   });
@@ -35,18 +34,21 @@ describe("expenses status tabs (U-470)", () => {
     }
   });
 
-  it("defaults to in_review, not to the empty draft tab", () => {
-    expect(DEFAULT_STATUS_TAB).toBe("in_review");
-    expect(resolveStatusTab(null)).toBe("in_review");
-    expect(resolveStatusTab(undefined)).toBe("in_review");
-    expect(resolveStatusTab("")).toBe("in_review");
+  it("defaults to completed — an in_review default opens an empty page in prod (U-479)", () => {
+    expect(
+      DEFAULT_STATUS_TAB,
+      "an in_review default opens an empty page in prod",
+    ).toBe("completed");
   });
 
-  it("falls back rather than forwarding junk the API would reject", () => {
-    expect(resolveStatusTab("billed")).toBe("in_review");
-    expect(resolveStatusTab("Draft")).toBe("in_review"); // case matters
-    expect(resolveStatusTab("finalized")).toBe("in_review");
-    expect(resolveStatusTab("'; DROP TABLE Expense--")).toBe("in_review");
+  it("falls back to the default on junk or null rather than forwarding it (U-479)", () => {
+    expect(resolveStatusTab(null)).toBe("completed");
+    expect(resolveStatusTab(undefined)).toBe("completed");
+    expect(resolveStatusTab("")).toBe("completed");
+    expect(resolveStatusTab("billed")).toBe("completed");
+    expect(resolveStatusTab("Draft")).toBe("completed"); // case matters
+    expect(resolveStatusTab("finalized")).toBe("completed");
+    expect(resolveStatusTab("'; DROP TABLE Expense--")).toBe("completed");
   });
 
   it("round-trips every legal tab", () => {

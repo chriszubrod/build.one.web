@@ -97,9 +97,9 @@ describe("ExpenseList status tabs reach the API (U-470)", () => {
     lastContainer?.remove();
   });
 
-  it("defaults to in_review when the URL carries no status", async () => {
+  it("defaults to completed when the URL carries no status", async () => {
     await mountAt("/expense/list");
-    expect(requestedUrls.at(-1)).toBe("/api/v1/get/expenses?status=in_review");
+    expect(requestedUrls.at(-1)).toBe("/api/v1/get/expenses?status=completed");
   });
 
   it("honours the status in the URL", async () => {
@@ -139,7 +139,7 @@ describe("ExpenseList status tabs reach the API (U-470)", () => {
 
   it("normalises a stale or junk status instead of forwarding it", async () => {
     await mountAt("/expense/list?status=finalized");
-    expect(requestedUrls.at(-1)).toBe("/api/v1/get/expenses?status=in_review");
+    expect(requestedUrls.at(-1)).toBe("/api/v1/get/expenses?status=completed");
   });
 
   it("NEVER queries is_draft", async () => {

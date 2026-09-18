@@ -29,11 +29,16 @@ export const STATUS_TABS: { value: ExpenseStatusTab; label: string }[] = [
 
 /**
  * There is deliberately no "All" tab — same product decision as Bills
- * (Chris, 2026-09-11). The default is `in_review`, the in-flight queue AP
- * actions. Defaulting to `draft` would open an empty page: an expense
- * acquires a Review the moment it is created.
+ * (Chris, 2026-09-11). Default is `completed`: expenses arrive from the QBO
+ * pull already `completed` and acquire no review on creation (unlike Bill,
+ * whose `create` auto-writes a Submitted review), so `in_review` is empty
+ * in practice. Measured 2026-09-17: 10 draft / 11,808 completed / 0 expense
+ * reviews. Bill's identical-looking default is correct for Bill.
+ *
+ * Interim: actionable vs settled is GL coding (the 58999 queue), not a
+ * lifecycle status. Durable fix: build.one.api `docs/design/u477-expense-surface-merge.md` (Phase 1).
  */
-export const DEFAULT_STATUS_TAB: ExpenseStatusTab = "in_review";
+export const DEFAULT_STATUS_TAB: ExpenseStatusTab = "completed";
 
 export function isStatusTab(value: string | null | undefined): value is ExpenseStatusTab {
   return STATUS_TABS.some((o) => o.value === value);
