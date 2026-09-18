@@ -66,12 +66,12 @@ export default function ExpenseCodingCockpit() {
 
   const queueQuery = useQuery({
     queryKey: QUEUE_QUERY_KEY,
-    queryFn: () => getList<ExpenseCodingQueueRow>("/api/v1/expense-coding/queue"),
+    queryFn: () => getList<ExpenseCodingQueueRow>("/api/v1/get/expense/coding/queue"),
   });
 
   const metricsQuery = useQuery({
     queryKey: METRICS_QUERY_KEY,
-    queryFn: () => getOne<ExpenseCodingMetrics>("/api/v1/expense-coding/metrics"),
+    queryFn: () => getOne<ExpenseCodingMetrics>("/api/v1/get/expense/coding/metrics"),
   });
 
   // Sort by suggestion confidence (highest first; null/no-suggestion sinks to a
@@ -119,7 +119,7 @@ export default function ExpenseCodingCockpit() {
   const handleSuggest = async () => {
     setSuggesting(true);
     try {
-      const result = await post<ExpenseCodingSuggestResult>("/api/v1/expense-coding/suggest", {});
+      const result = await post<ExpenseCodingSuggestResult>("/api/v1/expense/coding/suggest", {});
       toast(
         `Processed ${result.processed}: ${result.suggested} suggested, ${result.flagged} flagged, ${result.remaining} remaining`,
         "success",
@@ -161,7 +161,7 @@ export default function ExpenseCodingCockpit() {
     setBusyKey(key);
     try {
       const result = await post<ConfirmResponse>(
-        `/api/v1/expense-coding/${row.coding_item_public_id}/confirm`,
+        `/api/v1/expense/coding/${row.coding_item_public_id}/confirm`,
         body,
       );
       const resultToast = confirmResultToast(result);
@@ -202,7 +202,7 @@ export default function ExpenseCodingCockpit() {
 
     setBusyKey(key);
     try {
-      await post(`/api/v1/expense-coding/${row.coding_item_public_id}/flag`, {
+      await post(`/api/v1/expense/coding/${row.coding_item_public_id}/flag`, {
         reason: reason.trim(),
       });
       toast("Flagged for follow-up", "success");

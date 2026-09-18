@@ -443,6 +443,67 @@ describe("ExpenseCodingCockpit", () => {
     });
   });
 
+  function allRecordedApiUrls(): string[] {
+    return [
+      ...mockGetList.mock.calls.map((c) => String(c[0])),
+      ...mockGetOne.mock.calls.map((c) => String(c[0])),
+      ...mockPost.mock.calls.map((c) => String(c[0])),
+    ];
+  }
+
+  it("calls canonical expense/coding paths and none of the deprecated expense-coding aliases", async () => {
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("needs cardholder follow-up");
+    mockPost
+      .mockResolvedValueOnce({ processed: 1, suggested: 1, flagged: 0, remaining: 0 })
+      .mockResolvedValueOnce({ ...sampleRow(), enqueued: true })
+      .mockResolvedValueOnce({});
+
+    renderCockpit();
+    await waitForQueue();
+
+    const suggestBtn = container.querySelector(
+      ".expense-coding-metrics-actions .btn-primary",
+    ) as HTMLButtonElement;
+    expect(suggestBtn).not.toBeNull();
+
+    await act(async () => {
+      suggestBtn.click();
+      await vi.waitFor(() => {
+        expect(mockPost).toHaveBeenCalled();
+      });
+    });
+
+    await expandFirstRow();
+
+    await act(async () => {
+      confirmButton()?.click();
+      await vi.waitFor(() => {
+        expect(mockPost.mock.calls.length).toBeGreaterThanOrEqual(2);
+      });
+    });
+
+    const flagBtn = container.querySelector(
+      ".expense-coding-row-actions .btn-secondary",
+    ) as HTMLButtonElement;
+    expect(flagBtn).not.toBeNull();
+
+    await act(async () => {
+      flagBtn.click();
+      await vi.waitFor(() => {
+        expect(mockPost.mock.calls.length).toBeGreaterThanOrEqual(3);
+      });
+    });
+
+    promptSpy.mockRestore();
+
+    const deprecatedPrefix = "/api/v1/expense-coding/";
+    const deprecated = allRecordedApiUrls().filter((url) => url.startsWith(deprecatedPrefix));
+    expect(
+      deprecated,
+      `Deprecated ${deprecatedPrefix}* paths must not be called — use /api/v1/get/expense/coding/queue, /api/v1/get/expense/coding/metrics, /api/v1/expense/coding/suggest, /api/v1/expense/coding/{id}/confirm, and /api/v1/expense/coding/{id}/flag instead`,
+    ).toEqual([]);
+  });
+
   it("toasts blocked error and refetches metrics on confirm 422", async () => {
     mockPost.mockRejectedValue(new ApiError(422, "Recode writes are disabled"));
     renderCockpit();
@@ -450,7 +511,7 @@ describe("ExpenseCodingCockpit", () => {
     await expandFirstRow();
 
     const metricsCallsBefore = mockGetOne.mock.calls.filter(
-      (c) => c[0] === "/api/v1/expense-coding/metrics",
+      (c) => c[0] === "/api/v1/get/expense/coding/metrics",
     ).length;
 
     await act(async () => {
@@ -466,7 +527,7 @@ describe("ExpenseCodingCockpit", () => {
     await act(async () => {
       await vi.waitFor(() => {
         const metricsCallsAfter = mockGetOne.mock.calls.filter(
-          (c) => c[0] === "/api/v1/expense-coding/metrics",
+          (c) => c[0] === "/api/v1/get/expense/coding/metrics",
         ).length;
         expect(metricsCallsAfter).toBeGreaterThan(metricsCallsBefore);
       });
