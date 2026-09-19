@@ -88,7 +88,6 @@ import EmployeeView from "./pages/employees/EmployeeView";
 import EmployeeEdit from "./pages/employees/EmployeeEdit";
 import EmployeeCreate from "./pages/employees/EmployeeCreate";
 
-import ExpenseCodingCockpit from "./pages/expense-coding/ExpenseCodingCockpit";
 import VendorComplianceDashboard from "./pages/vendor-compliance/VendorComplianceDashboard";
 import RequiredCoverageEditor from "./pages/vendor-compliance/RequiredCoverageEditor";
 import VendorList from "./pages/vendors/VendorList";
@@ -172,7 +171,7 @@ export const appRouteTree = (
         <Route path="/project/list" element={<ProjectList />} />
         <Route path="/project/:publicId" element={<ProjectDetailScreen />} />
 
-        <Route path="/expense-coding" element={<ExpenseCodingCockpit />} />
+        <Route path="/expense-coding" element={<Navigate to="/expense/list" replace />} />
         <Route path="/vendor-compliance" element={<VendorComplianceDashboard />} />
         <Route
           path="/vendor-compliance/required-coverages"

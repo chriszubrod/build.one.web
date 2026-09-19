@@ -333,11 +333,28 @@ describe("entriesInSection", () => {
       "bills",
       "bill-credits",
       "expenses",
-      "expense-coding",
       "invoices",
       "contract-labor",
       "employee-labor",
     ]);
+  });
+
+  // Chris, 2026-09-19: Expense Coding cockpit retired — coding moves to expense edit.
+  it("financials nav has Expenses unchanged and no expense-coding entry (U-486 Phase E)", () => {
+    const me = makeUser({ is_admin: true });
+    const ids = entriesInSection("financials", me).map((e) => e.id);
+    expect(ids).not.toContain("expense-coding");
+    const expenses = findMenuEntry("expenses");
+    expect(expenses).toEqual({
+      id: "expenses",
+      label: "Expenses",
+      icon: expenses!.icon,
+      route: "/expense/list",
+      module: Modules.EXPENSES,
+      permission: "can_read",
+      section: "financials",
+      priority: 45,
+    });
   });
 
   it("Returns empty array for sections without entries yet (admin)", () => {

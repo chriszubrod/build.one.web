@@ -393,6 +393,18 @@ describe("appRouteTree — real route tree (U-066)", () => {
     expect(last.route.path).toBe("/expense/:publicId");
   });
 
+  // Chris, 2026-09-19: Expense Coding cockpit retired — GL coding lives on the
+  // expense edit page; stale bookmarks at /expense-coding redirect to the list.
+  it("/expense-coding redirects to /expense/list (U-486 Phase E)", () => {
+    const branch = branchFor("/expense-coding");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/expense-coding");
+    const el = last.route.element as ReactElement<{ to: string }> | undefined;
+    expect(el?.type).toBe(Navigate);
+    expect(el?.props.to).toBe("/expense/list");
+  });
+
   describe("/expense/* redirect catches unknown expense children", () => {
     it("/expense last match is /expense/* (not AppLayout's * splat)", () => {
       const branch = branchFor("/expense");
@@ -906,6 +918,7 @@ const INTENTIONAL_NON_NAV_ROUTES = new Set<string>([
   "/vendor-compliance/required-coverages", // base: /vendor-compliance (admin-only editor, dashboard header link)
   "/contract-labor/bills", // parked-surface redirect → /contract-labor/list (U-134)
   "/contract-labor/import", // parked-surface redirect → /contract-labor/list (U-134)
+  "/expense-coding", // retired cockpit redirect → /expense/list (U-486 Phase E, Chris 2026-09-19)
 ]);
 
 // Structural rules below are future-proof: a NEW entity's /entity/:id and
@@ -955,7 +968,6 @@ describe("routed <-> nav reconciliation (U-077)", () => {
       "/docs",
       "/employee-labor/list",
       "/employee/list",
-      "/expense-coding",
       "/expense/list",
       "/invoice/list",
       "/labor/list",

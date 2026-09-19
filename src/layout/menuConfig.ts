@@ -1,4 +1,4 @@
-import { BookOpen, Briefcase, Building2, Calculator, CalendarClock, CircleDollarSign, ClipboardCheck, Clock, FileMinus, FileText, Hammer, HardHat, Hash, IdCard, KeyRound, Layers, ListChecks, MapPin, Network, Receipt, ShieldCheck, Store, Tags, User, UserCog, Users } from "lucide-react";
+import { BookOpen, Briefcase, Building2, Calculator, CalendarClock, CircleDollarSign, Clock, FileMinus, FileText, Hammer, HardHat, Hash, IdCard, KeyRound, Layers, ListChecks, MapPin, Network, Receipt, ShieldCheck, Store, Tags, User, UserCog, Users } from "lucide-react";
 import type { ComponentType } from "react";
 import { Modules, type ModuleName } from "../shared/modules";
 import { hasModulePermission } from "../shared/permissions";
@@ -115,16 +115,6 @@ export const MENU_ENTRIES: MenuEntry[] = [
     permission: "can_read",
     section: "financials",
     priority: 45,
-  },
-  {
-    id: "expense-coding",
-    label: "Expense Coding",
-    icon: ClipboardCheck,
-    route: "/expense-coding",
-    module: Modules.EXPENSES,
-    permission: "can_read",
-    section: "financials",
-    priority: 46,
   },
   {
     id: "invoices",
