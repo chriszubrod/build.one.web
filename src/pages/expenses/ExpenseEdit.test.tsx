@@ -6,7 +6,8 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import ExpenseEdit from "./ExpenseEdit";
 import { ApiError } from "../../api/client";
 import type { Expense } from "../../types/api";
-import { setInputValue, setTextareaValue } from "../../__testutils__/domEvents";
+import { setInputValue, setSelectValue, setTextareaValue } from "../../__testutils__/domEvents";
+import ReviewTimeline from "../../components/ReviewTimeline";
 import { flushUntil } from "../../__testutils__/flush";
 import { RefetchWitness, WITNESS_ID } from "../../__testutils__/formSeedGuardHarness";
 import {
@@ -70,7 +71,7 @@ vi.mock("../../components/Toast", () => ({
 }));
 
 vi.mock("../../components/ReviewTimeline", () => ({
-  default: () => null,
+  default: vi.fn(() => null),
 }));
 
 vi.mock("../../components/LineItemAttachment", () => ({
@@ -110,13 +111,19 @@ function sampleExpense(overrides: Partial<Expense> = {}): Expense {
 }
 
 /** Slim list-row shape returned by GET expense line items in these specs. */
-function expenseLineItemFixture(publicId: string, description: string, amount: string) {
+function expenseLineItemFixture(
+  publicId: string,
+  description: string,
+  amount: string,
+  extras: { project_id?: number | null; sub_cost_code_id?: number | null } = {},
+) {
   const suffix = publicId.replace(/^li-/, "");
   return {
     public_id: publicId,
     row_version: `rv-${suffix}`,
     description,
-    sub_cost_code_id: null,
+    sub_cost_code_id: extras.sub_cost_code_id ?? null,
+    project_id: extras.project_id ?? null,
     quantity: null,
     rate: null,
     amount,
@@ -124,6 +131,34 @@ function expenseLineItemFixture(publicId: string, description: string, amount: s
     markup: null,
     price: null,
   };
+}
+
+const SUB_COST_CODES_PATH = "/api/v1/get/sub-cost-codes";
+const PROJECTS_PATH = "/api/v1/get/projects";
+const PROJECT_144_PUBLIC_ID = "11111111-2222-3333-4444-555555555555";
+
+type ListEnvelope = { data: unknown[]; count: number };
+
+/** useEntityList catalog GETs issued on every ExpenseEdit mount (U-486). */
+function codingCatalogGetList(path: string): ListEnvelope | null {
+  if (path === SUB_COST_CODES_PATH || path === PROJECTS_PATH) {
+    return { data: [], count: 0 };
+  }
+  return null;
+}
+
+function mockGetListWithCodingCatalog(
+  handler: (path: string) => Promise<ListEnvelope> | ListEnvelope,
+) {
+  mockGetList.mockImplementation((path: string) => {
+    const catalog = codingCatalogGetList(path);
+    if (catalog) return Promise.resolve(catalog);
+    return Promise.resolve(handler(path));
+  });
+}
+
+function mockGetListResolvedForAll(body: ListEnvelope) {
+  mockGetListWithCodingCatalog(() => body);
 }
 
 function allMockedClientPaths(): string[] {
@@ -283,7 +318,7 @@ describe("ExpenseEdit completion polling", () => {
     pollPhase = false;
     pollCallIndex = 0;
 
-    mockGetList.mockResolvedValue({ data: [], count: 0 });
+    mockGetListResolvedForAll({ data: [], count: 0 });
     mockPost.mockImplementation((path: string) => {
       if (path === "/api/v1/complete/expense/exp-1") {
         return Promise.resolve({});
@@ -428,7 +463,7 @@ describe("ExpenseEdit line-item delete tracking", () => {
       return Promise.reject(new Error(`unexpected getOne: ${path}`));
     });
 
-    mockGetList.mockResolvedValue({
+    mockGetListResolvedForAll({
       data: [
         {
           public_id: "li-a",
@@ -585,7 +620,7 @@ describe("ExpenseEdit line-item row identity (stable uid keys)", () => {
       return Promise.reject(new Error(`unexpected getOne: ${path}`));
     });
 
-    mockGetList.mockResolvedValue({
+    mockGetListResolvedForAll({
       data: [
         expenseLineItemFixture("li-1", "Line One", "10"),
         expenseLineItemFixture("li-2", "Line Two", "20"),
@@ -705,7 +740,7 @@ describe("ExpenseEdit line-item row identity (stable uid keys)", () => {
     const savedDescription = "New line in session";
     const refreshedExpenseRowVersion = "rv-after-refetch";
 
-    mockGetList.mockResolvedValue({ data: [], count: 0 });
+    mockGetListResolvedForAll({ data: [], count: 0 });
     mockPut.mockImplementation((path: string) => {
       if (path === "/api/v1/update/expense/exp-1") {
         return Promise.resolve(sampleExpense({ row_version: "rv-2", is_draft: true }));
@@ -753,7 +788,7 @@ describe("ExpenseEdit line-item row identity (stable uid keys)", () => {
     expect(inputAfterSave).toBe(descriptionInput);
 
     const listCallsBefore = mockGetList.mock.calls.length;
-    mockGetList.mockResolvedValue({
+    mockGetListResolvedForAll({
       data: [
         expenseLineItemFixture(savedPublicId, savedDescription, "5"),
       ],
@@ -804,7 +839,7 @@ describe("ExpenseEdit chained-save row_version", () => {
       return Promise.reject(new Error(`unexpected getOne: ${path}`));
     });
 
-    mockGetList.mockResolvedValue({ data: [], count: 0 });
+    mockGetListResolvedForAll({ data: [], count: 0 });
 
     mockPut.mockImplementation((path: string) => {
       if (path === "/api/v1/update/expense/exp-1") {
@@ -936,7 +971,7 @@ describe("ExpenseEdit token rebase (U-471)", () => {
       if (path === EXPENSE_GET_PATH) return Promise.resolve(sampleExpense());
       return Promise.reject(new Error("unexpected getOne: " + path));
     });
-    mockGetList.mockResolvedValue({ data: [], count: 0 });
+    mockGetListResolvedForAll({ data: [], count: 0 });
     mockPut.mockImplementation((path: string, body: Record<string, unknown>) => {
       if (path === "/api/v1/update/expense/exp-1") {
         return Promise.resolve(sampleExpense({
@@ -1043,7 +1078,7 @@ describe("ExpenseEdit saveAll incremental line-item sync (U-170 / U-476)", () =>
       return Promise.reject(new Error(`unexpected getOne: ${path}`));
     });
 
-    mockGetList.mockResolvedValue({
+    mockGetListResolvedForAll({
       data: [expenseLineItemFixture("li-1", "existing", "100.00")],
       count: 1,
     });
@@ -1137,7 +1172,7 @@ describe("ExpenseEdit saveAll incremental line-item sync (U-170 / U-476)", () =>
   });
 
   it("commits DELETE progress so a retry does not re-DELETE a gone row", async () => {
-    mockGetList.mockResolvedValue({
+    mockGetListResolvedForAll({
       data: [
         expenseLineItemFixture("li-1", "line-1", "50.00"),
         expenseLineItemFixture("li-2", "line-2", "50.00"),
@@ -1189,7 +1224,7 @@ describe("ExpenseEdit saveAll incremental line-item sync (U-170 / U-476)", () =>
 
   it("a row created in one save and removed in a later save is deleted server-side", async () => {
     const createdId = "li-created";
-    mockGetList.mockResolvedValue({ data: [], count: 0 });
+    mockGetListResolvedForAll({ data: [], count: 0 });
     mockPost.mockImplementation((path: string) => {
       if (path === LINE_CREATE_PATH) {
         return Promise.resolve({ public_id: createdId, row_version: "rv-created" });
@@ -1251,7 +1286,7 @@ describe("ExpenseEdit receipt re-homing on line delete (U-171 / U-476)", () => {
       }
       return Promise.reject(new Error(`unexpected getOne: ${path}`));
     });
-    mockGetList.mockResolvedValue({ data: lines, count: lines.length });
+    mockGetListResolvedForAll({ data: lines, count: lines.length });
     mockPut.mockImplementation((path: string) => {
       if (path === EXPENSE_UPDATE_PATH) {
         return Promise.resolve(sampleExpense({ row_version: "rv-2", is_draft: true }));
@@ -1884,7 +1919,7 @@ describe("ExpenseEdit auto-save disarm after failed save (U-476)", () => {
       return Promise.reject(new Error(`unexpected getOne: ${path}`));
     });
 
-    mockGetList.mockResolvedValue({
+    mockGetListResolvedForAll({
       data: [expenseLineItemFixture("li-1", "existing", "10")],
       count: 1,
     });
@@ -1974,6 +2009,283 @@ describe("ExpenseEdit auto-save disarm after failed save (U-476)", () => {
     });
 
     expect(expenseHeaderPutBodies()).toHaveLength(putsAfterFail);
+  });
+});
+
+/** Ordered line-item field keys — pin so column drops/reorders fail loudly (U-486). */
+const EXPENSE_LINE_ITEM_FIELD_KEYS = [
+  "description",
+  "sub_cost_code_id",
+  "project_id",
+  "quantity",
+  "rate",
+  "amount",
+  "markup",
+  "price",
+  "is_billable",
+] as const;
+
+const EXPENSE_LINE_ITEM_HEADER_LABELS = [
+  "Description",
+  "Sub Cost Code",
+  "Project",
+  "Qty",
+  "Rate",
+  "Amount",
+  "Markup",
+  "Price",
+  "Billable",
+] as const;
+
+function lineItemHeaderLabels(container: HTMLElement): string[] {
+  const table = container.querySelector(".inline-li-table");
+  expect(table).not.toBeNull();
+  return Array.from(table!.querySelectorAll("thead th"))
+    .map((th) => th.textContent?.trim() ?? "")
+    .filter((label) => label !== "" && label !== "Attachment");
+}
+
+function firstLineItemRow(container: HTMLElement): HTMLTableRowElement {
+  const rows = inlineLineItemRows(container);
+  expect(rows.length).toBeGreaterThan(0);
+  return rows[0]!;
+}
+
+function sccSelectInRow(row: HTMLTableRowElement): HTMLSelectElement {
+  const select = row.querySelectorAll("td")[1]?.querySelector("select");
+  if (!select) throw new Error("expected sub_cost_code_id select in column 2");
+  return select as HTMLSelectElement;
+}
+
+function projectSelectInRow(row: HTMLTableRowElement): HTMLSelectElement {
+  const select = row.querySelectorAll("td")[2]?.querySelector("select");
+  if (!select) throw new Error("expected project_id select in column 3");
+  return select as HTMLSelectElement;
+}
+
+function submitForReviewButtons(container: HTMLElement): HTMLButtonElement[] {
+  return Array.from(container.querySelectorAll("button")).filter((b) =>
+    b.textContent?.includes("Submit for Review"),
+  );
+}
+
+describe("ExpenseEdit line-item coding fields (U-486)", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+
+    vi.mocked(ReviewTimeline).mockImplementation(() =>
+      createElement(
+        "div",
+        { "data-testid": "review-timeline-stub" },
+        createElement("button", { type: "button" }, "Submit for Review"),
+      ),
+    );
+
+    mockGetOne.mockImplementation((path: string) => {
+      const elia404 = elia404IfMatch(path);
+      if (elia404) return elia404;
+      if (path === EXPENSE_GET_PATH) {
+        return Promise.resolve(sampleExpense({ is_draft: true }));
+      }
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+
+    mockGetList.mockImplementation((path: string) => {
+      if (path === SUB_COST_CODES_PATH) {
+        return Promise.resolve({
+          data: [
+            { id: 481, public_id: "scc-481", name: "Suspense", number: "00.02" },
+            { id: 99, public_id: "scc-99", name: "NoNumberScc", number: null },
+          ],
+          count: 2,
+        });
+      }
+      if (path === PROJECTS_PATH) {
+        return Promise.resolve({
+          data: [{ id: 144, public_id: PROJECT_144_PUBLIC_ID, name: "Main Street" }],
+          count: 1,
+        });
+      }
+      if (path === "/api/v1/get/expense_line_items/expense/1") {
+        return Promise.resolve({
+          data: [
+            expenseLineItemFixture("li-coded", "Line to code", "50.00"),
+          ],
+          count: 1,
+        });
+      }
+      return Promise.reject(new Error(`unexpected getList: ${path}`));
+    });
+
+    mockPut.mockImplementation((path: string) => {
+      if (path === EXPENSE_UPDATE_PATH) {
+        return Promise.resolve(sampleExpense({ row_version: "rv-2", is_draft: true }));
+      }
+      if (path.startsWith("/api/v1/update/expense_line_item/")) {
+        return Promise.resolve({
+          public_id: path.split("/").pop(),
+          row_version: "rv-li-upd",
+        });
+      }
+      return Promise.reject(new Error("unexpected put: " + path));
+    });
+
+    mockPost.mockRejectedValue(new Error("unexpected post"));
+    mockDel.mockResolvedValue({});
+
+    vi.stubGlobal("confirm", vi.fn(() => true));
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    vi.mocked(ReviewTimeline).mockImplementation(() => null);
+    act(() => {
+      root.unmount();
+    });
+    document.body.removeChild(container);
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  async function waitForCodingReady() {
+    await waitForReady(container);
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+    await flushUntil(() => {
+      const row = inlineLineItemRows(container)[0];
+      return row ? sccSelectInRow(row).options.length > 1 : false;
+    });
+  }
+
+  it("renders SubCostCode as a select with number — name option labels", async () => {
+    renderExpenseEdit(root);
+    await waitForCodingReady();
+
+    const sccSelect = sccSelectInRow(firstLineItemRow(container));
+    expect(sccSelect.tagName).toBe("SELECT");
+
+    const labels = Array.from(sccSelect.options).map((o) => o.textContent);
+    expect(labels).toContain("00.02 — Suspense");
+  });
+
+  it("shows an existing line item project as selected (numeric row value)", async () => {
+    mockGetList.mockImplementation((path: string) => {
+      if (path === SUB_COST_CODES_PATH) {
+        return Promise.resolve({ data: [], count: 0 });
+      }
+      if (path === PROJECTS_PATH) {
+        return Promise.resolve({
+          data: [{ id: 144, public_id: PROJECT_144_PUBLIC_ID, name: "Main Street" }],
+          count: 1,
+        });
+      }
+      if (path === "/api/v1/get/expense_line_items/expense/1") {
+        return Promise.resolve({
+          data: [
+            expenseLineItemFixture("li-coded", "Line to code", "50.00", { project_id: 144 }),
+          ],
+          count: 1,
+        });
+      }
+      return Promise.reject(new Error(`unexpected getList: ${path}`));
+    });
+
+    renderExpenseEdit(root);
+    await waitForReady(container);
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+
+    const projectSelect = projectSelectInRow(firstLineItemRow(container));
+    expect(projectSelect.value).toBe("144");
+    const selectedLabel = projectSelect.options[projectSelect.selectedIndex]?.textContent;
+    expect(selectedLabel).toBe("Main Street");
+  });
+
+  it("persists numeric sub_cost_code_id and project public_id UUID on save", async () => {
+    renderExpenseEdit(root);
+    await waitForCodingReady();
+
+    const row = firstLineItemRow(container);
+    await act(async () => {
+      setSelectValue(sccSelectInRow(row), "481");
+      setSelectValue(projectSelectInRow(row), "144");
+    });
+
+    await clickSave(container);
+
+    const linePuts = putCallsForLineItem("li-coded");
+    expect(linePuts.length).toBeGreaterThan(0);
+    const body = linePuts[linePuts.length - 1]![1];
+    expect(body.sub_cost_code_id).toBe(481);
+    expect(typeof body.sub_cost_code_id).toBe("number");
+    expect(body.project_public_id).toBe(PROJECT_144_PUBLIC_ID);
+    expect(body.project_public_id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+  });
+
+  it("sends project_public_id null when projects catalog is not loaded yet", async () => {
+    mockGetListWithCodingCatalog((path: string) => {
+      if (path === SUB_COST_CODES_PATH) {
+        return { data: [{ id: 481, public_id: "scc-481", name: "Suspense", number: "00.02" }], count: 1 };
+      }
+      if (path === "/api/v1/get/expense_line_items/expense/1") {
+        return {
+          data: [
+            expenseLineItemFixture("li-coded", "Line to code", "50.00", { project_id: 144 }),
+          ],
+          count: 1,
+        };
+      }
+      return Promise.reject(new Error(`unexpected getList: ${path}`));
+    });
+
+    renderExpenseEdit(root);
+    await waitForReady(container);
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+    // Projects catalog is still empty — the select has no matching option, but row
+    // state carries the numeric id from the line-item GET (save converts at wire time).
+    await flushUntil(() =>
+      mockGetList.mock.calls.some((c) => c[0] === "/api/v1/get/expense_line_items/expense/1"),
+    );
+
+    await clickSave(container);
+
+    const linePuts = putCallsForLineItem("li-coded");
+    expect(linePuts.length).toBeGreaterThan(0);
+    const body = linePuts[linePuts.length - 1]![1];
+    expect(body.project_public_id).toBeNull();
+  });
+
+  it("labels a SubCostCode without number using its name only", async () => {
+    renderExpenseEdit(root);
+    await waitForCodingReady();
+
+    const sccSelect = sccSelectInRow(firstLineItemRow(container));
+    const labels = Array.from(sccSelect.options).map((o) => o.textContent);
+    expect(labels).toContain("NoNumberScc");
+    expect(labels.some((l) => l?.includes(" — NoNumberScc"))).toBe(false);
+  });
+
+  it("keeps the full ordered line-item field key list via column headers", async () => {
+    renderExpenseEdit(root);
+    await waitForCodingReady();
+
+    expect(EXPENSE_LINE_ITEM_FIELD_KEYS.length).toBe(9);
+    expect(lineItemHeaderLabels(container)).toEqual([...EXPENSE_LINE_ITEM_HEADER_LABELS]);
+  });
+
+  it("does not add a second Submit for Review control beyond ReviewTimeline", async () => {
+    renderExpenseEdit(root);
+    await waitForReady(container);
+
+    expect(submitForReviewButtons(container)).toHaveLength(1);
+    expect(container.querySelector('[data-testid="review-timeline-stub"]')).not.toBeNull();
   });
 });
 

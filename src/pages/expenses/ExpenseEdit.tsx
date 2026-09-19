@@ -1,9 +1,9 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useServerOwnedRebase } from "../../hooks/useServerOwnedRebase";
 import { useSyncedToken } from "../../hooks/useSyncedToken";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEntityItem, entityItemKey } from "../../hooks/useEntity";
+import { useEntityItem, useEntityList, entityItemKey } from "../../hooks/useEntity";
 import { useAutoSave } from "../../hooks/useAutoSave";
 import { useCompletionPolling } from "../../hooks/useCompletionPolling";
 import { useToast } from "../../components/Toast";
@@ -20,7 +20,7 @@ import InlineLineItems, { type LineItemFieldDef } from "../../components/InlineL
 import LineItemAttachment from "../../components/LineItemAttachment";
 import ReviewTimeline from "../../components/ReviewTimeline";
 import RecordChangedBanner from "../../components/RecordChangedBanner";
-import type { Expense, ExpenseLineItem } from "../../types/api";
+import type { Expense, ExpenseLineItem, Project, SubCostCode } from "../../types/api";
 import { existingUidsByPublicId, newLineItemUid, persistedLineItemUid } from "../../shared/lineItemUid";
 
 interface LineItemRow {
@@ -29,7 +29,7 @@ interface LineItemRow {
   row_version?: string;
   description: string;
   sub_cost_code_id: string;
-  project_public_id: string;
+  project_id: string;
   quantity: string;
   rate: string;
   amount: string;
@@ -38,22 +38,10 @@ interface LineItemRow {
   price: string;
 }
 
-const lineItemFields: LineItemFieldDef[] = [
-  { key: "description", label: "Description", width: "200px" },
-  { key: "sub_cost_code_id", label: "SCC ID", width: "80px", type: "number" },
-  { key: "project_public_id", label: "Project ID", width: "120px" },
-  { key: "quantity", label: "Qty", width: "70px", type: "number", align: "right" },
-  { key: "rate", label: "Rate", width: "90px", type: "number", align: "right" },
-  { key: "amount", label: "Amount", width: "100px", type: "number", align: "right" },
-  { key: "markup", label: "Markup", width: "80px", type: "number", align: "right", placeholder: "0.10" },
-  { key: "price", label: "Price", width: "100px", type: "number", align: "right" },
-  { key: "is_billable", label: "Billable", width: "60px", type: "checkbox" },
-];
-
 function newLineItem(): LineItemRow {
   return {
     uid: newLineItemUid(),
-    description: "", sub_cost_code_id: "", project_public_id: "",
+    description: "", sub_cost_code_id: "", project_id: "",
     quantity: "", rate: "", amount: "", is_billable: true, markup: "", price: "",
   };
 }
@@ -225,6 +213,8 @@ export default function ExpenseEdit() {
   const queryClient = useQueryClient();
   const expenseItemPath = `/api/v1/get/expense/${id}`;
   const { item, loading, error } = useEntityItem<Expense>(expenseItemPath);
+  const { items: fullSubCostCodes } = useEntityList<SubCostCode>("/api/v1/get/sub-cost-codes");
+  const { items: fullProjects } = useEntityList<Project>("/api/v1/get/projects");
   const { data: lookups } = useLookups("vendors");
   const { data: me, isLoading: meLoading } = useCurrentUser();
   const actions = resolveExpenseEditActions(me);
@@ -274,7 +264,7 @@ export default function ExpenseEdit() {
             row_version: li.row_version,
             description: li.description ?? "",
             sub_cost_code_id: li.sub_cost_code_id != null ? String(li.sub_cost_code_id) : "",
-            project_public_id: "",
+            project_id: li.project_id != null ? String(li.project_id) : "",
             quantity: li.quantity != null ? String(li.quantity) : "",
             rate: li.rate ?? "",
             amount: li.amount ?? "",
@@ -358,6 +348,37 @@ export default function ExpenseEdit() {
     if (!actions.canEdit) cancelAutoSave();
   }, [actions.canEdit, cancelAutoSave]);
 
+  const lineItemFields = useMemo<LineItemFieldDef[]>(() => {
+    const sccOptions = fullSubCostCodes.map((s) => ({
+      value: String(s.id),
+      label: s.number ? `${s.number} — ${s.name}` : s.name,
+    }));
+    const projectOptions = fullProjects.map((p) => ({ value: String(p.id), label: p.name }));
+    return [
+      { key: "description", label: "Description", width: "200px" },
+      {
+        key: "sub_cost_code_id",
+        label: "Sub Cost Code",
+        width: "140px",
+        type: "select",
+        options: sccOptions,
+      },
+      {
+        key: "project_id",
+        label: "Project",
+        width: "120px",
+        type: "select",
+        options: projectOptions,
+      },
+      { key: "quantity", label: "Qty", width: "70px", type: "number", align: "right" },
+      { key: "rate", label: "Rate", width: "90px", type: "number", align: "right" },
+      { key: "amount", label: "Amount", width: "100px", type: "number", align: "right" },
+      { key: "markup", label: "Markup", width: "80px", type: "number", align: "right", placeholder: "0.10" },
+      { key: "price", label: "Price", width: "100px", type: "number", align: "right" },
+      { key: "is_billable", label: "Billable", width: "60px", type: "checkbox" },
+    ];
+  }, [fullSubCostCodes, fullProjects]);
+
   if (loading || meLoading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
   if (!form) return null;
@@ -433,7 +454,8 @@ export default function ExpenseEdit() {
         const body = {
           expense_public_id: id!,
           sub_cost_code_id: li.sub_cost_code_id !== "" ? Number(li.sub_cost_code_id) : null,
-          project_public_id: li.project_public_id || null,
+          project_public_id:
+            fullProjects.find((p) => String(p.id) === li.project_id)?.public_id ?? null,
           description: li.description || null,
           quantity: li.quantity !== "" ? Number(li.quantity) : null,
           rate: li.rate !== "" ? Number(li.rate) : null,
