@@ -25,6 +25,16 @@ const LINE_CREATE_PATH = "/api/v1/create/expense_line_item";
 const ELIA_BY_LINE_PREFIX = "/api/v1/get/expense-line-item-attachment/by-expense-line-item/";
 const ELIA_CREATE_PATH = "/api/v1/create/expense-line-item-attachment";
 const STALE_COMPLETION_RESULT_PATH = "/api/v1/get/expense/exp-1/completion-result";
+const VENDOR_1_PUBLIC_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+
+let mockCurrentUserData: {
+  is_admin: boolean;
+  modules: import("../../types/api").CurrentUserModule[];
+  auth: { public_id: string; username: string };
+  user: { id: number; public_id: string; firstname: string; lastname: string };
+  role: null;
+  accessible_project_ids: number[];
+};
 
 const mockGetList = vi.fn();
 const mockGetOne = vi.fn();
@@ -33,6 +43,11 @@ const mockPut = vi.fn();
 const mockDel = vi.fn();
 const mockToast = vi.fn();
 const mockNavigate = vi.fn();
+const mockUseViewAttachmentObjectUrl = vi.fn(() => ({
+  objectUrl: "blob:test",
+  loading: false,
+  loadError: false,
+}));
 
 vi.mock("react-router-dom", async (importOriginal) => {
   const mod = await importOriginal<typeof import("react-router-dom")>();
@@ -59,13 +74,6 @@ vi.mock("../../api/client", () => ({
   },
 }));
 
-vi.mock("../../hooks/useLookups", () => ({
-  useLookups: () => ({
-    data: { vendors: [] },
-    loading: false,
-  }),
-}));
-
 vi.mock("../../components/Toast", () => ({
   useToast: () => ({ toast: (...args: unknown[]) => mockToast(...args) }),
 }));
@@ -78,17 +86,32 @@ vi.mock("../../components/LineItemAttachment", () => ({
   default: () => null,
 }));
 
+vi.mock("../../hooks/useViewAttachmentObjectUrl", () => ({
+  useViewAttachmentObjectUrl: () => mockUseViewAttachmentObjectUrl(),
+}));
+
+mockCurrentUserData = {
+  is_admin: true,
+  modules: [],
+  auth: { public_id: "a", username: "admin" },
+  user: { id: 1, public_id: "u", firstname: "A", lastname: "D" },
+  role: null,
+  accessible_project_ids: [],
+};
+
 vi.mock("../../hooks/useCurrentUser", () => ({
   useCurrentUser: () => ({
-    data: {
-      is_admin: true,
-      modules: [],
-      auth: { public_id: "a", username: "admin" },
-      user: { id: 1, public_id: "u", firstname: "A", lastname: "D" },
-      role: null,
-      accessible_project_ids: [],
-    },
+    data: mockCurrentUserData,
     isLoading: false,
+  }),
+}));
+
+vi.mock("../../hooks/useLookups", () => ({
+  useLookups: () => ({
+    data: {
+      vendors: [{ public_id: VENDOR_1_PUBLIC_ID, name: "Acme Supply" }],
+    },
+    loading: false,
   }),
 }));
 
@@ -135,14 +158,20 @@ function expenseLineItemFixture(
 
 const SUB_COST_CODES_PATH = "/api/v1/get/sub-cost-codes";
 const PROJECTS_PATH = "/api/v1/get/projects";
+const VENDORS_PATH = "/api/v1/get/vendors";
 const PROJECT_144_PUBLIC_ID = "11111111-2222-3333-4444-555555555555";
+const REVIEW_SUBMIT_PATH = "/api/v1/submit/review/expense/exp-1";
+const EXPENSE_DELETE_PATH = "/api/v1/delete/expense/exp-1";
 
 type ListEnvelope = { data: unknown[]; count: number };
 
-/** useEntityList catalog GETs issued on every ExpenseEdit mount (U-486). */
+/** Vendor catalog for useEntityList — injected so the header form can seed vendor_public_id (U-487). */
 function codingCatalogGetList(path: string): ListEnvelope | null {
-  if (path === SUB_COST_CODES_PATH || path === PROJECTS_PATH) {
-    return { data: [], count: 0 };
+  if (path === VENDORS_PATH) {
+    return {
+      data: [{ id: 1, public_id: VENDOR_1_PUBLIC_ID, name: "Acme Supply" }],
+      count: 1,
+    };
   }
   return null;
 }
@@ -702,7 +731,7 @@ describe("ExpenseEdit line-item row identity (stable uid keys)", () => {
     const rowsBefore = lineItemDataRows();
     const inputsBefore = rowsBefore.map((row) => rowDescriptionInput(row));
 
-    const callsBefore = mockGetOne.mock.calls.length;
+    const expenseGetsBefore = mockGetOne.mock.calls.filter((c) => c[0] === EXPENSE_GET_PATH).length;
     mockGetOne.mockImplementation((path: string) => {
       const elia404 = elia404IfMatch(path);
       if (elia404) return elia404;
@@ -721,8 +750,8 @@ describe("ExpenseEdit line-item row identity (stable uid keys)", () => {
       () => container.querySelector(`#${WITNESS_ID}`)?.textContent === refreshedRowVersion,
     );
 
-    expect(mockGetOne.mock.calls.length).toBeGreaterThan(callsBefore);
-    expect(mockGetOne.mock.calls.at(-1)?.[0]).toBe(EXPENSE_GET_PATH);
+    const expenseGetsAfter = mockGetOne.mock.calls.filter((c) => c[0] === EXPENSE_GET_PATH).length;
+    expect(expenseGetsAfter).toBeGreaterThan(expenseGetsBefore);
     expect(container.querySelector(`#${WITNESS_ID}`)?.textContent).toBe(refreshedRowVersion);
 
     const rowsAfter = lineItemDataRows();
@@ -2095,6 +2124,8 @@ describe("ExpenseEdit line-item coding fields (U-486)", () => {
     });
 
     mockGetList.mockImplementation((path: string) => {
+      const catalog = codingCatalogGetList(path);
+      if (catalog) return Promise.resolve(catalog);
       if (path === SUB_COST_CODES_PATH) {
         return Promise.resolve({
           data: [
@@ -2176,6 +2207,8 @@ describe("ExpenseEdit line-item coding fields (U-486)", () => {
 
   it("shows an existing line item project as selected (numeric row value)", async () => {
     mockGetList.mockImplementation((path: string) => {
+      const catalog = codingCatalogGetList(path);
+      if (catalog) return Promise.resolve(catalog);
       if (path === SUB_COST_CODES_PATH) {
         return Promise.resolve({ data: [], count: 0 });
       }
@@ -2286,6 +2319,285 @@ describe("ExpenseEdit line-item coding fields (U-486)", () => {
 
     expect(submitForReviewButtons(container)).toHaveLength(1);
     expect(container.querySelector('[data-testid="review-timeline-stub"]')).not.toBeNull();
+  });
+});
+
+function vendorSelect(container: HTMLElement): HTMLSelectElement {
+  const el = container.querySelector('select[name="vendor_public_id"]');
+  if (!el) throw new Error("expected vendor select");
+  return el as HTMLSelectElement;
+}
+
+function deleteButton(container: HTMLElement): HTMLButtonElement | undefined {
+  return Array.from(container.querySelectorAll("button")).find(
+    (b) => b.textContent?.trim() === "Delete" || b.textContent?.trim() === "Deleting...",
+  );
+}
+
+describe("ExpenseEdit U-487 bill parity", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    mockCurrentUserData = {
+      is_admin: true,
+      modules: [],
+      auth: { public_id: "a", username: "admin" },
+      user: { id: 1, public_id: "u", firstname: "A", lastname: "D" },
+      role: null,
+      accessible_project_ids: [],
+    };
+
+    vi.mocked(ReviewTimeline).mockImplementation((props: { onBeforeAction?: () => Promise<boolean> }) =>
+      createElement(
+        "button",
+        {
+          type: "button",
+          "data-testid": "review-submit-stub",
+          onClick: async () => {
+            if (props.onBeforeAction) {
+              const ok = await props.onBeforeAction();
+              if (!ok) return;
+            }
+            await mockPost(REVIEW_SUBMIT_PATH, { comments: null });
+          },
+        },
+        "Submit for Review",
+      ),
+    );
+
+    mockGetOne.mockImplementation((path: string) => {
+      const elia404 = elia404IfMatch(path);
+      if (elia404) return elia404;
+      if (path === EXPENSE_GET_PATH) {
+        return Promise.resolve(sampleExpense({ is_draft: true, vendor_id: 1 }));
+      }
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+
+    mockGetListWithCodingCatalog((path: string) => {
+      if (path === "/api/v1/get/expense_line_items/expense/1") {
+        return {
+          data: [expenseLineItemFixture("li-coded", "Line to code", "50.00")],
+          count: 1,
+        };
+      }
+      return Promise.reject(new Error(`unexpected getList: ${path}`));
+    });
+
+    mockPut.mockImplementation((path: string) => {
+      if (path === EXPENSE_UPDATE_PATH) {
+        return Promise.resolve(sampleExpense({ row_version: "rv-2", is_draft: true, vendor_id: 1 }));
+      }
+      if (path.startsWith("/api/v1/update/expense_line_item/")) {
+        return Promise.resolve({
+          public_id: path.split("/").pop(),
+          row_version: "rv-li-upd",
+        });
+      }
+      return Promise.reject(new Error("unexpected put: " + path));
+    });
+
+    mockPost.mockImplementation((path: string) => {
+      if (path === REVIEW_SUBMIT_PATH) return Promise.resolve({});
+      return Promise.reject(new Error("unexpected post: " + path));
+    });
+    mockDel.mockResolvedValue({});
+
+    vi.stubGlobal("confirm", vi.fn(() => true));
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    vi.mocked(ReviewTimeline).mockImplementation(() => null);
+    act(() => {
+      root.unmount();
+    });
+    document.body.removeChild(container);
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  async function waitForExpenseForm() {
+    await waitForCondition(() => findSaveButton(container) !== undefined);
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+  }
+
+  it("Submit for Review flushes pending line edits via saveAll before POSTing review", async () => {
+    mockGetList.mockImplementation((path: string) => {
+      const catalog = codingCatalogGetList(path);
+      if (catalog) return Promise.resolve(catalog);
+      if (path === "/api/v1/get/expense_line_items/expense/1") {
+        return Promise.resolve({
+          data: [
+            expenseLineItemFixture("li-coded", "Line to code", "50.00", { sub_cost_code_id: null }),
+          ],
+          count: 1,
+        });
+      }
+      if (path === SUB_COST_CODES_PATH) {
+        return Promise.resolve({
+          data: [{ id: 481, public_id: "scc-481", name: "Suspense", number: "00.02" }],
+          count: 1,
+        });
+      }
+      return Promise.reject(new Error(`unexpected getList: ${path}`));
+    });
+
+    renderExpenseEdit(root);
+    await waitForExpenseForm();
+    await flushUntil(() => sccSelectInRow(firstLineItemRow(container)).options.length > 1);
+
+    await act(async () => {
+      setSelectValue(sccSelectInRow(firstLineItemRow(container)), "481");
+    });
+    await flushUntil(() => sccSelectInRow(firstLineItemRow(container)).value === "481");
+
+    const reviewPostsBefore = mockPost.mock.calls.filter((c) => c[0] === REVIEW_SUBMIT_PATH).length;
+    expect(reviewPostsBefore).toBe(0);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="review-submit-stub"]')!.click();
+    });
+    await flushUntil(() =>
+      mockPost.mock.calls.some((c) => c[0] === REVIEW_SUBMIT_PATH),
+    );
+
+    const linePutIdx = mockPut.mock.calls.findIndex(
+      (c) => c[0] === "/api/v1/update/expense_line_item/li-coded",
+    );
+    const reviewIdx = mockPost.mock.calls.findIndex((c) => c[0] === REVIEW_SUBMIT_PATH);
+    expect(linePutIdx).toBeGreaterThanOrEqual(0);
+    expect(reviewIdx).toBeGreaterThanOrEqual(0);
+    const linePutOrder = mockPut.mock.invocationCallOrder[linePutIdx]!;
+    const reviewOrder = mockPost.mock.invocationCallOrder[reviewIdx]!;
+    expect(linePutOrder).toBeLessThan(reviewOrder);
+    const lineBody = mockPut.mock.calls[linePutIdx]![1] as Record<string, unknown>;
+    expect(lineBody.sub_cost_code_id).toBe(481);
+  });
+
+  it("aborts Submit for Review when saveAll returns false", async () => {
+    mockPut.mockImplementation((path: string) => {
+      if (path === EXPENSE_UPDATE_PATH) {
+        return Promise.reject(new Error("save failed"));
+      }
+      return Promise.reject(new Error("unexpected put: " + path));
+    });
+
+    renderExpenseEdit(root);
+    await waitForExpenseForm();
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="review-submit-stub"]')!.click();
+    });
+    await flushUntil(() => mockPut.mock.calls.some((c) => c[0] === EXPENSE_UPDATE_PATH));
+
+    expect(mockPost.mock.calls.some((c) => c[0] === REVIEW_SUBMIT_PATH)).toBe(false);
+  });
+
+  it("renders a stored vendor_id as the selected vendor_public_id", async () => {
+    renderExpenseEdit(root);
+    await waitForExpenseForm();
+
+    expect(vendorSelect(container).value).toBe(VENDOR_1_PUBLIC_ID);
+  });
+
+  it("does not claim Complete syncs to QBO", async () => {
+    renderExpenseEdit(root);
+    await waitForExpenseForm();
+
+    expect(container.textContent).not.toMatch(/\bQBO\b/);
+    expect(container.textContent).toMatch(/SharePoint/i);
+    expect(container.textContent).toMatch(/Excel/i);
+  });
+
+  it("shows Delete only when canDelete and cancels auto-save before DELETE", async () => {
+    const { Modules } = await import("../../shared/modules");
+
+    mockCurrentUserData = {
+      is_admin: false,
+      modules: [
+        {
+          public_id: "mod-exp",
+          name: Modules.EXPENSES,
+          route: null,
+          can_create: false,
+          can_read: true,
+          can_update: true,
+          can_delete: true,
+          can_submit: false,
+          can_approve: false,
+          can_complete: true,
+          can_view_team: false,
+        },
+      ],
+      auth: { public_id: "a", username: "user" },
+      user: { id: 1, public_id: "u", firstname: "A", lastname: "D" },
+      role: null,
+      accessible_project_ids: [],
+    };
+
+    renderExpenseEdit(root);
+    await waitForExpenseForm();
+
+    expect(deleteButton(container)).toBeDefined();
+
+    mockCurrentUserData = {
+      ...mockCurrentUserData,
+      modules: [
+        {
+          ...mockCurrentUserData.modules[0]!,
+          can_delete: false,
+        },
+      ],
+    };
+
+    act(() => {
+      root.unmount();
+    });
+    root = createRoot(container);
+    renderExpenseEdit(root);
+    await waitForExpenseForm();
+
+    expect(deleteButton(container)).toBeUndefined();
+
+    mockCurrentUserData = {
+      ...mockCurrentUserData,
+      modules: [
+        {
+          ...mockCurrentUserData.modules[0]!,
+          can_delete: true,
+        },
+      ],
+    };
+    act(() => {
+      root.unmount();
+    });
+    root = createRoot(container);
+    renderExpenseEdit(root);
+    await waitForExpenseForm();
+
+    await act(async () => {
+      deleteButton(container)!.click();
+    });
+    await flushUntil(() =>
+      mockDel.mock.calls.some((c) => c[0] === EXPENSE_DELETE_PATH),
+    );
+    expect(mockDel).toHaveBeenCalledWith(EXPENSE_DELETE_PATH);
+  });
+
+  it("passes onBeforeAction to ReviewTimeline so submit can flush", async () => {
+    renderExpenseEdit(root);
+    await waitForExpenseForm();
+
+    expect(ReviewTimeline).toHaveBeenCalled();
+    const lastProps = vi.mocked(ReviewTimeline).mock.calls.at(-1)![0];
+    expect(typeof lastProps.onBeforeAction).toBe("function");
   });
 });
 

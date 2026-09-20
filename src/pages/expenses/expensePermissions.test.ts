@@ -62,6 +62,8 @@ describe("resolveExpenseEditActions", () => {
     });
     expect(resolveExpenseEditActions(me)).toEqual({
       canEdit: true,
+      canDelete: false,
+      canSubmitForReview: false,
       canComplete: false,
     });
   });
@@ -74,8 +76,31 @@ describe("resolveExpenseEditActions", () => {
     });
     expect(resolveExpenseEditActions(me)).toEqual({
       canEdit: true,
+      canDelete: false,
+      canSubmitForReview: false,
       canComplete: true,
     });
+  });
+
+  it("grants submit-for-review when Expenses row has can_update AND can_submit (matches ReviewTimeline can_submit gate)", () => {
+    const me = makeUser({
+      modules: [makeModule(Modules.EXPENSES, { can_update: true, can_submit: true })],
+    });
+    expect(resolveExpenseEditActions(me).canSubmitForReview).toBe(true);
+  });
+
+  it("does not grant submit-for-review with can_submit alone (no can_update for the pre-save)", () => {
+    const me = makeUser({
+      modules: [makeModule(Modules.EXPENSES, { can_submit: true })],
+    });
+    expect(resolveExpenseEditActions(me).canSubmitForReview).toBe(false);
+  });
+
+  it("grants delete when Expenses row has can_delete", () => {
+    const me = makeUser({
+      modules: [makeModule(Modules.EXPENSES, { can_delete: true })],
+    });
+    expect(resolveExpenseEditActions(me).canDelete).toBe(true);
   });
 
   it("does not grant edit or complete when can_complete is true but can_update is false", () => {
@@ -84,6 +109,8 @@ describe("resolveExpenseEditActions", () => {
     });
     expect(resolveExpenseEditActions(me)).toEqual({
       canEdit: false,
+      canDelete: false,
+      canSubmitForReview: false,
       canComplete: false,
     });
   });
@@ -92,6 +119,8 @@ describe("resolveExpenseEditActions", () => {
     const me = makeUser({ is_admin: true, modules: [] });
     expect(resolveExpenseEditActions(me)).toEqual({
       canEdit: true,
+      canDelete: true,
+      canSubmitForReview: true,
       canComplete: true,
     });
   });
@@ -99,6 +128,8 @@ describe("resolveExpenseEditActions", () => {
   it("returns all false when me is undefined", () => {
     expect(resolveExpenseEditActions(undefined)).toEqual({
       canEdit: false,
+      canDelete: false,
+      canSubmitForReview: false,
       canComplete: false,
     });
   });

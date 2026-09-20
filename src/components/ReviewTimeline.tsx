@@ -11,6 +11,8 @@ interface ReviewTimelineProps {
   parentType: ReviewParentType;
   parentPublicId: string;
   readOnly?: boolean;
+  /** When set, awaited before submit/advance/decline; return false to abort. */
+  onBeforeAction?: () => Promise<boolean>;
 }
 
 // API URL slug per parent type. Three of four match snake_case; bill_credit
@@ -83,6 +85,7 @@ export default function ReviewTimeline({
   parentType,
   parentPublicId,
   readOnly = false,
+  onBeforeAction,
 }: ReviewTimelineProps) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
@@ -147,6 +150,13 @@ export default function ReviewTimeline({
 
     setDialog({ ...dialog, busy: true, error: "" });
     try {
+      if (onBeforeAction) {
+        const ok = await onBeforeAction();
+        if (!ok) {
+          setDialog({ ...dialog, busy: false, error: "" });
+          return;
+        }
+      }
       const path = `/api/v1/${dialog.kind}/review/${slug}/${parentPublicId}`;
       const body: Record<string, any> = {
         comments: dialog.comments.trim() || null,

@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useServerOwnedRebase } from "../../hooks/useServerOwnedRebase";
 import { useSyncedToken } from "../../hooks/useSyncedToken";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEntityItem, useEntityList, entityItemKey } from "../../hooks/useEntity";
+import { useEntityItem, useEntityList, deleteEntity, entityItemKey } from "../../hooks/useEntity";
+import { useViewAttachmentObjectUrl } from "../../hooks/useViewAttachmentObjectUrl";
 import { useAutoSave } from "../../hooks/useAutoSave";
 import { useCompletionPolling } from "../../hooks/useCompletionPolling";
 import { useToast } from "../../components/Toast";
@@ -20,7 +21,8 @@ import InlineLineItems, { type LineItemFieldDef } from "../../components/InlineL
 import LineItemAttachment from "../../components/LineItemAttachment";
 import ReviewTimeline from "../../components/ReviewTimeline";
 import RecordChangedBanner from "../../components/RecordChangedBanner";
-import type { Expense, ExpenseLineItem, Project, SubCostCode } from "../../types/api";
+import Breadcrumb from "../../components/Breadcrumb";
+import type { Expense, ExpenseLineItem, Project, SubCostCode, Vendor as FullVendor } from "../../types/api";
 import { existingUidsByPublicId, newLineItemUid, persistedLineItemUid } from "../../shared/lineItemUid";
 
 interface LineItemRow {
@@ -215,6 +217,7 @@ export default function ExpenseEdit() {
   const { item, loading, error } = useEntityItem<Expense>(expenseItemPath);
   const { items: fullSubCostCodes } = useEntityList<SubCostCode>("/api/v1/get/sub-cost-codes");
   const { items: fullProjects } = useEntityList<Project>("/api/v1/get/projects");
+  const { items: fullVendors } = useEntityList<FullVendor>("/api/v1/get/vendors");
   const { data: lookups } = useLookups("vendors");
   const { data: me, isLoading: meLoading } = useCurrentUser();
   const actions = resolveExpenseEditActions(me);
@@ -223,6 +226,10 @@ export default function ExpenseEdit() {
   const [origLineItemPublicIds, setOrigLineItemPublicIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [attachmentPublicId, setAttachmentPublicId] = useState<string | null>(null);
+  const { objectUrl: attachmentBlobUrl, loading: attachmentLoading, loadError: attachmentLoadError } =
+    useViewAttachmentObjectUrl(attachmentPublicId);
   const [saveError, setSaveError] = useState("");
   const { toast } = useToast();
   const rowVersion = useSyncedToken(form?.row_version);
@@ -253,9 +260,12 @@ export default function ExpenseEdit() {
   // Load line items
   useEffect(() => {
     if (!item) return;
+    let cancelled = false;
     getList<ExpenseLineItem>(`/api/v1/get/expense_line_items/expense/${item.id}`)
-      .then((res) => {
+      .then(async (res) => {
+        if (cancelled) return;
         setOrigLineItemPublicIds(res.data.map((li) => li.public_id));
+        setAttachmentPublicId(null);
         setLineItems((prev) => {
           const existing = existingUidsByPublicId(prev);
           return res.data.map((li) => ({
@@ -273,8 +283,29 @@ export default function ExpenseEdit() {
             price: li.price ?? "",
           }));
         });
+
+        for (const li of res.data) {
+          if (cancelled) return;
+          try {
+            const link = await getEliaLinkForLine(li.public_id);
+            if (cancelled || !link?.attachment_id) continue;
+            const att = await getOne<{ public_id: string }>(
+              `/api/v1/get/attachment/id/${link.attachment_id}`,
+            );
+            if (cancelled) return;
+            setAttachmentPublicId(att.public_id);
+            break;
+          } catch {
+            // display-only — try the next line
+          }
+        }
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setAttachmentPublicId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [item]);
 
   // Init header form
@@ -286,7 +317,7 @@ export default function ExpenseEdit() {
   // A separate seed literal and pick literal is how U-464/U-465 were
   // allowed to rebase a token under a body they had never compared.
   const seedFrom = (e: Expense) => ({
-    vendor_public_id: "",
+    vendor_public_id: fullVendors.find((v) => v.id === e.vendor_id)?.public_id ?? "",
     expense_date: e.expense_date,
     reference_number: e.reference_number,
     total_amount: e.total_amount ?? "",
@@ -309,7 +340,7 @@ export default function ExpenseEdit() {
     owned: ["row_version", "is_draft"],
   });
 
-  if (item && !form) {
+  if (item && !form && fullVendors.length > 0) {
     seededForRef.current = item.public_id;
     acceptBaseline(item);
     setForm(seedFrom(item));
@@ -517,12 +548,25 @@ export default function ExpenseEdit() {
 
   return (
     <div className="page form-page-wide">
+      <Breadcrumb
+        crumbs={[
+          { label: "Expenses", path: "/expense/list" },
+          { label: item?.reference_number || "…", path: `/expense/${id}` },
+          { label: "Edit" },
+        ]}
+      />
       <div className="page-header"><h1>Edit Expense {item?.reference_number}</h1></div>
       <form className="form-card" onSubmit={handleSubmit}>
         {diverged && <RecordChangedBanner entity="expense" />}
         {saveError && <div className="form-error">{saveError}</div>}
 
-        {id && <ReviewTimeline parentType="expense" parentPublicId={id} />}
+        {id && (
+          <ReviewTimeline
+            parentType="expense"
+            parentPublicId={id}
+            onBeforeAction={saveAll}
+          />
+        )}
 
         <div className="form-header-grid">
           <SelectField
@@ -568,7 +612,31 @@ export default function ExpenseEdit() {
         />
 
         <div className="form-actions">
-          <button type="submit" className="btn btn-primary" disabled={saving || completing}>
+          {actions.canDelete && (
+            <button
+              type="button"
+              className="btn btn-danger"
+              disabled={saving || completing || deleting}
+              onClick={async () => {
+                if (!confirm("Delete this expense? This cannot be undone.")) return;
+                cancelAutoSave();
+                setDeleting(true);
+                try {
+                  await deleteEntity(`/api/v1/delete/expense/${id}`);
+                  queryClient.removeQueries({ queryKey: entityItemKey(expenseItemPath) });
+                  toast("Expense deleted.");
+                  navigate("/expense/list");
+                } catch (err: any) {
+                  toast(err.message, "error");
+                  setDeleting(false);
+                }
+              }}
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </button>
+          )}
+          <div className="page-header-spacer" />
+          <button type="submit" className="btn btn-primary" disabled={saving || completing || deleting}>
             {saving ? "Saving..." : "Save"}
           </button>
           <button type="button" className="btn btn-secondary" onClick={() => navigate(`/expense/${id}`)}>Cancel</button>
@@ -580,12 +648,12 @@ export default function ExpenseEdit() {
               type="button"
               className="btn btn-success"
               onClick={handleComplete}
-              disabled={saving || completing}
+              disabled={saving || completing || deleting}
             >
               {completing ? "Completing..." : "Complete Expense"}
             </button>
             <span className="text-muted" style={{ fontSize: 13 }}>
-              Finalizes the expense and syncs to SharePoint, Excel, and QBO.
+              Finalizes the expense and syncs to SharePoint and Excel.
             </span>
           </div>
         )}
@@ -597,6 +665,17 @@ export default function ExpenseEdit() {
           onView={() => navigate(`/expense/${id}`)}
         />
       </form>
+
+      {attachmentPublicId && (
+        <div className="pdf-viewer">
+          <h3 className="line-items-heading">Attachment</h3>
+          {attachmentLoading && <p className="text-muted">Loading attachment…</p>}
+          {attachmentLoadError && <p className="page-error">Could not load attachment.</p>}
+          {attachmentBlobUrl && (
+            <iframe src={`${attachmentBlobUrl}#view=FitH&navpanes=0`} title="Expense PDF" />
+          )}
+        </div>
+      )}
     </div>
   );
 }

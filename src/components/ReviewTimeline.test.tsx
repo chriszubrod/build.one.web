@@ -53,13 +53,17 @@ let container: HTMLDivElement;
 let root: Root;
 let queryClient: QueryClient;
 
-function render(parentType: "bill" | "invoice" = "bill", parentPublicId = "bill-1") {
+function render(
+  parentType: "bill" | "invoice" = "bill",
+  parentPublicId = "bill-1",
+  extraProps: { onBeforeAction?: () => Promise<boolean> } = {},
+) {
   act(() => {
     root.render(
       createElement(
         QueryClientProvider,
         { client: queryClient },
-        createElement(ReviewTimeline, { parentType, parentPublicId }),
+        createElement(ReviewTimeline, { parentType, parentPublicId, ...extraProps }),
       ),
     );
   });
@@ -106,6 +110,33 @@ async function submitForReview() {
   });
   await flushUntil(() => mockPost.mock.calls.length > 0);
 }
+
+describe("ReviewTimeline — onBeforeAction (U-487)", () => {
+  it("POSTs without onBeforeAction — same behaviour as before the prop existed", async () => {
+    render();
+    await submitForReview();
+    expect(mockPost).toHaveBeenCalledWith(
+      "/api/v1/submit/review/bill/bill-1",
+      expect.objectContaining({ comments: null }),
+    );
+  });
+
+  it("awaits onBeforeAction and aborts the review POST when it returns false", async () => {
+    const onBeforeAction = vi.fn().mockResolvedValue(false);
+    render("bill", "bill-1", { onBeforeAction });
+    await submitForReview();
+    expect(onBeforeAction).toHaveBeenCalledTimes(1);
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it("awaits onBeforeAction and POSTs when it returns true", async () => {
+    const onBeforeAction = vi.fn().mockResolvedValue(true);
+    render("bill", "bill-1", { onBeforeAction });
+    await submitForReview();
+    expect(onBeforeAction).toHaveBeenCalledTimes(1);
+    expect(mockPost).toHaveBeenCalled();
+  });
+});
 
 describe("ReviewTimeline — U-464 parent invalidation", () => {
   it("invalidates the PARENT's item query after a review action", async () => {
