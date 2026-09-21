@@ -1258,6 +1258,73 @@ export interface BudgetVariancePayload {
   totals: BudgetVarianceMoney;
 }
 
+/** Asset register — GET /api/v1/get/assets, GET /api/v1/get/asset/{public_id} (U-490) */
+export type AssetType = "vehicle" | "machinery" | "equipment";
+export type AssetStatus = "active" | "disposed";
+
+export interface Asset {
+  id?: number;
+  public_id: string;
+  row_version: string;
+  created_datetime?: string;
+  modified_datetime?: string | null;
+  name: string;
+  asset_type: AssetType | string;
+  make: string | null;
+  model: string | null;
+  model_year: number | null;
+  serial_number: string | null;
+  status: AssetStatus | string;
+  acquisition_date: string | null;
+  disposal_date: string | null;
+  qbo_fixed_asset_account_id: string | null;
+  qbo_accum_dep_account_id: string | null;
+  company_id?: number;
+  created_by_user_id?: number | null;
+}
+
+/** Detail read joins live QBO account balances (money as string on the wire). */
+export interface AssetWithQbo extends Asset {
+  fixed_asset_account_name: string | null;
+  fixed_asset_account_balance: string | null;
+  accum_dep_account_name: string | null;
+  accum_dep_account_balance: string | null;
+}
+
+export interface AssetFinancingNote {
+  id?: number;
+  public_id: string;
+  row_version: string;
+  created_datetime?: string;
+  modified_datetime?: string | null;
+  asset_id: number;
+  qbo_liability_account_id: string;
+  company_id?: number;
+  created_by_user_id?: number | null;
+}
+
+export interface AssetAttachment {
+  id?: number;
+  public_id: string;
+  row_version: string;
+  created_datetime?: string;
+  modified_datetime?: string | null;
+  asset_id: number;
+  attachment_id: number;
+}
+
+export interface AssetAccountExclusion {
+  id?: number;
+  public_id: string;
+  row_version: string;
+  created_datetime?: string;
+  modified_datetime?: string | null;
+  qbo_account_id: string;
+  reason: string;
+  company_id?: number;
+  created_by_user_id?: number | null;
+}
+
 /** Expense coding queue row — GET /api/v1/expense-coding/queue (U-005) */
 export interface ExpenseCodingQueueRow {
   qbo_purchase_public_id: string | null;

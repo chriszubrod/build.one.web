@@ -11,6 +11,7 @@
  */
 export const Modules = {
   // Financial entities
+  ASSETS: "Assets",
   BILLS: "Bills",
   BILL_CREDITS: "Bill Credits",
   BUDGETS: "Budgets",

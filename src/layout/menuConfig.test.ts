@@ -286,6 +286,7 @@ describe("canSeeEntry — RBAC gating", () => {
     ["vendors", "Vendors"],
     ["customers", "Customers"],
     ["budgets", "Budgets"],
+    ["assets", "Assets"],
     ["bills", "Bills"],
     ["bill-credits", "Bill Credits"],
     ["invoices", "Invoices"],
@@ -330,6 +331,7 @@ describe("entriesInSection", () => {
     expect(entriesInSection("financials", me).map((e) => e.id)).toEqual([
       "projects",
       "budgets",
+      "assets",
       "bills",
       "bill-credits",
       "expenses",

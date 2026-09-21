@@ -169,6 +169,11 @@ describe("appRouteTree — real route tree (U-066)", () => {
       "/address/:publicId/edit",
       "/address/create",
       "/address/list",
+      "/asset/*",
+      "/asset/:publicId",
+      "/asset/:publicId/edit",
+      "/asset/create",
+      "/asset/list",
       "/bill-credit/*",
       "/bill-credit/:publicId",
       "/bill-credit/:publicId/edit",
@@ -958,6 +963,7 @@ describe("routed <-> nav reconciliation (U-077)", () => {
     // derives from routePaths(), which sorts), same as the route-inventory pin.
     expect(navReachableRoutes()).toEqual([
       "/address/list",
+      "/asset/list",
       "/bill-credit/list",
       "/bill/list",
       "/budget/list",

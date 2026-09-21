@@ -1,6 +1,7 @@
-import { BookOpen, Briefcase, Building2, Calculator, CalendarClock, CircleDollarSign, Clock, FileMinus, FileText, Hammer, HardHat, Hash, IdCard, KeyRound, Layers, ListChecks, MapPin, Network, Receipt, ShieldCheck, Store, Tags, User, UserCog, Users } from "lucide-react";
+import { BookOpen, Briefcase, Building2, Calculator, CalendarClock, CircleDollarSign, Clock, FileMinus, FileText, Hammer, HardHat, Hash, IdCard, KeyRound, Layers, ListChecks, MapPin, Network, Receipt, ShieldCheck, Store, Tags, Truck, User, UserCog, Users } from "lucide-react";
 import type { ComponentType } from "react";
 import { Modules, type ModuleName } from "../shared/modules";
+import { ASSETS_MODULE } from "../api/asset";
 import { hasModulePermission } from "../shared/permissions";
 import type { CurrentUser } from "../types/api";
 
@@ -85,6 +86,16 @@ export const MENU_ENTRIES: MenuEntry[] = [
     permission: "can_read",
     section: "financials",
     priority: 35,
+  },
+  {
+    id: "assets",
+    label: "Assets",
+    icon: Truck,
+    route: "/asset/list",
+    module: ASSETS_MODULE,
+    permission: "can_read",
+    section: "financials",
+    priority: 36,
   },
   {
     id: "bills",

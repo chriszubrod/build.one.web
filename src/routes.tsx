@@ -40,6 +40,11 @@ import BudgetCreate from "./pages/budgets/BudgetCreate";
 import BudgetView from "./pages/budgets/BudgetView";
 import BudgetEdit from "./pages/budgets/BudgetEdit";
 
+import AssetList from "./pages/assets/AssetList";
+import AssetCreate from "./pages/assets/AssetCreate";
+import AssetView from "./pages/assets/AssetView";
+import AssetEdit from "./pages/assets/AssetEdit";
+
 // Bill surface (Phase 3) — renders inside the responsive AppLayout,
 // office/AP audience (gated on the Bills module), like Budget in U-066.
 import BillList from "./pages/bills/BillList";
@@ -183,6 +188,12 @@ export const appRouteTree = (
         <Route path="/budget/:publicId" element={<BudgetView />} />
         <Route path="/budget/:publicId/edit" element={<BudgetEdit />} />
         <Route path="/budget/*" element={<Navigate to="/budget/list" replace />} />
+
+        <Route path="/asset/list" element={<AssetList />} />
+        <Route path="/asset/create" element={<AssetCreate />} />
+        <Route path="/asset/:publicId" element={<AssetView />} />
+        <Route path="/asset/:publicId/edit" element={<AssetEdit />} />
+        <Route path="/asset/*" element={<Navigate to="/asset/list" replace />} />
 
         <Route path="/bill/list" element={<BillList />} />
         <Route path="/bill/create" element={<BillCreate />} />
