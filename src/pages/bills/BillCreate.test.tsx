@@ -210,6 +210,24 @@ function submitForReviewButton(): HTMLButtonElement {
   return findButton("Submit For Review");
 }
 
+function completeBillButton(): HTMLButtonElement {
+  return findButton("Complete Bill");
+}
+
+/**
+ * The SCC cell for a line row. Complete is gated on every populated line
+ * having both project and SCC; this owns the column index the same way
+ * rateInputAt / descriptionInputAt do.
+ */
+function sccSelectAt(rowIndex: number): HTMLSelectElement {
+  const row = container.querySelectorAll("tbody tr")[rowIndex] as HTMLTableRowElement;
+  return row.querySelectorAll("td")[1].querySelector("select") as HTMLSelectElement;
+}
+
+function fillLineScc(rowIndex: number, sccId: string) {
+  selectChange(sccSelectAt(rowIndex), sccId);
+}
+
 function lineProjectForIndex(index: number): string {
   return index % 2 === 0 ? "p-1" : "p-2";
 }
@@ -369,7 +387,7 @@ describe("BillCreate submit-for-review", () => {
     expect(submitCall).toBeTruthy();
     expect(submitCall![1]).toEqual({});
 
-    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-1");
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/list");
 
     // The header total is corrected ONLY on the partial-failure path. The whole
     // point of correct-on-failure (over posting a summary-only total up front
@@ -410,7 +428,6 @@ describe("BillCreate submit-for-review", () => {
     });
 
     await flushUntil(() => mockToast.mock.calls.length > 0);
-    expect(mockToast.mock.calls.length).toBeGreaterThan(0);
 
     const createBillCall = mockPost.mock.calls.find(
       (c) => c[0] === "/api/v1/create/bill",
@@ -421,7 +438,12 @@ describe("BillCreate submit-for-review", () => {
     expect(
       mockPost.mock.calls.some((c) => String(c[0]).startsWith("/api/v1/submit/review/")),
     ).toBe(false);
-    expect(mockToast).toHaveBeenCalled();
+    expect(mockToast).toHaveBeenCalledTimes(1);
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.stringMatching(/failed to save/i),
+      "error",
+    );
+    expect(mockToast).not.toHaveBeenCalledWith("Submitted for review.");
     expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-1/edit");
   });
 
@@ -440,9 +462,18 @@ describe("BillCreate submit-for-review", () => {
 
     await flushUntil(() => mockToast.mock.calls.length > 0);
 
-    expect(mockToast).toHaveBeenCalled();
+    expect(mockToast).toHaveBeenCalledTimes(1);
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.stringMatching(/Bill saved as draft\.\s*Submit for review failed:/i),
+      "error",
+    );
+    expect(mockToast).not.toHaveBeenCalledWith("Submitted for review.");
     expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-1/edit");
-    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/bill-1");
+    // Error path must not take the success destination. That used to be
+    // the detail page (`/bill/bill-1`); it is now `/bill/list`. Asserting
+    // against the live success path is what makes this spec fail if a
+    // follow-up error accidentally navigates like a success.
+    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/list");
   });
 
   it.each([
@@ -716,5 +747,92 @@ describe("BillCreate due date mirrors bill date", () => {
     expect(body.payment_term_public_id).toBe("pt-30");
     expect(body.bill_date).toBe("2026-01-15");
     expect(body.due_date).toBe("2026-01-15");
+  });
+});
+
+describe("BillCreate post-create navigation", () => {
+  it("submit success navigates to /bill/list, not the detail page or /edit", async () => {
+    await arrangeOneLineBill();
+
+    await act(async () => {
+      submitForReviewButton().click();
+    });
+
+    await flushUntil(() => mockNavigate.mock.calls.length > 0);
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/list");
+    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/bill-1");
+    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/bill-1/edit");
+    expect(mockToast).toHaveBeenCalledTimes(1);
+    expect(mockToast).toHaveBeenCalledWith("Submitted for review.");
+  });
+
+  it("complete success navigates to /bill/list and toasts that the bill completed", async () => {
+    stubPost({
+      "/api/v1/complete/bill/bill-1": async () => ({}),
+    });
+
+    await arrangeOneLineBill();
+    await act(async () => {
+      fillLineScc(0, "10");
+    });
+    await flushUntil(() => completeBillButton()?.disabled === false);
+    expect(completeBillButton().disabled).toBe(false);
+
+    await act(async () => {
+      completeBillButton().click();
+    });
+
+    await flushUntil(() => mockNavigate.mock.calls.length > 0);
+    expect(mockPost).toHaveBeenCalledWith("/api/v1/complete/bill/bill-1", {});
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/list");
+    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/bill-1");
+    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/bill-1/edit");
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.stringMatching(/completed/i),
+    );
+  });
+
+  it("save still navigates to /bill/:id/edit", async () => {
+    await arrangeOneLineBill();
+
+    await act(async () => {
+      findButton("Save For Later").click();
+    });
+
+    await flushUntil(() => mockNavigate.mock.calls.length > 0);
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-1/edit");
+    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/list");
+  });
+
+  it("a failed additional-line POST still navigates to /edit", async () => {
+    stubPost(FAILING_LINE_ITEM);
+
+    await arrangeTwoLineBill();
+
+    await act(async () => {
+      submitForReviewButton().click();
+    });
+
+    await flushUntil(() => mockNavigate.mock.calls.length > 0);
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-1/edit");
+    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/list");
+  });
+
+  it("a failed review follow-up still navigates to /edit", async () => {
+    stubPost({
+      "/api/v1/submit/review/bill/bill-1": async () => {
+        throw new Error("submit failed");
+      },
+    });
+
+    await arrangeOneLineBill();
+
+    await act(async () => {
+      submitForReviewButton().click();
+    });
+
+    await flushUntil(() => mockNavigate.mock.calls.length > 0);
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-1/edit");
+    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/list");
   });
 });

@@ -402,10 +402,13 @@ export default function BillCreate() {
             : null;
       if (followUp) {
         try {
-          // Both follow-ups return fast — /submit/review writes the Review row
-          // and queues the notification, /complete/bill returns 202 and drains
-          // in the background — so we navigate straight after and let the user
-          // watch the bill transition on the detail page.
+          // Both follow-ups return fast, so we navigate as soon as they
+          // resolve. /submit/review is fast because the API stores a blob
+          // reference on the outbox row and the worker fetches the PDF at
+          // drain time (U-520); before that it downloaded the bill PDF from
+          // blob storage, base64-encoded it, and wrote up to 5.73 MB into
+          // ms.Outbox.Payload inside the request. /complete/bill returns 202
+          // and drains in the background.
           await post(followUp.path, {});
         } catch (err: any) {
           // Bill + all lines were created OK but the follow-up action failed.
@@ -421,10 +424,20 @@ export default function BillCreate() {
           return;
         }
       }
+      // Save For Later stays on /edit so the user can keep working the
+      // draft. Submit and Complete return to /bill/list (plain path — the
+      // list defaults to In Review). A completed bill will not be on that
+      // tab (status becomes completed, and asynchronously at that), so the
+      // toast is the confirmation Complete gets.
+      if (action === "complete") {
+        toast("Bill completed — external syncs continue in the background.");
+      } else if (action === "submit") {
+        toast("Submitted for review.");
+      }
       navigate(
         action === "save"
           ? `/bill/${created.public_id}/edit`
-          : `/bill/${created.public_id}`,
+          : "/bill/list",
       );
     } catch (err: any) {
       setSaveError(err.message);
