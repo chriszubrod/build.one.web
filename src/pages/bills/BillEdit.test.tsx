@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import BillEdit from "./BillEdit";
+import ReviewTimeline from "../../components/ReviewTimeline";
 import { ApiError } from "../../api/client";
 import { flushUntil } from "../../__testutils__/flush";
 import { setInputValue, setTextareaValue } from "../../__testutils__/domEvents";
@@ -70,7 +71,7 @@ vi.mock("../../components/Toast", () => ({
 }));
 
 vi.mock("../../components/ReviewTimeline", () => ({
-  default: () => null,
+  default: vi.fn(() => null),
 }));
 
 vi.mock("../../components/LineItemAttachment", () => ({
@@ -1269,5 +1270,568 @@ describe("BillEdit server-owned field rebase (U-464)", () => {
     expect(bodies.length).toBeGreaterThan(0);
     expect(bodies[bodies.length - 1].row_version).toBe("brv-1");
     expect(bodies[bodies.length - 1].row_version).not.toBe("brv-co-editor");
+  });
+});
+
+describe("BillEdit ROWVERSION race with review (U-531)", () => {
+  beforeEach(() => {
+    setupMocks([sampleLineItem()]);
+  });
+
+  afterEach(() => {
+    vi.mocked(ReviewTimeline).mockImplementation(() => null);
+  });
+
+  const cachedBill = () => queryClient.getQueryData<Bill>(entityItemKey(BILL_GET_PATH));
+
+  const buttonWithText = (label: string) =>
+    Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent?.trim() === label,
+    );
+
+  function stubPutWithHangingLine(header: () => Promise<Bill>) {
+    let resolveLine!: (value: BillLineItem) => void;
+    const linePut = new Promise<BillLineItem>((resolve) => {
+      resolveLine = resolve;
+    });
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/bill/bill-1") return header();
+      if (path.startsWith("/api/v1/update/bill_line_item/")) return linePut;
+      return Promise.reject(new Error(`unexpected put: ${path}`));
+    });
+    return async function settleLinePut() {
+      await act(async () => {
+        resolveLine(sampleLineItem({ row_version: "rv-1b" }));
+        await linePut;
+      });
+    };
+  }
+
+  it("S1: saveAll no-op header PUT raced by review does not poison token or cache", async () => {
+    let resolveHeader!: (bill: Bill) => void;
+    const headerPut = new Promise<Bill>((resolve) => {
+      resolveHeader = resolve;
+    });
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/bill/bill-1") return headerPut;
+      if (path.startsWith("/api/v1/update/bill_line_item/")) {
+        const id = path.split("/").pop()!;
+        return Promise.resolve({ public_id: id, row_version: "rv-1b" });
+      }
+      return Promise.reject(new Error(`unexpected put: ${path}`));
+    });
+
+    renderBillEdit();
+    await waitForReady();
+
+    const row = lineItemRows()[0];
+    await act(async () => {
+      setInputValue(descriptionInput(row), "edited line only");
+    });
+
+    await act(async () => {
+      findSaveButton().click();
+    });
+    await flushUntil(() => buttonWithText("Saving...") !== undefined);
+
+    await act(async () => {
+      queryClient.setQueryData(
+        entityItemKey(BILL_GET_PATH),
+        sampleBill({ row_version: "brv-after-approval" }),
+      );
+      resolveHeader(sampleBill({ row_version: "brv-2" }));
+      await headerPut;
+    });
+
+    await flushUntil(() => buttonWithText("Save") !== undefined);
+
+    expect(cachedBill()?.row_version).toBe("brv-after-approval");
+
+    mockPut.mockClear();
+    await clickSave();
+    expect(billHeaderPutBodies().length).toBeGreaterThan(0);
+    expect(billHeaderPutBodies()[billHeaderPutBodies().length - 1].row_version).toBe(
+      "brv-after-approval",
+    );
+  });
+
+  it("S2: review arrival during saveAll line-item loop does not poison cache", async () => {
+    const settleLinePut = stubPutWithHangingLine(() =>
+      Promise.resolve(sampleBill({ row_version: "brv-2" })),
+    );
+
+    renderBillEdit();
+    await waitForReady();
+
+    const row = lineItemRows()[0];
+    await act(async () => {
+      setInputValue(descriptionInput(row), "edited during save");
+    });
+
+    await act(async () => {
+      findSaveButton().click();
+    });
+    await flushUntil(() => buttonWithText("Saving...") !== undefined);
+
+    act(() => {
+      queryClient.setQueryData(
+        entityItemKey(BILL_GET_PATH),
+        sampleBill({ row_version: "brv-after-approval" }),
+      );
+    });
+    await settleLinePut();
+
+    await flushUntil(() => buttonWithText("Save") !== undefined);
+
+    expect(cachedBill()?.row_version).toBe("brv-after-approval");
+
+    mockPut.mockClear();
+    await clickSave();
+    expect(billHeaderPutBodies()[billHeaderPutBodies().length - 1].row_version).toBe(
+      "brv-after-approval",
+    );
+  });
+
+  it("concurrent saveAll from Save and review advance shares one in-flight pass", async () => {
+    const pendingHeaderPuts: Array<{
+      resolve: (bill: Bill) => void;
+      promise: Promise<Bill>;
+    }> = [];
+    let overlappingBillHeaderPuts = false;
+    let inFlightBillHeaderPuts = 0;
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/bill/bill-1") {
+        inFlightBillHeaderPuts += 1;
+        if (inFlightBillHeaderPuts > 1) overlappingBillHeaderPuts = true;
+        let resolve!: (bill: Bill) => void;
+        const promise = new Promise<Bill>((res) => {
+          resolve = res;
+        });
+        pendingHeaderPuts.push({ resolve, promise });
+        return promise.finally(() => {
+          inFlightBillHeaderPuts -= 1;
+        });
+      }
+      if (path.startsWith("/api/v1/update/bill_line_item/")) {
+        const id = path.split("/").pop()!;
+        return Promise.resolve({ public_id: id, row_version: "rv-1b" });
+      }
+      return Promise.reject(new Error(`unexpected put: ${path}`));
+    });
+
+    vi.mocked(ReviewTimeline).mockImplementation((props) =>
+      createElement(
+        "button",
+        {
+          type: "button",
+          "data-testid": "review-advance-stub",
+          onClick: async () => {
+            if (props.onBeforeAction) {
+              await props.onBeforeAction("advance", false);
+            }
+          },
+        },
+        "Advance",
+      ),
+    );
+
+    renderBillEdit();
+    await waitForReady();
+
+    const row = lineItemRows()[0];
+    await act(async () => {
+      setInputValue(descriptionInput(row), "concurrent edit");
+    });
+
+    await act(async () => {
+      findSaveButton().click();
+    });
+    await flushUntil(() => buttonWithText("Saving...") !== undefined);
+    await flushUntil(() => pendingHeaderPuts.length > 0);
+    expect(pendingHeaderPuts.length).toBe(1);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="review-advance-stub"]')!.click();
+    });
+    await flushUntil(() => {
+      // Without the in-flight gate, review advance starts a second saveAll while the
+      // Save-driven header PUT is still unresolved — a second bill header PUT is issued.
+      return pendingHeaderPuts.length > 1 || overlappingBillHeaderPuts;
+    });
+    expect(overlappingBillHeaderPuts).toBe(false);
+    expect(pendingHeaderPuts.length).toBe(1);
+    expect(
+      mockPut.mock.calls.filter((c) => c[0] === "/api/v1/update/bill/bill-1").length,
+    ).toBe(1);
+
+    for (const pending of pendingHeaderPuts) {
+      pending.resolve(sampleBill({ row_version: "brv-2" }));
+      await act(async () => {
+        await pending.promise;
+      });
+    }
+    await flushUntil(() => buttonWithText("Save") !== undefined);
+
+    const linePutBodies = mockPut.mock.calls
+      .filter((c) => String(c[0]).startsWith("/api/v1/update/bill_line_item/"))
+      .map((c) => c[1] as { description?: string | null });
+    expect(linePutBodies.some((b) => b.description === "concurrent edit")).toBe(true);
+    expect(container.querySelector(".form-error")).toBeNull();
+    expect(overlappingBillHeaderPuts).toBe(false);
+  });
+
+  it("S3: autosave with dirty flag but unchanged body, raced by review, does not wedge", async () => {
+    let resolveHeader!: (bill: Bill) => void;
+    const headerPut = new Promise<Bill>((resolve) => {
+      resolveHeader = resolve;
+    });
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/bill/bill-1") return headerPut;
+      if (path.startsWith("/api/v1/update/bill_line_item/")) {
+        const id = path.split("/").pop()!;
+        return Promise.resolve({ public_id: id, row_version: "rv-1b" });
+      }
+      return Promise.reject(new Error(`unexpected put: ${path}`));
+    });
+
+    renderBillEdit();
+    await waitForReady();
+
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    expect(memo.value).toBe("");
+    await act(async () => {
+      setTextareaValue(memo, "x");
+      setTextareaValue(memo, "");
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(350);
+    });
+    await flushUntil(() => mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/bill/bill-1"));
+
+    await act(async () => {
+      queryClient.setQueryData(
+        entityItemKey(BILL_GET_PATH),
+        sampleBill({ row_version: "brv-after-approval" }),
+      );
+      resolveHeader(sampleBill({ row_version: "brv-2" }));
+      await headerPut;
+    });
+
+    await flushUntil(() => billHeaderPutBodies().length > 0);
+    expect(cachedBill()?.row_version).toBe("brv-after-approval");
+  });
+
+  it("S4: autosave with a real body change raced by co-editor memo shows divergence banner", async () => {
+    let resolveHeader!: (bill: Bill) => void;
+    const headerPut = new Promise<Bill>((resolve) => {
+      resolveHeader = resolve;
+    });
+    mockPut.mockImplementation((path: string, body: Record<string, unknown>) => {
+      if (path === "/api/v1/update/bill/bill-1") {
+        return headerPut.then(() =>
+          Promise.resolve(
+            sampleBill({
+              row_version: "brv-2",
+              memo: (body.memo as string | null) ?? "",
+            }),
+          ),
+        );
+      }
+      if (path.startsWith("/api/v1/update/bill_line_item/")) {
+        const id = path.split("/").pop()!;
+        return Promise.resolve({ public_id: id, row_version: "rv-1b" });
+      }
+      return Promise.reject(new Error(`unexpected put: ${path}`));
+    });
+
+    renderBillEdit();
+    await waitForReady();
+
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => {
+      setTextareaValue(memo, "my edit");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(350);
+    });
+    await flushUntil(() => mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/bill/bill-1"));
+
+    act(() => {
+      queryClient.setQueryData(
+        entityItemKey(BILL_GET_PATH),
+        sampleBill({ row_version: "brv-co-editor", memo: "from another window" }),
+      );
+    });
+    await flushUntil(() => cachedBill()?.memo === "from another window");
+
+    await act(async () => {
+      resolveHeader(sampleBill({ row_version: "brv-2", memo: "my edit" }));
+      await headerPut;
+    });
+
+    await flushUntil(
+      () => container.textContent?.includes("This bill was changed in another window.") ?? false,
+    );
+    expect(container.textContent).toContain("This bill was changed in another window.");
+  });
+});
+
+const REVIEWS_LIST_PATH = "/api/v1/get/reviews/bill/bill-1";
+const REVIEW_SUBMIT_PATH = "/api/v1/submit/review/bill/bill-1";
+const REVIEW_ADVANCE_PATH = "/api/v1/advance/review/bill/bill-1";
+const SUBMIT_REQUIRES_PROJECT_MSG =
+  "Add a line item with a project before submitting for review.";
+
+describe("BillEdit ReviewTimeline onBeforeAction (U-530)", () => {
+  function activeReviewRow() {
+    return {
+      id: 1,
+      public_id: "rev-1",
+      row_version: "rv",
+      created_datetime: null,
+      modified_datetime: null,
+      review_status_id: 2,
+      user_id: 1,
+      comments: null,
+      bill_id: 1,
+      expense_id: null,
+      bill_credit_id: null,
+      invoice_id: null,
+      status_name: "In review",
+      status_sort_order: 2,
+      status_is_final: false,
+      status_is_declined: false,
+      status_color: null,
+      status_is_initial: false,
+      review_kind: "in_review",
+      user_firstname: "A",
+      user_lastname: "D",
+    };
+  }
+
+  function wireReviewMocks(lineItems: BillLineItem[], reviews: unknown[] = []) {
+    setupMocks(lineItems);
+    const priorGetList = mockGetList.getMockImplementation()!;
+    mockGetList.mockImplementation((path: string) => {
+      if (path === REVIEWS_LIST_PATH) {
+        return Promise.resolve({ data: reviews, count: reviews.length });
+      }
+      return priorGetList(path);
+    });
+    mockPost.mockImplementation((path: string) => {
+      if (path === REVIEW_SUBMIT_PATH || path === REVIEW_ADVANCE_PATH) {
+        return Promise.resolve({});
+      }
+      return Promise.reject(new Error(`unexpected post: ${path}`));
+    });
+  }
+
+  beforeEach(() => {
+    vi.mocked(ReviewTimeline).mockImplementation((props) =>
+        createElement(
+          "div",
+          null,
+          createElement(
+            "button",
+            {
+              type: "button",
+              "data-testid": "review-submit-stub",
+              onClick: async () => {
+                if (props.onBeforeAction) {
+                  const ok = await props.onBeforeAction("submit", true);
+                  if (!ok) return;
+                }
+                await mockPost(REVIEW_SUBMIT_PATH, { comments: null });
+              },
+            },
+            "Submit for Review",
+          ),
+          createElement(
+            "button",
+            {
+              type: "button",
+              "data-testid": "review-decline-stub",
+              onClick: async () => {
+                if (props.onBeforeAction) {
+                  const ok = await props.onBeforeAction("decline", false);
+                  if (!ok) return;
+                }
+                await mockPost("/api/v1/decline/review/bill/bill-1", { comments: "no" });
+              },
+            },
+            "Decline",
+          ),
+          createElement(
+            "button",
+            {
+              type: "button",
+              "data-testid": "review-advance-stub",
+              onClick: async () => {
+                if (props.onBeforeAction) {
+                  const ok = await props.onBeforeAction("advance", false);
+                  if (!ok) return;
+                }
+                await mockPost(REVIEW_ADVANCE_PATH, { comments: null });
+              },
+            },
+            "Advance",
+          ),
+        ),
+    );
+  });
+
+  afterEach(() => {
+    vi.mocked(ReviewTimeline).mockImplementation(() => null);
+  });
+
+  it("ReviewTimeline submit with no project does not POST review and tells the user why", async () => {
+    wireReviewMocks([
+      sampleLineItem({
+        public_id: "li-no-proj",
+        project_id: null,
+        description: "no project",
+      }),
+    ]);
+
+    renderBillEdit();
+    await flushUntil(() => lineItemRows().length === 1);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="review-submit-stub"]')!.click();
+    });
+    await flushUntil(() => mockToast.mock.calls.length > 0);
+
+    expect(mockPost.mock.calls.some((c) => c[0] === REVIEW_SUBMIT_PATH)).toBe(false);
+    expect(mockToast).toHaveBeenCalledWith(SUBMIT_REQUIRES_PROJECT_MSG);
+    expect(mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/bill/bill-1")).toBe(false);
+  });
+
+  it("ReviewTimeline submit runs saveAll before POSTing review when a project is present", async () => {
+    wireReviewMocks([sampleLineItem({ public_id: "li-proj", description: "with project" })]);
+
+    renderBillEdit();
+    await flushUntil(() => {
+      const rows = lineItemRows();
+      return rows.length > 0 && descriptionInput(rows[0]).value === "with project";
+    });
+    expect(descriptionInput(lineItemRows()[0]).value).toBe("with project");
+
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => {
+      setTextareaValue(memo, "pending memo");
+    });
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="review-submit-stub"]')!.click();
+    });
+    await flushUntil(() => mockPost.mock.calls.some((c) => c[0] === REVIEW_SUBMIT_PATH));
+
+    const headerPutIdx = mockPut.mock.calls.findIndex((c) => c[0] === "/api/v1/update/bill/bill-1");
+    const reviewIdx = mockPost.mock.calls.findIndex((c) => c[0] === REVIEW_SUBMIT_PATH);
+    expect(headerPutIdx).toBeGreaterThanOrEqual(0);
+    expect(reviewIdx).toBeGreaterThanOrEqual(0);
+    expect(mockPut.mock.invocationCallOrder[headerPutIdx]!).toBeLessThan(
+      mockPost.mock.invocationCallOrder[reviewIdx]!,
+    );
+    const headerBody = mockPut.mock.calls[headerPutIdx]![1] as Record<string, unknown>;
+    expect(headerBody.memo).toBe("pending memo");
+  });
+
+  it("ReviewTimeline advance still saveAlls without the submit-only project gate", async () => {
+    wireReviewMocks(
+      [
+        sampleLineItem({
+          public_id: "li-no-proj",
+          project_id: null,
+          description: "no project",
+        }),
+      ],
+      [activeReviewRow()],
+    );
+
+    renderBillEdit();
+    await flushUntil(() => lineItemRows().length === 1);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="review-advance-stub"]')!.click();
+    });
+    await flushUntil(() => mockPost.mock.calls.some((c) => c[0] === REVIEW_ADVANCE_PATH));
+
+    expect(mockPost.mock.calls.some((c) => c[0] === REVIEW_ADVANCE_PATH)).toBe(true);
+    expect(mockToast).not.toHaveBeenCalledWith(SUBMIT_REQUIRES_PROJECT_MSG);
+    expect(mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/bill/bill-1")).toBe(true);
+  });
+
+  it("passes onBeforeAction to ReviewTimeline", async () => {
+    wireReviewMocks([sampleLineItem()]);
+
+    renderBillEdit();
+    await waitForReady();
+
+    expect(ReviewTimeline).toHaveBeenCalled();
+    const lastProps = vi.mocked(ReviewTimeline).mock.calls.at(-1)![0];
+    expect(typeof lastProps.onBeforeAction).toBe("function");
+  });
+
+  it("decline is not blocked when reviews list fetch fails (fail-open submit gate)", async () => {
+    wireReviewMocks(
+      [
+        sampleLineItem({
+          public_id: "li-no-proj",
+          project_id: null,
+          description: "no project",
+        }),
+      ],
+      [activeReviewRow()],
+    );
+    const priorGetList = mockGetList.getMockImplementation()!;
+    mockGetList.mockImplementation((path: string) => {
+      if (path === REVIEWS_LIST_PATH) {
+        return Promise.reject(new Error("reviews unavailable"));
+      }
+      return priorGetList(path);
+    });
+    mockPost.mockImplementation((path: string) => {
+      if (path === "/api/v1/decline/review/bill/bill-1") {
+        return Promise.resolve({});
+      }
+      return Promise.reject(new Error(`unexpected post: ${path}`));
+    });
+
+    renderBillEdit();
+    await flushUntil(() => lineItemRows().length === 1);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="review-decline-stub"]')!.click();
+    });
+    await flushUntil(() =>
+      mockPost.mock.calls.some((c) => c[0] === "/api/v1/decline/review/bill/bill-1"),
+    );
+
+    expect(mockToast).not.toHaveBeenCalledWith(SUBMIT_REQUIRES_PROJECT_MSG);
+    expect(mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/bill/bill-1")).toBe(true);
+  });
+
+  it("beforeReviewAction does not re-fetch reviews on advance", async () => {
+    wireReviewMocks(
+      [sampleLineItem({ public_id: "li-proj", description: "with project" })],
+      [activeReviewRow()],
+    );
+
+    renderBillEdit();
+    await flushUntil(() => lineItemRows().length > 0);
+
+    const reviewsCallsBefore = mockGetList.mock.calls.filter((c) => c[0] === REVIEWS_LIST_PATH)
+      .length;
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="review-advance-stub"]')!.click();
+    });
+    await flushUntil(() => mockPost.mock.calls.some((c) => c[0] === REVIEW_ADVANCE_PATH));
+
+    const reviewsCallsAfter = mockGetList.mock.calls.filter((c) => c[0] === REVIEWS_LIST_PATH)
+      .length;
+    expect(reviewsCallsAfter).toBe(reviewsCallsBefore);
   });
 });

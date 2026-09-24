@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import ReviewTimeline from "./ReviewTimeline";
+import ReviewTimeline, { type ReviewActionKind } from "./ReviewTimeline";
 import { entityItemKey } from "../hooks/useEntity";
 import { flushUntil } from "../__testutils__/flush";
 
@@ -56,7 +56,12 @@ let queryClient: QueryClient;
 function render(
   parentType: "bill" | "invoice" = "bill",
   parentPublicId = "bill-1",
-  extraProps: { onBeforeAction?: () => Promise<boolean> } = {},
+  extraProps: {
+    onBeforeAction?: (
+      action?: ReviewActionKind,
+      canSubmit?: boolean,
+    ) => Promise<boolean>;
+  } = {},
 ) {
   act(() => {
     root.render(
@@ -126,6 +131,7 @@ describe("ReviewTimeline — onBeforeAction (U-487)", () => {
     render("bill", "bill-1", { onBeforeAction });
     await submitForReview();
     expect(onBeforeAction).toHaveBeenCalledTimes(1);
+    expect(onBeforeAction).toHaveBeenCalledWith("submit", true);
     expect(mockPost).not.toHaveBeenCalled();
   });
 
@@ -134,6 +140,7 @@ describe("ReviewTimeline — onBeforeAction (U-487)", () => {
     render("bill", "bill-1", { onBeforeAction });
     await submitForReview();
     expect(onBeforeAction).toHaveBeenCalledTimes(1);
+    expect(onBeforeAction).toHaveBeenCalledWith("submit", true);
     expect(mockPost).toHaveBeenCalled();
   });
 });
@@ -198,13 +205,23 @@ describe("ReviewTimeline — U-463 the headline names the submitter", () => {
   });
 
   it("names the SUBMITTER even when the latest row belongs to someone else", async () => {
-    // Newest-first, exactly as the API returns them.
+    // Oldest-first — ReadReviewsByBillId ORDER BY CreatedDatetime ASC, Id ASC.
     mockGetList.mockResolvedValue({
       data: [
-        review({ id: 2, public_id: "rv-2", status_name: "In Review",
-                 review_kind: "in_review", status_is_initial: false,
-                 user_id: 33, user_firstname: "Claude", user_lastname: "Agent" }),
-        review(),
+        review({
+          created_datetime: "2026-09-15 10:00:00",
+        }),
+        review({
+          id: 2,
+          public_id: "rv-2",
+          status_name: "In Review",
+          review_kind: "in_review",
+          status_is_initial: false,
+          created_datetime: "2026-09-15 11:00:00",
+          user_id: 33,
+          user_firstname: "Claude",
+          user_lastname: "Agent",
+        }),
       ],
       count: 2,
     });
@@ -213,6 +230,10 @@ describe("ReviewTimeline — U-463 the headline names the submitter", () => {
 
     expect(container.textContent).toContain("submitted by Christopher Zubrod");
     expect(container.textContent).not.toContain("submitted by Claude Agent");
+    // Load-bearing ASC ordering: pill + timestamp follow the LAST row (current).
+    expect(container.textContent).toContain("In Review");
+    expect(container.textContent).toContain("2026-09-15 11:00:00");
+    expect(container.textContent).not.toContain("2026-09-15 10:00:00");
   });
 
   it("keys on the FROZEN review_kind, not the live is_initial flag", async () => {
@@ -221,10 +242,17 @@ describe("ReviewTimeline — U-463 the headline names the submitter", () => {
        to prevent. Here the flags are misleading and the frozen kind is right. */
     mockGetList.mockResolvedValue({
       data: [
-        review({ id: 2, public_id: "rv-2", status_name: "In Review",
-                 review_kind: "in_review", status_is_initial: true,   // live flag LIES
-                 user_id: 33, user_firstname: "Claude", user_lastname: "Agent" }),
-        review({ status_is_initial: false }),                          // frozen kind is right
+        review({ status_is_initial: false }), // frozen kind is right
+        review({
+          id: 2,
+          public_id: "rv-2",
+          status_name: "In Review",
+          review_kind: "in_review",
+          status_is_initial: true, // live flag LIES
+          user_id: 33,
+          user_firstname: "Claude",
+          user_lastname: "Agent",
+        }),
       ],
       count: 2,
     });
@@ -237,12 +265,24 @@ describe("ReviewTimeline — U-463 the headline names the submitter", () => {
   it("names whoever RESUBMITTED after a decline, not the original submitter", async () => {
     mockGetList.mockResolvedValue({
       data: [
-        review({ id: 4, public_id: "rv-4", status_name: "Submitted",
-                 review_kind: "submitted", user_id: 20,
-                 user_firstname: "Austin", user_lastname: "Rogers" }),
-        review({ id: 3, public_id: "rv-3", status_name: "Declined",
-                 review_kind: "declined", status_is_declined: true, status_is_initial: false }),
         review({ id: 1 }),
+        review({
+          id: 3,
+          public_id: "rv-3",
+          status_name: "Declined",
+          review_kind: "declined",
+          status_is_declined: true,
+          status_is_initial: false,
+        }),
+        review({
+          id: 4,
+          public_id: "rv-4",
+          status_name: "Submitted",
+          review_kind: "submitted",
+          user_id: 20,
+          user_firstname: "Austin",
+          user_lastname: "Rogers",
+        }),
       ],
       count: 3,
     });
@@ -250,5 +290,28 @@ describe("ReviewTimeline — U-463 the headline names the submitter", () => {
     await flushUntil(() => container.textContent?.includes("submitted by") ?? false);
 
     expect(container.textContent).toContain("submitted by Austin Rogers");
+    expect(container.textContent).not.toContain("submitted by Christopher Zubrod");
+  });
+
+  it("falls back to the current row for attribution when no submitted row exists", async () => {
+    mockGetList.mockResolvedValue({
+      data: [
+        review({
+          id: 2,
+          public_id: "rv-2",
+          status_name: "In Review",
+          review_kind: "in_review",
+          status_is_initial: false,
+          user_id: 33,
+          user_firstname: "Claude",
+          user_lastname: "Agent",
+        }),
+      ],
+      count: 1,
+    });
+    render();
+    await flushUntil(() => container.textContent?.includes("submitted by") ?? false);
+
+    expect(container.textContent).toContain("submitted by Claude Agent");
   });
 });

@@ -25,6 +25,10 @@ import ReviewTimeline from "../../components/ReviewTimeline";
 import RecordChangedBanner from "../../components/RecordChangedBanner";
 import Breadcrumb from "../../components/Breadcrumb";
 import type { Bill, BillLineItem } from "../../types/api";
+import type { ReviewActionKind } from "../../components/ReviewTimeline";
+
+const SUBMIT_REQUIRES_PROJECT_MSG =
+  "Add a line item with a project before submitting for review.";
 
 interface LineItemRow {
   /** Stable client-side row identity, minted on load and on Add Row. saveAll stamps
@@ -179,6 +183,7 @@ export default function BillEdit() {
   // Counts confirmed header PUTs (auto-save and saveAll) so saveAll can tell whether its
   // own header write is still the newest one before seeding the item cache.
   const headerWriteSeqRef = useRef(0);
+  const saveAllInFlightRef = useRef<Promise<boolean> | null>(null);
   const [origLineItemPublicIds, setOrigLineItemPublicIds] = useState<string[]>([]);
   const [attachmentPublicId, setAttachmentPublicId] = useState<string | null>(null);
   const { objectUrl: attachmentBlobUrl, loading: attachmentLoading, loadError: attachmentLoadError } =
@@ -399,7 +404,17 @@ export default function BillEdit() {
     setForm((prev: any) => ({ ...prev, [name]: value }));
   };
 
-  const saveAll = async () => {
+  const saveAll = async (): Promise<boolean> => {
+    if (saveAllInFlightRef.current) {
+      return saveAllInFlightRef.current;
+    }
+    let releaseInFlight!: (result: boolean) => void;
+    const inFlightGate = new Promise<boolean>((resolve) => {
+      releaseInFlight = resolve;
+    });
+    saveAllInFlightRef.current = inFlightGate;
+
+    const run = async (): Promise<boolean> => {
     const latestForm = formRef.current;
     if (!latestForm) return false;
     // Pre-load, computedTotal over empty lineItems would PUT total_amount 0.
@@ -419,6 +434,9 @@ export default function BillEdit() {
 
       // Save header — total_amount computed from line items
       const computedTotal = sumLineAmounts(lineItems);
+      const itemCacheRowVersion = () =>
+        queryClient.getQueryData<Bill>(entityItemKey(billItemPath))?.row_version;
+      const itemTokenAtSend = itemCacheRowVersion();
       const updated = await put<Bill>(`/api/v1/update/bill/${publicId}`, {
         row_version: rowVersion.read(),
         vendor_public_id: latestForm.vendor_public_id || undefined,
@@ -504,10 +522,15 @@ export default function BillEdit() {
       // change `item` identity, re-run the load effect, mint new uids, and stampRow would
       // match nothing — silently dropping confirmed public_id/row_version (U-170). Merge,
       // don't replace: the GET (api entities/bill/api/router.py, /get/bill/{public_id})
-      // appends a qbo_bill_url the header PUT does not return. Decline if a mid-loop
-      // auto-save superseded this header PUT — caching its stale row_version would
-      // re-create the 409, and leaving the entry untouched is no worse than pre-U-174.
-      if (headerWriteSeqRef.current === headerWriteSeq) {
+      // appends a qbo_bill_url the header PUT does not return. Decline seeding when:
+      // (1) a mid-loop auto-save superseded this header PUT (headerWriteSeq), or
+      // (2) the item cache row_version changed since we sent the header PUT — e.g. a
+      // review transition landed in React Query while this saveAll was in flight. Read the
+      // cache at check time; a render-lagged ref would miss that and poison the token.
+      if (
+        headerWriteSeqRef.current === headerWriteSeq &&
+        itemCacheRowVersion() === itemTokenAtSend
+      ) {
         queryClient.setQueryData(entityItemKey(billItemPath), (prev: Bill | undefined) =>
           prev ? { ...prev, ...updated } : updated,
         );
@@ -521,6 +544,17 @@ export default function BillEdit() {
       return false;
     } finally {
       setSaving(false);
+    }
+    };
+    void run()
+      .then(releaseInFlight)
+      .catch(() => releaseInFlight(false));
+    try {
+      return await inFlightGate;
+    } finally {
+      if (saveAllInFlightRef.current === inFlightGate) {
+        saveAllInFlightRef.current = null;
+      }
     }
   };
 
@@ -575,6 +609,18 @@ export default function BillEdit() {
     (li) => !!li.project_public_id || li.unresolved_project_id != null,
   );
 
+  /** ReviewTimeline shares one hook for submit/advance/decline. Flush edits on
+   * every action (ExpenseEdit precedent); gate the BCC-only notification bug only
+   * on the submit/resubmit path — advance/decline must stay reachable without a
+   * project so a stuck bill can still be declined. */
+  const beforeReviewAction = async (action?: ReviewActionKind): Promise<boolean> => {
+    if (action === "submit" && !hasProjectOnLineItem) {
+      toast(SUBMIT_REQUIRES_PROJECT_MSG);
+      return false;
+    }
+    return saveAll();
+  };
+
   // Hoisted out of the line-item map: these depend on neither the row nor its
   // index, and the sub-cost-code catalog is ~500 rows — rebuilding both per row
   // per render meant N×(500+P) allocations on every keystroke in the table.
@@ -604,7 +650,13 @@ export default function BillEdit() {
         {diverged && <RecordChangedBanner entity="bill" />}
         {saveError && <div className="form-error">{saveError}</div>}
 
-        {publicId && <ReviewTimeline parentType="bill" parentPublicId={publicId} />}
+        {publicId && (
+          <ReviewTimeline
+            parentType="bill"
+            parentPublicId={publicId}
+            onBeforeAction={beforeReviewAction}
+          />
+        )}
 
         <div className="detail-fields-form">
           <FormField label="Bill Number" name="bill_number" value={form.bill_number} onChange={onChange} required />
@@ -793,7 +845,7 @@ export default function BillEdit() {
               title={
                 hasProjectOnLineItem
                   ? "Submit for review — drafts an email to the project PMs and advances the bill state."
-                  : "Add a line item with a project before submitting for review."
+                  : SUBMIT_REQUIRES_PROJECT_MSG
               }
             >
               {submitting ? "Submitting..." : "Submit for Review"}

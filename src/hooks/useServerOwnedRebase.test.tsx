@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { act, createElement, useRef, useState } from "react";
+import { act, createElement, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { useServerOwnedRebase } from "./useServerOwnedRebase";
 
@@ -33,6 +33,7 @@ let snapshot: {
   form: Record<string, unknown> | null;
   diverged: boolean;
   acceptBaseline: (i: Item) => void;
+  setForm: Dispatch<SetStateAction<Record<string, unknown> | null>>;
 };
 
 function Harness({
@@ -59,7 +60,7 @@ function Harness({
     acceptBaseline(item);
     setForm(seedFrom(item));
   }
-  snapshot = { form, diverged, acceptBaseline };
+  snapshot = { form, diverged, acceptBaseline, setForm };
   return createElement("div", {
     "data-diverged": diverged ? "true" : "false",
     "data-rv": form ? String(form.row_version) : "",
@@ -74,7 +75,12 @@ function render(props: { item: Item | null; seedId: string | null }) {
 }
 
 beforeEach(() => {
-  snapshot = { form: null, diverged: false, acceptBaseline: () => {} };
+  snapshot = {
+    form: null,
+    diverged: false,
+    acceptBaseline: () => {},
+    setForm: () => {},
+  };
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -216,7 +222,7 @@ function DeferredHarness({
     if (captureBaseline) acceptBaseline(item);
     setForm(seedFrom(item));
   }
-  snapshot = { form, diverged, acceptBaseline };
+  snapshot = { form, diverged, acceptBaseline, setForm };
   return null;
 }
 
@@ -262,5 +268,54 @@ describe("useServerOwnedRebase — deferred seed (P0)", () => {
     expect(snapshot.form?.memo).toBe("A");
     expect(snapshot.form?.row_version).toBe("v1");
     expect(snapshot.form?.row_version).not.toBe("v2");
+  });
+});
+
+/**
+ * Post-save the page calls acceptBaseline(updated) and setForm(row_version) with
+ * the PUT response while React Query `item` may still carry an older token.
+ * Re-running this effect on baseline change (U-531's baselineSeq) wrote that
+ * stale token back and wedged saves — type/undo-then-save on Expense/BillCredit.
+ */
+function PostSaveHarness({ item }: { item: Item }) {
+  const [form, setForm] = useState<Record<string, unknown> | null>(null);
+  const seededFor = useRef<string | null>(null);
+  const { diverged, acceptBaseline } = useServerOwnedRebase({
+    item,
+    seededFor,
+    setForm,
+    seedFrom,
+    owned: OWNED,
+  });
+  if (item && !form) {
+    seededFor.current = item.public_id;
+    acceptBaseline(item);
+    setForm(seedFrom(item));
+  }
+  snapshot = { form, diverged, acceptBaseline, setForm };
+  return null;
+}
+
+function renderPostSave(item: Item) {
+  act(() => {
+    root.render(createElement(PostSaveHarness, { item }));
+  });
+}
+
+describe("useServerOwnedRebase — post-save stale item (regression)", () => {
+  it("does not roll row_version back when acceptBaseline advances ahead of cache item", () => {
+    const staleItem: Item = { ...ITEM, row_version: "rv-1" };
+    renderPostSave(staleItem);
+    expect(snapshot.form?.row_version).toBe("rv-1");
+
+    const saved: Item = { ...ITEM, row_version: "rv-2" };
+    act(() => {
+      snapshot.acceptBaseline(saved);
+      snapshot.setForm((prev) => (prev ? { ...prev, row_version: saved.row_version } : prev));
+    });
+    expect(snapshot.form?.row_version).toBe("rv-2");
+
+    renderPostSave(staleItem);
+    expect(snapshot.form?.row_version).toBe("rv-2");
   });
 });

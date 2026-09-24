@@ -7,12 +7,14 @@ import { hasModulePermission } from "../shared/permissions";
 import { Modules, type ModuleName } from "../shared/modules";
 import type { Review, ReviewParentType } from "../types/api";
 
+export type ReviewActionKind = "submit" | "advance" | "decline";
+
 interface ReviewTimelineProps {
   parentType: ReviewParentType;
   parentPublicId: string;
   readOnly?: boolean;
   /** When set, awaited before submit/advance/decline; return false to abort. */
-  onBeforeAction?: () => Promise<boolean>;
+  onBeforeAction?: (action?: ReviewActionKind, canSubmit?: boolean) => Promise<boolean>;
 }
 
 // API URL slug per parent type. Three of four match snake_case; bill_credit
@@ -40,7 +42,7 @@ const MODULE_NAME: Record<ReviewParentType, ModuleName> = {
   contract_labor: Modules.TIME_TRACKING,
 };
 
-type ActionKind = "submit" | "advance" | "decline";
+type ActionKind = ReviewActionKind;
 
 interface ActionDialog {
   kind: ActionKind;
@@ -151,7 +153,7 @@ export default function ReviewTimeline({
     setDialog({ ...dialog, busy: true, error: "" });
     try {
       if (onBeforeAction) {
-        const ok = await onBeforeAction();
+        const ok = await onBeforeAction(dialog.kind, canSubmit);
         if (!ok) {
           setDialog({ ...dialog, busy: false, error: "" });
           return;
@@ -239,13 +241,15 @@ export default function ReviewTimeline({
   //
   // Keys on the FROZEN `review_kind` (U-455) rather than `status_is_initial`:
   // the flag is live ReviewStatus config and moves when the initial role is
-  // reassigned, which is the exact class U-455 exists to prevent. Reviews come
-  // back newest-first, so the first match is the current cycle's submission —
-  // a resubmit after a decline correctly names whoever resubmitted.
+  // reassigned, which is the exact class U-455 exists to prevent.
+  // ReadReviewsByBillId (and sibling ReadReviewsBy*Id sprocs) return full
+  // history ascending: ORDER BY CreatedDatetime ASC, Id ASC — so the last
+  // `submitted` row is the current cycle's submission after a decline/resubmit.
   //
   // Falls back to the current row when no submitted row is visible (a partial
   // history, or a cycle that began before the kind was frozen).
-  const submittedBy = reviews.find((r) => r.review_kind === "submitted") ?? current;
+  const submittedBy =
+    reviews.findLast((r) => r.review_kind === "submitted") ?? current;
 
   return (
     <div className="review-banner" style={bannerStyle}>
