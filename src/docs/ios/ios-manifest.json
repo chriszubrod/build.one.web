@@ -3,17 +3,17 @@
   "freshness": {
     "class": "derived",
     "live": false,
-    "source_commit": "360827f",
-    "source_commit_date": "2026-09-19T17:43:47-05:00",
+    "source_commit": "ba28f64",
+    "source_commit_date": "2026-09-29T16:50:03-05:00",
     "source_branch": "master",
-    "generated_at": "2026-09-19T22:43:49.301097+00:00",
+    "generated_at": "2026-09-29T22:02:32.494696+00:00",
     "note": "iOS cannot be introspected at runtime from the web. This is a build-time snapshot of the build.one.ios source, regenerated on each release. The shipping App Store / TestFlight build may differ if this was not regenerated."
   },
   "app": {
     "name": "Build.One",
     "bundle_id": "one.build.app",
-    "marketing_version": "0.1.0",
-    "build": "10",
+    "marketing_version": "0.2.0",
+    "build": "11",
     "min_ios": "17.0"
   },
   "architecture": {
@@ -34,6 +34,8 @@
     "Onboarding",
     "Profile",
     "Project",
+    "SubCostCode",
+    "Task",
     "TimeEntry",
     "User"
   ],
@@ -52,13 +54,22 @@
     "Module",
     "Project",
     "PushNotification",
+    "ReviewDecision",
     "Role",
     "RoleModule",
+    "SubCostCode",
+    "Task",
     "TimeEntry",
     "User",
     "UserRole"
   ],
   "endpoints": [
+    {
+      "name": "ApplyBillReviewDecisionEndpoint",
+      "method": "POST",
+      "path": "/api/v1/apply/review-decision/bill/\\(billPublicId)",
+      "file": "ReviewDecisionEndpoints.swift"
+    },
     {
       "name": "GetMeEndpoint",
       "method": "GET",
@@ -184,6 +195,30 @@
       "method": "GET",
       "path": "/api/v1/get/roles/user/\\(userId)",
       "file": "RoleEndpoints.swift"
+    },
+    {
+      "name": "SearchSubCostCodesEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/sub-cost-code/search",
+      "file": "SubCostCodeEndpoints.swift"
+    },
+    {
+      "name": "GetSubCostCodesEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/sub-cost-codes",
+      "file": "SubCostCodeEndpoints.swift"
+    },
+    {
+      "name": "GetTaskInboxEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/tasks/inbox",
+      "file": "TaskEndpoints.swift"
+    },
+    {
+      "name": "GetTaskInboxCountsEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/tasks/inbox/counts",
+      "file": "TaskEndpoints.swift"
     },
     {
       "name": "GetMyUserEndpoint",
@@ -384,6 +419,10 @@
       "user_scoped": true
     },
     {
+      "name": "CDPendingReviewDecision",
+      "user_scoped": true
+    },
+    {
       "name": "CDProject",
       "user_scoped": true
     },
@@ -394,6 +433,14 @@
     {
       "name": "CDRoleModule",
       "user_scoped": false
+    },
+    {
+      "name": "CDSubCostCode",
+      "user_scoped": true
+    },
+    {
+      "name": "CDTaskRow",
+      "user_scoped": true
     },
     {
       "name": "CDTimeEntry",
@@ -433,10 +480,10 @@
     ]
   },
   "counts": {
-    "features": 13,
-    "services": 19,
-    "endpoints": 49,
-    "core_data_entities": 15,
-    "user_scoped_entities": 10
+    "features": 15,
+    "services": 22,
+    "endpoints": 54,
+    "core_data_entities": 18,
+    "user_scoped_entities": 13
   }
 }
