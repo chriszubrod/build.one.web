@@ -33,6 +33,9 @@ import TimeEntryCreate from "./pages/time-entry/TimeEntryCreate";
 // the main bundle spares field workers (the majority, who can't open it) the weight.
 const DocsPage = lazy(() => import("./pages/docs/DocsPage"));
 
+import AdminUsersPage from "./pages/admin/AdminUsersPage";
+import AdminUserDetailPage from "./pages/admin/AdminUserDetailPage";
+
 // Budget surface (Phase 3) — renders inside the responsive AppLayout,
 // office/PM audience (gated on the Budgets module).
 import BudgetList from "./pages/budgets/BudgetList";
@@ -314,6 +317,9 @@ export const appRouteTree = (
 
         <Route path="/user/:id" element={<Navigate to="/profile" replace />} />
         <Route path="/user/:id/edit" element={<Navigate to="/profile" replace />} />
+
+        <Route path="/admin" element={<AdminUsersPage />} />
+        <Route path="/admin/user/:publicId" element={<AdminUserDetailPage />} />
 
         {/* Admin-only documentation surface (lazy-loaded). Page-level
             guard in DocsPage redirects non-admins; nav entry is

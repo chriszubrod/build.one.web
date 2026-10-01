@@ -311,6 +311,16 @@ export const MENU_ENTRIES: MenuEntry[] = [
     priority: 300,
     requiresAdmin: true, // system admins only
   },
+  {
+    id: "admin-users",
+    label: "Users",
+    icon: Users,
+    route: "/admin",
+    module: null,
+    section: "admin",
+    priority: 10,
+    requiresAdmin: true,
+  },
 ];
 
 /** Lookup by id. Cheap because the list is small; rebuild if it grows past ~30. */

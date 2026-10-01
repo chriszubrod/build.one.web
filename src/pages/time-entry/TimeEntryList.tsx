@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, getList, getOne, post } from "../../api/client";
 import { useEntityList } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useToast } from "../../components/Toast";
 import PageHeader from "../../components/PageHeader";
 import type {
@@ -84,15 +85,6 @@ function toYmd(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
-}
-
-function useDebouncedValue<T>(value: T, ms: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), ms);
-    return () => clearTimeout(t);
-  }, [value, ms]);
-  return debounced;
 }
 
 interface CountEnvelope {

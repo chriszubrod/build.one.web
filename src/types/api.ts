@@ -405,6 +405,39 @@ export interface Role {
   name: string;
 }
 
+export interface AdminUserRole {
+  user_role_public_id: string;
+  role_public_id: string;
+  role_id: number;
+  role_name: string;
+  company_id: number | null;
+}
+
+export interface AdminUserSummary {
+  public_id: string;
+  id: number;
+  firstname: string | null;
+  lastname: string | null;
+  is_system_admin: boolean;
+  is_agent: boolean;
+  username: string | null;
+  has_auth: boolean;
+  email: string | null;
+  roles: AdminUserRole[];
+  created_datetime: string | null;
+}
+
+export interface AdminAuditEntry {
+  public_id: string;
+  created_datetime: string;
+  actor_user_id: number | null;
+  actor_name: string | null;
+  actor_is_system_admin: boolean;
+  action: string;
+  target_user_id: number | null;
+  detail: Record<string, unknown> | null;
+}
+
 export interface Module {
   id: number;
   public_id: string;

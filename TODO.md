@@ -1,3 +1,34 @@
+## U-585 follow-ups — system-admin console `/admin` (booked 2026-09-30)
+
+U-585 shipped `/admin` (user list + search) and `/admin/user/:publicId` (info, roles, reset password,
+recent admin actions), page-guarded on `me.is_admin` and nav-gated `requiresAdmin` in the `admin` section.
+Mutations deliberately reuse the pre-existing routes (`/admin/auth/set-credentials/{id}`,
+`/create/user_role`, `/delete/user_role/{id}`); only the three reads are new. Left out on purpose:
+
+- [ ] 🟡 **P2 — retire or re-route the orphaned legacy user pages.** `src/pages/users/UserList.tsx`,
+  `UserProfile.tsx` and `UserCreate.tsx` have had NO route since U-066 (`/user/:id` redirects to
+  `/profile`) and nothing imports them. `/admin` now covers list + credentials + roles; what UserProfile
+  still has that `/admin` does not is Organizations / Companies / Modules / Projects editing. Decide: fold
+  those sections into `AdminUserDetailPage` and delete the three files, or delete outright. Dead code
+  that still compiles is a maintenance trap (it hand-codes `/api/v1/admin/auth/*` call shapes a second time).
+- [ ] 🟡 **P2 — "Recent admin actions" is capped at the newest 50 with no paging.** The API takes
+  `?limit=` (1..200) but the page passes the default. A busy admin target will silently lose older rows
+  from view. Add Prev/Next or a "show more" on `getAdminUserAudit`.
+- [ ] 🟢 **P3 — no global audit view.** `ReadAdminAuditLogRecent` exists in the API but no route/page
+  exposes it; an "all admin actions" tab under `/admin` is the natural home.
+- [ ] 🟢 **P3 — user CREATE is not on `/admin`.** The console lists/edits existing users; creating one
+  still needs the API (`POST /create/user`) or SQL. The orphaned `UserCreate.tsx` is the obvious seed.
+- [ ] 🟢 **P3 — roles list on `/admin/user/:id` uses a private react-query key (`["roles"]`).** Pass 2 tried
+  sharing `entityListKey("/api/v1/get/roles")` with `RoleList`, and the Codex re-check caught that the two
+  readers carry DIFFERENT `queryFn` options (RoleList swallows a 404 into an empty list and uses
+  `retryIgnoringClientErrors`; the admin page throws/retries by default) — one shared key would share that
+  failure state, so it was reverted. Right fix: adopt `useEntityList<Role>("/api/v1/get/roles")` on the admin
+  page (same options as RoleList) and mock `hooks/useEntity` in its tests instead of `adminApi.listRoles`.
+- [ ] 🟢 **P3 — `/admin` list paging is offset-based while the house uses `usePaginatedList` + `<Pagination>`**
+  (`page`/`page_size` + "Previous" / "Page X of Y" labels, hidden at one page). Converging means the API
+  growing `SearchAdminUsers`/`CountAdminUsers` sprocs (booked on the board for the api repo) — do both halves
+  in one unit; the offset clamp effect and its hand-rolled pagination markup disappear with it.
+
 ## U-470 review findings — booked (2026-09-17)
 
 

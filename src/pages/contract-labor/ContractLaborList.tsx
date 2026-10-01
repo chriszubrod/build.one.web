@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, fetchWithRefresh, getList, getOne, post } from "../../api/client";
 import { useEntityList } from "../../hooks/useEntity";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import PageHeader from "../../components/PageHeader";
 import { hasContractLaborPermission } from "./contractLaborPermissions";
 import { STATUS_CLASSES } from "./contractLaborStatus";
@@ -33,15 +34,6 @@ function fmtHoursHHMM(decimalHours: string | null): string {
   const h = Math.trunc(n);
   const m = Math.round((n - h) * 60);
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-}
-
-function useDebouncedValue<T>(value: T, ms: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), ms);
-    return () => clearTimeout(t);
-  }, [value, ms]);
-  return debounced;
 }
 
 interface CountEnvelope {

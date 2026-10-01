@@ -1,5 +1,5 @@
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { useAdminGate } from "../../hooks/useAdminGate";
 import { findSection } from "./docsSections";
 import DocsHome from "./DocsHome";
 import IOSDocs from "./sections/IOSDocs";
@@ -23,20 +23,11 @@ import ComingSoon from "./sections/ComingSoon";
  * /docs/:section  → that repo's section (drill-down, with a back button)
  */
 export default function DocsPage() {
-  const { data: me, isLoading } = useCurrentUser();
+  const { gate } = useAdminGate();
   const { section } = useParams();
   const navigate = useNavigate();
 
-  if (isLoading || !me) {
-    return (
-      <div className="ios-page">
-        <div className="page-loading" style={{ padding: "var(--space-xl) 0" }}>
-          Loading…
-        </div>
-      </div>
-    );
-  }
-  if (!me.is_admin) return <Navigate to="/profile" replace />;
+  if (gate) return gate;
 
   if (!section) return <DocsHome />;
 

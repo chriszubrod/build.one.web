@@ -279,6 +279,10 @@ describe("canSeeEntry — RBAC gating", () => {
     expect(canSeeEntry(findMenuEntry("docs")!, undefined)).toBe(false);
   });
 
+  it("requiresAdmin entry (admin-users) is hidden on unauth boots (me undefined)", () => {
+    expect(canSeeEntry(findMenuEntry("admin-users")!, undefined)).toBe(false);
+  });
+
   // Per-entity RBAC triad, one row per module-gated entry (TODO.md rule-of-three,
   // collapsed at the 4th entity — U-094). Raw module-name literals on purpose:
   // they pin the real wire value the nav constant must match.
@@ -359,9 +363,14 @@ describe("entriesInSection", () => {
     });
   });
 
-  it("Returns empty array for sections without entries yet (admin)", () => {
-    const me = makeUser({ is_admin: true });
-    expect(entriesInSection("admin", me)).toEqual([]);
+  it("admin section lists the Users console for system admins only", () => {
+    const adminUsers = findMenuEntry("admin-users")!;
+    expect(entriesInSection("admin", makeUser({ is_admin: true }))).toEqual([
+      adminUsers,
+    ]);
+    expect(entriesInSection("admin", makeUser({ is_admin: false }))).toEqual(
+      [],
+    );
   });
 
   it("Returns Vendors and Customers under contacts (Phase 1B)", () => {

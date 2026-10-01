@@ -169,6 +169,8 @@ describe("appRouteTree — real route tree (U-066)", () => {
       "/address/:publicId/edit",
       "/address/create",
       "/address/list",
+      "/admin",
+      "/admin/user/:publicId",
       "/asset/*",
       "/asset/:publicId",
       "/asset/:publicId/edit",
@@ -306,6 +308,13 @@ describe("appRouteTree — real route tree (U-066)", () => {
     expect(branch).not.toBeNull();
     const last = branch!.at(-1)!;
     expect(last.route.path).toBe("/budget/:publicId");
+  });
+
+  it("/admin/user/abc resolves to the AdminUserDetailPage route", () => {
+    const branch = branchFor("/admin/user/abc");
+    expect(branch).not.toBeNull();
+    const last = branch!.at(-1)!;
+    expect(last.route.path).toBe("/admin/user/:publicId");
   });
 
   describe("/budget/* redirect catches unknown budget children", () => {
@@ -963,6 +972,7 @@ describe("routed <-> nav reconciliation (U-077)", () => {
     // derives from routePaths(), which sorts), same as the route-inventory pin.
     expect(navReachableRoutes()).toEqual([
       "/address/list",
+      "/admin",
       "/asset/list",
       "/bill-credit/list",
       "/bill/list",
