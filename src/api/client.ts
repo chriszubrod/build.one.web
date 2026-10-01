@@ -53,7 +53,64 @@ function readCookie(name: string): string | null {
   // Escape any regex metacharacters in the cookie name.
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = document.cookie.match(new RegExp("(^|; )" + escaped + "=([^;]+)"));
-  return match ? decodeURIComponent(match[2]) : null;
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[2]);
+  } catch {
+    // A malformed percent-escape must not take every mutation down with a
+    // URIError out of the init factory; treat it as "no cookie".
+    return null;
+  }
+}
+
+/**
+ * `X-CSRF-Token` for an UNSAFE method, read from the cookie on every call.
+ *
+ * The API enforces CSRF on cookie-authenticated mutations and on the routes
+ * that touch the refresh cookie (/auth/refresh, /auth/logout, the admin
+ * set-credentials route). Until 2026-10-01 only `refreshAccessToken()` sent
+ * the header — the first real use of the U-585 admin console 403'd on
+ * set-credentials. Every mutation path now goes through here. Read fresh
+ * each attempt: a refresh ROTATES the cookie, so the retry after a 401 must
+ * carry the new value, not one captured before the refresh.
+ */
+function csrfToken(method: string | undefined): string | null {
+  if (!isMutation(method)) return null;
+  return readCookie(CSRF_COOKIE);
+}
+
+/** The header as a spreadable record — for the few raw `fetch` call sites
+ *  that cannot go through `fetchWithRefresh` (the SSE cancel, the refresh
+ *  itself). Everything else gets it from `fetchWithRefresh` automatically. */
+export function csrfHeaders(method: string | undefined): Record<string, string> {
+  const csrf = csrfToken(method);
+  return csrf ? { [CSRF_HEADER]: csrf } : {};
+}
+
+/**
+ * Stamp the CSRF header onto a RequestInit — the ONE place every
+ * `fetchWithRefresh` attempt passes through, so a caller that hand-rolls
+ * its own init factory (SSE client, PDF regenerate) is covered without
+ * knowing about CSRF. The client's value wins: any caller-supplied
+ * `x-csrf-token` in whatever case is dropped first, so exactly one
+ * canonical header goes out (a case-variant duplicate would be folded by
+ * the server into "a, b" and rejected).
+ */
+function withCsrf(init: RequestInit): RequestInit {
+  const csrf = csrfToken(init.method);
+  if (csrf === null) return init;
+  const src = init.headers;
+  if (src instanceof Headers || Array.isArray(src)) {
+    const h = new Headers(src);
+    h.set(CSRF_HEADER, csrf);
+    return { ...init, headers: h };
+  }
+  const headers: Record<string, string> = {};
+  for (const [k, v] of Object.entries((src ?? {}) as Record<string, string>)) {
+    if (k.toLowerCase() !== CSRF_HEADER.toLowerCase()) headers[k] = v;
+  }
+  headers[CSRF_HEADER] = csrf;
+  return { ...init, headers };
 }
 
 // Coalesces concurrent 401s into a single refresh. The promise is
@@ -65,11 +122,10 @@ export async function refreshAccessToken(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
     try {
-      const csrf = readCookie(CSRF_COOKIE);
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
+        ...csrfHeaders("POST"),
       };
-      if (csrf) headers[CSRF_HEADER] = csrf;
       const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
         method: "POST",
         headers,
@@ -147,7 +203,7 @@ export async function fetchWithRefresh(
   url: string,
   buildInit: () => RequestInit,
 ): Promise<Response> {
-  const init = buildInit();
+  const init = withCsrf(buildInit());
 
   // Pre-flight offline fast-fail on mutations.
   if (!isOnline() && isMutation(init.method)) {
@@ -176,7 +232,9 @@ export async function fetchWithRefresh(
   if (newToken === null) return res; // caller handles 401 → redirect
 
   try {
-    res = await fetch(url, buildInit());
+    // Rebuilt per attempt on purpose: the refresh above ROTATED the CSRF
+    // cookie and the bearer, and both are re-read here.
+    res = await fetch(url, withCsrf(buildInit()));
   } catch (err) {
     if (err instanceof TypeError) {
       if (isMutation(init.method)) {

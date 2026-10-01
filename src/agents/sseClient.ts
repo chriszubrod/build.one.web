@@ -16,7 +16,7 @@
  *   data: <json>\n
  *   \n
  */
-import { fetchWithRefresh, refreshAccessToken } from "../api/client";
+import { csrfHeaders, fetchWithRefresh, refreshAccessToken } from "../api/client";
 import type { LoopEvent } from "./types";
 
 
@@ -263,7 +263,10 @@ export async function cancelAgentRun(publicId: string): Promise<void> {
     await refreshAccessToken();
   }
   const refreshed = localStorage.getItem("access_token");
-  const headers: Record<string, string> = {};
+  // Raw fetch (deliberately not fetchWithRefresh — see above), so the CSRF
+  // header is stamped by hand; read AFTER the proactive refresh, which
+  // rotates the cookie.
+  const headers: Record<string, string> = { ...csrfHeaders("POST") };
   if (refreshed) headers["Authorization"] = `Bearer ${refreshed}`;
 
   await fetch(`${API_BASE}/api/v1/agents/runs/${publicId}/cancel`, {

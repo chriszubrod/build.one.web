@@ -18,6 +18,12 @@ Mutations deliberately reuse the pre-existing routes (`/admin/auth/set-credentia
   exposes it; an "all admin actions" tab under `/admin` is the natural home.
 - [ ] 🟢 **P3 — user CREATE is not on `/admin`.** The console lists/edits existing users; creating one
   still needs the API (`POST /create/user`) or SQL. The orphaned `UserCreate.tsx` is the obvious seed.
+- [ ] 🟢 **P3 — `ContractLaborList.regeneratePdfBlob` captures the bearer OUTSIDE its `fetchWithRefresh` init factory**
+  (`src/pages/contract-labor/ContractLaborList.tsx` ~L48): the 401→refresh retry resends the STALE bearer, so a
+  regenerate during an expired access token fails once before succeeding on the next click. Found by Codex during
+  the U-585 CSRF fix-round (2026-10-01); CSRF itself is now stamped centrally in `fetchWithRefresh`, so only the
+  bearer capture remains. Fix: read `localStorage.access_token` inside the factory (the VendorCompliance
+  `openPdfBlob` shape), or route it through `post()`/a blob-returning wrapper.
 - [ ] 🟢 **P3 — roles list on `/admin/user/:id` uses a private react-query key (`["roles"]`).** Pass 2 tried
   sharing `entityListKey("/api/v1/get/roles")` with `RoleList`, and the Codex re-check caught that the two
   readers carry DIFFERENT `queryFn` options (RoleList swallows a 404 into an empty list and uses
