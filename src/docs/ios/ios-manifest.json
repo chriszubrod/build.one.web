@@ -3,10 +3,10 @@
   "freshness": {
     "class": "derived",
     "live": false,
-    "source_commit": "ba28f64",
-    "source_commit_date": "2026-09-29T16:50:03-05:00",
+    "source_commit": "ee7d3f9",
+    "source_commit_date": "2026-10-01T18:57:41-05:00",
     "source_branch": "master",
-    "generated_at": "2026-09-29T22:02:32.494696+00:00",
+    "generated_at": "2026-10-02T00:10:49.457951+00:00",
     "note": "iOS cannot be introspected at runtime from the web. This is a build-time snapshot of the build.one.ios source, regenerated on each release. The shipping App Store / TestFlight build may differ if this was not regenerated."
   },
   "app": {
@@ -123,6 +123,12 @@
       "method": "GET",
       "path": "/api/v1/get/bill-line-item-attachment/by-bill-line-item/\\(lineItemPublicId)",
       "file": "BillLineItemAttachmentEndpoints.swift"
+    },
+    {
+      "name": "GetBillByPublicIdEndpoint",
+      "method": "GET",
+      "path": "/api/v1/get/bill/\\(publicId)",
+      "file": "BillEndpoints.swift"
     },
     {
       "name": "GetBillByIdEndpoint",
@@ -482,7 +488,7 @@
   "counts": {
     "features": 15,
     "services": 22,
-    "endpoints": 54,
+    "endpoints": 55,
     "core_data_entities": 18,
     "user_scoped_entities": 13
   }
