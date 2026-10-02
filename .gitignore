@@ -27,3 +27,5 @@ dist-ssr
 # SWA CLI deploy artifacts
 *-app.zip
 .\*-app.zip
+# worktrees live in the umbrella .worktrees/ (U-466d); an in-repo one must never be committed
+.worktrees/
