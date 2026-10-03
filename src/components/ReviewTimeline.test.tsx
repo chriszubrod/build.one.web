@@ -61,6 +61,7 @@ function render(
       action?: ReviewActionKind,
       canSubmit?: boolean,
     ) => Promise<boolean>;
+    onAfterAction?: (action: ReviewActionKind) => void | Promise<void>;
   } = {},
 ) {
   act(() => {
@@ -313,5 +314,54 @@ describe("ReviewTimeline — U-463 the headline names the submitter", () => {
     await flushUntil(() => container.textContent?.includes("submitted by") ?? false);
 
     expect(container.textContent).toContain("submitted by Claude Agent");
+  });
+});
+
+
+describe("ReviewTimeline — onAfterAction + keyboard confirm (expense review 2026-10-03)", () => {
+  it("calls onAfterAction with the action kind once the POST landed and the parent was invalidated", async () => {
+    const seen: string[] = [];
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    render("bill", "bill-1", {
+      onAfterAction: (action) => {
+        // By the time the page hears about it, the parent item has been invalidated.
+        expect(invalidate).toHaveBeenCalledWith({ queryKey: entityItemKey("/api/v1/get/bill/bill-1") });
+        seen.push(action);
+      },
+    });
+    await submitForReview();
+    await flushUntil(() => seen.length === 1);
+    expect(seen).toEqual(["submit"]);
+  });
+
+  it("does NOT call onAfterAction when the POST failed", async () => {
+    mockPost.mockRejectedValue(new Error("nope"));
+    const onAfterAction = vi.fn();
+    render("bill", "bill-1", { onAfterAction });
+    await submitForReview();
+    await flushUntil(() => (container.textContent ?? "").includes("nope"));
+    expect(onAfterAction).not.toHaveBeenCalled();
+  });
+
+  it("Ctrl+Enter in the comments box confirms the dialog; plain Enter does not", async () => {
+    render();
+    await flushUntil(() => buttonWithText("Submit for Review") !== undefined);
+    await act(async () => { buttonWithText("Submit for Review")!.click(); });
+    await flushUntil(() => container.querySelector("textarea") !== null);
+    const textarea = container.querySelector("textarea")!;
+
+    await act(async () => {
+      textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    expect(mockPost).not.toHaveBeenCalled();
+
+    await act(async () => {
+      textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }));
+    });
+    await flushUntil(() => mockPost.mock.calls.length > 0);
+    expect(mockPost).toHaveBeenCalledWith(
+      "/api/v1/submit/review/bill/bill-1",
+      expect.objectContaining({ comments: null }),
+    );
   });
 });

@@ -4,6 +4,35 @@ Chronological session history. Newest at the top.
 
 ---
 
+## Expense draft→submit throughput (2026-10-03) — paired with build.one.api's note of the same date
+
+The expense review traced the real "view a draft, submit it" path as List → View → Edit → Submit →
+Cancel → View → List: ~20 serial round-trips and four downloads of the same receipt per draft. Fixed
+in this unit, all pinned by specs:
+
+- **ExpenseView submits directly.** `ReviewTimeline` is active on View (read-only only on
+  `completed`, which is terminal server-side), with NO `onBeforeAction` — nothing on View is editable.
+  New `onAfterAction` prop on `ReviewTimeline`; after a submit the View opens the **next draft**
+  (`GET /get/expenses?status=draft&page=1&page_size=1`) or lands on the Draft tab. BillView stays read-only.
+- **ExpenseEdit writes only what changed.** `headerDirtyRef` / `linesDirtyRef`; `saveAll` on an
+  untouched form issues ZERO PUTs (each was a ProcessEngine workflow with audit rows); the header PUT
+  runs only when the header changed. `saveAll` now `await flushAutoSave()` before anything (BillEdit's
+  shape) — cancelling the timer left an in-flight auto-save PUT racing the header PUT on the same
+  `row_version` (409 on Submit). The auto-save re-dirties the header when its PUT fails, so the next
+  explicit save retries it instead of reading the form as clean.
+- **Line-item/receipt chain keyed on `item.id`** in both View and Edit. A review action invalidates
+  the item; the refetched object is a new identity for the same expense and used to re-list lines,
+  re-walk the per-line link GETs and re-download the receipt with a viewer flash. Link GETs in parallel.
+- **The tab survives the trip back.** `expenseListPath(status)` on the View breadcrumb — a bare
+  `/expense/list` resolved to the Completed tab (11.8K rows) every time.
+- **Prefetch on hover/focus/touch** — `EntryCard.onPrefetch`, wired in ExpenseList to the View's exact
+  `entityItemKey`. **Ctrl/Cmd+Enter** confirms the review dialog.
+- Nine ExpenseEdit specs rewritten for the new contract; the chained-token spec now exercises the
+  only remaining way a second header PUT happens (an edit typed while the auto-save PUT is in flight).
+- Booked, not fixed (build.one.api TODO.md, same heading): SW `NetworkFirst` 3 s timeout can serve a
+  pre-submit `GET reviews`; `usePaginatedList` has no request-sequence guard; list search undebounced;
+  Attach/remove controls shown with Expenses perms while the routes gate on `Modules.ATTACHMENTS`.
+
 ## Session: Admin /docs surface — iOS-first (2026-06-20)
 
 Shipped v1 of an **admin-only `/docs`** surface — a Hybrid docs site documenting the whole 5-repo application, freshness-badged per repo (LIVE / DERIVED / CURATED). Decision: **iOS-first** (the hardest repo: can't be runtime-introspected from web). Built on native primitives (`ios-page` / `SectionCard` / `ListRow` / `NavHeader`) as a drill-down (`DocsHome` → section), matching Time/Labor/Profile. Routes are `React.lazy`-split in `App.tsx` (keeps react-markdown out of the main bundle). Dual-gated: `menuConfig` `requiresAdmin` + page `is_admin` guard; surfaced via a **new Reference group in `AppSidebar`** — NOT the primary bottom pill (which would overflow at 5 tabs).

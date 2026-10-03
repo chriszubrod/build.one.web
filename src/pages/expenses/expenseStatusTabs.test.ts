@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   DEFAULT_STATUS_TAB,
   STATUS_TABS,
+  expenseListPath,
   expenseListQuery,
   isStatusTab,
   resolveStatusTab,
@@ -64,5 +65,17 @@ describe("expenses status tabs (U-470)", () => {
     for (const { value } of STATUS_TABS) {
       expect(expenseListQuery(value)).not.toContain("is_draft");
     }
+  });
+});
+
+describe("expenseListPath — the list URL that keeps the user's tab", () => {
+  it("carries the expense's own status so Back from a draft lands on Draft, not Completed", () => {
+    expect(expenseListPath("draft")).toBe("/expense/list?status=draft");
+    expect(expenseListPath("in_review")).toBe("/expense/list?status=in_review");
+  });
+
+  it("falls back to the default tab for an unknown or missing status, like the URL param does", () => {
+    expect(expenseListPath(null)).toBe(`/expense/list?status=${DEFAULT_STATUS_TAB}`);
+    expect(expenseListPath("bogus")).toBe(`/expense/list?status=${DEFAULT_STATUS_TAB}`);
   });
 });

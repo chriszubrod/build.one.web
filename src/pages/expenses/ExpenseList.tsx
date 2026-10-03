@@ -1,5 +1,8 @@
 import { useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { getOne } from "../../api/client";
+import { entityItemKey } from "../../hooks/useEntity";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
@@ -48,7 +51,21 @@ function fmtDate(v: string | null): string {
 
 export default function ExpenseList() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { data: me } = useCurrentUser();
+
+  // Warm the View's item query on hover/focus/touch so the click lands on a
+  // cache hit (TimeEntryList does the same). Keyed exactly as useEntityItem
+  // registers it, so the View reads the prefetched row instead of refetching.
+  // React Query dedupes identical in-flight keys, so re-entry is free.
+  function prefetchExpense(publicId: string) {
+    const path = `/api/v1/get/expense/${publicId}`;
+    queryClient.prefetchQuery({
+      queryKey: entityItemKey(path),
+      queryFn: () => getOne<Expense>(path),
+      staleTime: 30_000,
+    });
+  }
   // In the URL, like BillList — so a tab is linkable and survives a refresh.
   //
   // NOTE: every write below goes through setParam, which uses { replace: true },
@@ -255,6 +272,7 @@ export default function ExpenseList() {
               </>
             }
             onClick={() => navigate(`/expense/${expense.public_id}`)}
+            onPrefetch={() => prefetchExpense(expense.public_id)}
           />
         );
       })}

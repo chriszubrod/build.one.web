@@ -15,6 +15,13 @@ interface ReviewTimelineProps {
   readOnly?: boolean;
   /** When set, awaited before submit/advance/decline; return false to abort. */
   onBeforeAction?: (action?: ReviewActionKind, canSubmit?: boolean) => Promise<boolean>;
+  /**
+   * Called after an action has landed AND the parent item query has been
+   * invalidated — i.e. once the page's own data is refreshing. Lets a page
+   * react to the transition (ExpenseView moves on to the next draft) without
+   * owning the review POST itself.
+   */
+  onAfterAction?: (action: ReviewActionKind) => void | Promise<void>;
 }
 
 // API URL slug per parent type. Three of four match snake_case; bill_credit
@@ -88,6 +95,7 @@ export default function ReviewTimeline({
   parentPublicId,
   readOnly = false,
   onBeforeAction,
+  onAfterAction,
 }: ReviewTimelineProps) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
@@ -180,6 +188,7 @@ export default function ReviewTimeline({
       // data — see BillEdit's server-owned-field rebase, the other half.
       await queryClient.invalidateQueries({ queryKey: entityItemKey(parentItemPath) });
       setDialog(null);
+      if (onAfterAction) await onAfterAction(dialog.kind);
     } catch (err: any) {
       const msg =
         err instanceof ApiError ? err.detail : err?.message ?? "Action failed.";
@@ -435,6 +444,15 @@ function ActionModal({
           style={{ width: "100%", resize: "vertical" }}
           value={dialog.comments}
           onChange={(e) => onChangeComments(e.target.value)}
+          // Ctrl/Cmd+Enter confirms from the textarea so a reviewer working
+          // through a queue never has to reach for the mouse. Plain Enter
+          // still inserts a newline — comments are prose.
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !dialog.busy) {
+              e.preventDefault();
+              onSubmit();
+            }
+          }}
           placeholder={
             requiredComments
               ? "Explain why you're declining…"

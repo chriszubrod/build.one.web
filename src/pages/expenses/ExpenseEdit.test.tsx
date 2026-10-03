@@ -842,9 +842,13 @@ describe("ExpenseEdit line-item row identity (stable uid keys)", () => {
     );
 
     expect(container.querySelector(`#${WITNESS_ID}`)?.textContent).toBe(refreshedExpenseRowVersion);
-    expect(mockGetList.mock.calls.length).toBeGreaterThan(listCallsBefore);
+    // The line-item chain is keyed on the expense's ID, not the item object: a
+    // same-row refetch (review action, U-471 rebase) must NOT re-list lines, re-walk
+    // the per-line link GETs, or re-download the receipt. Nothing the user could
+    // have changed from this page is reflected in that payload.
+    expect(mockGetList.mock.calls.length).toBe(listCallsBefore);
 
-    // Controlled inputs keep .value after re-hydrate; only stable uid keys preserve the node.
+    // The row's DOM node survives the refetch untouched.
     expect(inlineLineItemInputForValue(container, savedDescription)).toBe(inputAfterSave);
   });
 });
@@ -906,33 +910,61 @@ describe("ExpenseEdit chained-save row_version", () => {
       .map((c) => c[1] as { row_version?: string });
   }
 
-  it("saveAll after flushAutoSave sends the token returned by the flush PUT, not stale form state", async () => {
+  it("a coalesced follow-up save sends the token returned by the in-flight PUT, not stale form state", async () => {
+    // Hold the FIRST header PUT so a second edit lands while it is in flight.
+    let releaseFirstPut!: () => void;
+    const firstPutHeld = new Promise<void>((resolve) => { releaseFirstPut = resolve; });
+    let headerPuts = 0;
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/expense/exp-1") {
+        headerPuts += 1;
+        const response = sampleExpense({ row_version: "rv-2" });
+        return headerPuts === 1 ? firstPutHeld.then(() => response) : Promise.resolve(response);
+      }
+      return Promise.reject(new Error("unexpected put: " + path));
+    });
+
     renderExpenseEdit(root);
     await waitForReady(container);
     await flushMicrotasks();
 
     const refInput = container.querySelector('input[name="reference_number"]') as HTMLInputElement;
     expect(refInput).not.toBeNull();
-
-    await act(async () => {
-      refInput.value = "EXP-EDITED";
-      refInput.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-
-    // Debounced auto-save is scheduled but must not fire before Complete.
+    await act(async () => { setInputValue(refInput, "EXP-EDITED"); });
     expect(headerPutBodies()).toHaveLength(0);
+
+    // Debounce fires: PUT #1 goes out with rv-1 and stays in flight.
+    await act(async () => { await vi.advanceTimersByTimeAsync(320); });
+    expect(headerPutBodies()).toHaveLength(1);
+
+    // A second edit while PUT #1 is in flight re-dirties the header.
+    await act(async () => { setInputValue(refInput, "EXP-EDITED-AGAIN"); });
+
+    // Complete flushes: it waits for PUT #1, then the coalesced follow-up runs
+    // with the token PUT #1 returned.
+    const btn = completeButton(container);
+    expect(btn).not.toBeNull();
+    await act(async () => { btn!.click(); });
+    await act(async () => { releaseFirstPut(); await flushMicrotasks(); });
+    await flushUntil(() => headerPutBodies().length >= 2);
+
+    const bodies = headerPutBodies();
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0].row_version).toBe("rv-1");
+    expect(bodies[1].row_version).toBe("rv-2");
+  });
+
+  it("Complete on an untouched draft issues no header PUT at all", async () => {
+    renderExpenseEdit(root);
+    await waitForReady(container);
+    await flushMicrotasks();
 
     const btn = completeButton(container);
     expect(btn).not.toBeNull();
-    await act(async () => {
-      btn!.click();
-      await flushMicrotasks();
-    });
+    await act(async () => { btn!.click(); await flushMicrotasks(); });
+    await flushUntil(() => mockPost.mock.calls.some((c) => c[0] === "/api/v1/complete/expense/exp-1"));
 
-    const bodies = headerPutBodies();
-    expect(bodies.length).toBeGreaterThanOrEqual(2);
-    expect(bodies[0].row_version).toBe("rv-1");
-    expect(bodies[1].row_version).toBe("rv-2");
+    expect(headerPutBodies()).toHaveLength(0);
   });
 });
 
@@ -1039,6 +1071,10 @@ describe("ExpenseEdit token rebase (U-471)", () => {
 
     await flushUntil(() => container.textContent?.includes("This expense was changed in another window.") ?? false);
     expect(container.textContent).toContain("This expense was changed in another window.");
+
+    // A local edit so Save has something to write (an untouched form writes nothing).
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => { setTextareaValue(memo, "my local edit"); });
 
     await clickSave();
     const bodies = headerPutBodies();
@@ -1708,6 +1744,10 @@ describe("ExpenseEdit receipt re-homing on line delete (U-171 / U-476)", () => {
     await removeFirstRow();
     expect(inlineLineItemInput(inlineLineItemRows(container)[0]!).value).toBe("line-B");
 
+    // Dirty the header so the save reaches the (failing) header PUT.
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => { setTextareaValue(memo, "edited header"); });
+
     await clickSave(container);
 
     expect(container.textContent).toContain("header fail");
@@ -1772,7 +1812,7 @@ describe("ExpenseEdit receipt re-homing on line delete (U-171 / U-476)", () => {
     );
   });
 
-  it("saveAll cancels an armed auto-save debounce so a slow re-home GET issues only one header PUT", async () => {
+  it("saveAll flushes an armed auto-save debounce up front, so a slow re-home GET sees exactly one header PUT", async () => {
     let releaseLiA!: () => void;
     const liAHeld = new Promise<void>((resolve) => {
       releaseLiA = resolve;
@@ -1811,10 +1851,15 @@ describe("ExpenseEdit receipt re-homing on line delete (U-171 / U-476)", () => {
       }
     });
 
+    // The armed debounce is FLUSHED (not cancelled) before the re-home GETs:
+    // one header PUT, immediately, carrying the typed memo. Letting a cancelled
+    // timer's in-flight PUT race saveAll's own header PUT is what produced the
+    // 409 "Concurrency violation" on Submit.
+    expect(expenseHeaderPutBodies()).toHaveLength(1);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(320);
     });
-    expect(expenseHeaderPutBodies()).toHaveLength(0);
+    expect(expenseHeaderPutBodies()).toHaveLength(1);
 
     await act(async () => {
       releaseLiA();
@@ -1984,6 +2029,14 @@ describe("ExpenseEdit auto-save disarm after failed save (U-476)", () => {
     await waitForReady(container);
     await flushUntil(() => inlineLineItemRows(container).length === 1);
 
+    // An untouched form writes nothing; dirty both the header and a line so the
+    // save reaches the (failing) line PUT.
+    const memoBefore = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => { setTextareaValue(memoBefore, "typed before save"); });
+    await act(async () => {
+      setInputValue(inlineLineItemInput(inlineLineItemRows(container)[0]!), "edited line");
+    });
+
     await clickSave(container);
     await flushUntil(() => container.textContent?.includes("line fail") ?? false);
     expect(container.textContent).toContain("line fail");
@@ -2017,6 +2070,9 @@ describe("ExpenseEdit auto-save disarm after failed save (U-476)", () => {
     expect(memo).not.toBeNull();
     await act(async () => {
       setTextareaValue(memo, "typed before failing save");
+    });
+    await act(async () => {
+      setInputValue(inlineLineItemInput(inlineLineItemRows(container)[0]!), "edited line");
     });
     // Timer is armed (300ms) but must not fire before Save.
     expect(expenseHeaderPutBodies()).toHaveLength(0);
@@ -2286,6 +2342,10 @@ describe("ExpenseEdit line-item coding fields (U-486)", () => {
     await flushUntil(() =>
       mockGetList.mock.calls.some((c) => c[0] === "/api/v1/get/expense_line_items/expense/1"),
     );
+    // An untouched line is not re-PUT; edit it so the save sends it.
+    await act(async () => {
+      setInputValue(inlineLineItemInput(firstLineItemRow(container)), "Line to code (edited)");
+    });
 
     await clickSave(container);
 
@@ -2492,12 +2552,30 @@ describe("ExpenseEdit U-487 bill parity", () => {
     renderExpenseEdit(root);
     await waitForExpenseForm();
 
+    // An untouched form has nothing to save (and would submit straight away);
+    // dirty the header so saveAll reaches the failing PUT.
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => { setTextareaValue(memo, "unsaved edit"); });
+
     await act(async () => {
       container.querySelector<HTMLButtonElement>('[data-testid="review-submit-stub"]')!.click();
     });
     await flushUntil(() => mockPut.mock.calls.some((c) => c[0] === EXPENSE_UPDATE_PATH));
+    await flushMicrotasks();
 
     expect(mockPost.mock.calls.some((c) => c[0] === REVIEW_SUBMIT_PATH)).toBe(false);
+  });
+
+  it("Submit for Review on an untouched draft issues ZERO PUTs before the review POST", async () => {
+    renderExpenseEdit(root);
+    await waitForExpenseForm();
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="review-submit-stub"]')!.click();
+    });
+    await flushUntil(() => mockPost.mock.calls.some((c) => c[0] === REVIEW_SUBMIT_PATH));
+
+    expect(mockPut.mock.calls).toHaveLength(0);
   });
 
   it("renders a stored vendor_id as the selected vendor_public_id", async () => {

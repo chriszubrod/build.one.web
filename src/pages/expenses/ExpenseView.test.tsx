@@ -8,6 +8,17 @@ import type { Expense, ExpenseLineItem } from "../../types/api";
 
 const mockGetList = vi.fn();
 const mockGetOne = vi.fn();
+const mockNavigate = vi.fn();
+const mockToast = vi.fn();
+
+vi.mock("react-router-dom", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("react-router-dom")>();
+  return { ...mod, useNavigate: () => mockNavigate };
+});
+
+vi.mock("../../components/Toast", () => ({
+  useToast: () => ({ toast: (...args: unknown[]) => mockToast(...args) }),
+}));
 
 const viewState: {
   item: Expense | null;
@@ -50,9 +61,22 @@ vi.mock("../../hooks/useViewAttachmentObjectUrl", () => ({
   }),
 }));
 
+// Captures props so the specs can read `readOnly` / `onAfterAction`; renders nothing.
+const mockReviewTimeline = vi.fn((_props: unknown) => null);
 vi.mock("../../components/ReviewTimeline", () => ({
-  default: () => null,
+  default: (props: unknown) => mockReviewTimeline(props),
 }));
+
+type TimelineProps = {
+  readOnly?: boolean;
+  onAfterAction?: (action: "submit" | "advance" | "decline") => void | Promise<void>;
+};
+
+function lastTimelineProps(): TimelineProps {
+  const calls = mockReviewTimeline.mock.calls as unknown as [TimelineProps][];
+  expect(calls.length).toBeGreaterThan(0);
+  return calls[calls.length - 1]![0];
+}
 
 function sampleExpense(overrides: Partial<Expense> = {}): Expense {
   return {
@@ -139,6 +163,9 @@ describe("ExpenseView (U-470)", () => {
     viewState.error = "";
     mockGetList.mockReset();
     mockGetOne.mockReset();
+    mockNavigate.mockReset();
+    mockToast.mockReset();
+    mockReviewTimeline.mockClear();
     mockGetList.mockResolvedValue({ data: [] });
     mockGetOne.mockResolvedValue({});
   });
@@ -202,5 +229,100 @@ describe("ExpenseView (U-470)", () => {
     // empty -- was satisfied by any non-empty differing string, "Invalid Date"
     // included. U-470 review, F7.
     expect(shown).toBe("09/01/2026");
+  });
+});
+
+describe("ExpenseView — submit from the View, keep the tab, move to the next draft (2026-10-03)", () => {
+  beforeEach(() => {
+    viewState.item = sampleExpense({ status: "draft", is_draft: true });
+    viewState.loading = false;
+    viewState.error = "";
+    mockGetList.mockReset();
+    mockGetOne.mockReset();
+    mockNavigate.mockReset();
+    mockToast.mockReset();
+    mockReviewTimeline.mockClear();
+    mockGetList.mockResolvedValue({ data: [] });
+    mockGetOne.mockResolvedValue({});
+  });
+
+  afterEach(async () => {
+    if (lastRoot) {
+      await act(async () => { lastRoot!.unmount(); });
+      lastRoot = null;
+    }
+    lastContainer?.remove();
+  });
+
+  it("offers review actions on a draft (the timeline is NOT read-only) with no pre-save hook", async () => {
+    await mountView();
+    const props = lastTimelineProps();
+    expect(props.readOnly).toBe(false);
+    expect(typeof props.onAfterAction).toBe("function");
+    expect((props as { onBeforeAction?: unknown }).onBeforeAction).toBeUndefined();
+  });
+
+  it("keeps the timeline read-only on a completed expense (terminal server-side)", async () => {
+    viewState.item = sampleExpense({ status: "completed", is_draft: false });
+    await mountView();
+    expect(lastTimelineProps().readOnly).toBe(true);
+  });
+
+  it("breadcrumb returns to the tab the expense lives on, not the Completed default", async () => {
+    await mountView();
+    const crumb = Array.from(lastContainer.querySelectorAll("a")).find(
+      (a) => a.textContent?.trim() === "Expenses",
+    ) as HTMLAnchorElement | undefined;
+    expect(crumb).toBeDefined();
+    expect(crumb!.getAttribute("href")).toBe("/expense/list?status=draft");
+  });
+
+  it("after a submit, opens the next draft when one exists", async () => {
+    mockGetList.mockImplementation((path: string) => {
+      if (String(path).startsWith("/api/v1/get/expenses?status=draft")) {
+        return Promise.resolve({ data: [sampleExpense({ public_id: "exp-next", status: "draft" })], count: 3 });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    await mountView();
+    await act(async () => { await lastTimelineProps().onAfterAction!("submit"); });
+    expect(mockGetList).toHaveBeenCalledWith("/api/v1/get/expenses?status=draft&page=1&page_size=1");
+    expect(mockNavigate).toHaveBeenCalledWith("/expense/exp-next");
+    expect(String(mockToast.mock.calls[0]?.[0])).toContain("next draft");
+  });
+
+  it("after a submit with no drafts left, returns to the Draft tab", async () => {
+    await mountView();
+    await act(async () => { await lastTimelineProps().onAfterAction!("submit"); });
+    expect(mockNavigate).toHaveBeenCalledWith("/expense/list?status=draft");
+  });
+
+  it("does not navigate after advance/decline", async () => {
+    await mountView();
+    await act(async () => { await lastTimelineProps().onAfterAction!("advance"); });
+    await act(async () => { await lastTimelineProps().onAfterAction!("decline"); });
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("a same-row refetch (new item object, same id) does not re-run the line-item/receipt chain", async () => {
+    mockGetList.mockResolvedValue({ data: [sampleLineItem()] });
+    const root = await mountView();
+    const listCalls = mockGetList.mock.calls.length;
+    expect(listCalls).toBeGreaterThan(0);
+
+    // Simulate the post-action refetch: the hook hands back a NEW object for the SAME expense.
+    viewState.item = sampleExpense({ status: "submitted", is_draft: true, row_version: "rv-2" });
+    const { default: ExpenseView } = await import("./ExpenseView");
+    await act(async () => {
+      root.render(
+        createElement(
+          MemoryRouter,
+          { initialEntries: ["/expense/exp-1"] },
+          createElement(Routes, null, createElement(Route, { path: "/expense/:publicId", element: createElement(ExpenseView) })),
+        ),
+      );
+    });
+    await flushEffects();
+    expect(mockGetList.mock.calls.length).toBe(listCalls);
   });
 });

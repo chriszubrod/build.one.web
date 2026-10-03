@@ -50,6 +50,18 @@ export function resolveStatusTab(param: string | null | undefined): ExpenseStatu
 }
 
 /**
+ * The list URL that lands on the tab holding an expense of this status.
+ *
+ * ExpenseView's breadcrumb used to point at a bare `/expense/list`, which
+ * `resolveStatusTab(null)` reads as the Completed tab (11.8K rows) — so every
+ * trip back from a draft dropped the user on the wrong tab. Unknown statuses
+ * fall back to the default tab exactly like the URL param does.
+ */
+export function expenseListPath(status: string | null | undefined): string {
+  return `/expense/list?status=${resolveStatusTab(status)}`;
+}
+
+/**
  * The query string appended to `/api/v1/get/expenses`.
  *
  * Always `?status=`. The API rejects an unknown status with a 422 rather than
