@@ -1,3 +1,45 @@
+## Expense review residuals (web) — found 2026-10-03, verified in code, NOT fixed (booked)
+
+The approved scope (submit from View, zero-PUT submit, flush-first saveAll, id-keyed receipt chain,
+tab-preserving links, card prefetch) shipped in `67f8f06`. Everything below was confirmed against source
+and is open. The API-side list, including the cross-repo items, is in `build.one.api/TODO.md` under the
+same date.
+
+- [ ] 🟠 **P2 — SW `NetworkFirst` with `networkTimeoutSeconds: 3`** (`src/sw.ts` ~109-112). `/get/reviews/*`,
+  `/get/expense/*` and `/get/expense-line-item-attachment/by-*` are all cacheable, so on a slow or cold API
+  (10-15 s per CLAUDE.md) the post-submit `GET reviews` can return the pre-submit `[]` (Submit button
+  reappears) and the invalidated `GET expense` a stale `row_version` (next save 409s). Exclude write-adjacent
+  reads from the strategy, or raise the timeout for them.
+- [ ] 🟠 **P2 — `usePaginatedList.load` has no request-sequence guard** (`src/hooks/usePaginatedList.ts`
+  ~165-184): fast tab/search changes can let an older response overwrite a newer one. Shared with BillList.
+  Guard with a monotonic request id and drop stale resolutions.
+- [ ] 🟡 **P3 — auto-save swallows 409** (`ExpenseEdit.tsx` autoSaveHeader catch): after a co-editor or review
+  write, edits are silently unsaved until the user hits Save; the `diverged` banner only appears if something
+  refetches the item. Same in BillEdit. The header is now re-dirtied on failure (so Save retries), but the
+  user is not told.
+- [ ] 🟡 **P3 — list search is not debounced** (`ExpenseList.tsx` search `onChange`): every keystroke fires a
+  request. TimeEntryList / ContractLaborList use `useDebouncedValue`; do the same.
+- [ ] 🟡 **P3 — ExpenseEdit has no line math** from `shared/money.ts` (no `computeAmount` / `applyMarkup`;
+  BillEdit uses `lineMath.ts`): `price`, `amount` and `total_amount` are free-typed and never reconciled.
+  Also sends floats (`Number(...)`) — the API re-wraps with `Decimal(str())`, so cents survive today.
+- [ ] 🟡 **P3 — Attach / remove controls are shown with Expenses perms** while the ELIA + attachment routes
+  gate on `Modules.ATTACHMENTS` (`expense_line_item_attachment/api/router.py`, `attachment/api/router.py`);
+  `rehomeAttachmentsBeforeLineDeletes` treats the 403 as fatal so a line delete aborts for such users. Gate
+  `LineItemAttachment` on Attachments perms per the permissions rule 2.
+- [ ] 🟡 **P3 — `is_draft` is still sent on the header PUT** (`ExpenseEdit.tsx` saveAll + autoSaveHeader) and
+  ignored server-side since U-458. Dead field; drop it from the body.
+- [ ] 🟡 **P3 — `useLookups("vendors")` is a second vendor payload** alongside `useEntityList("/get/vendors")`
+  on ExpenseEdit; seed the form from one of them (add `id` to `LookupVendor`) and drop the other.
+- [ ] 🟡 **Test gaps the review found (web)** — no spec: exercises the real submit chain (ReviewTimeline is
+  mocked in `ExpenseEdit.test.tsx`); for the in-flight auto-save vs submit race specifically (the flush is
+  pinned indirectly via the single-PUT specs); asserting a same-row refetch does not revoke the object URL;
+  for `usePaginatedList` out-of-order responses; for list-search debounce; for Attachments-module gating on
+  `LineItemAttachment`.
+- [ ] 🟢 **Larger (not booked as defects)** — bulk "Submit selected" from the Draft list (a batch API endpoint
+  would be better than N POSTs); a review-queue mode with j/k navigation, a receipt drawer and `S` to submit;
+  a `GET /get/expense/{id}/detail` returning header + lines + attachment public_id in one call (the client
+  needs four today).
+
 ## U-585 follow-ups — system-admin console `/admin` (booked 2026-09-30)
 
 U-585 shipped `/admin` (user list + search) and `/admin/user/:publicId` (info, roles, reset password,
