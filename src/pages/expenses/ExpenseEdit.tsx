@@ -20,6 +20,8 @@ import SelectField from "../../components/SelectField";
 import InlineLineItems, { type LineItemFieldDef } from "../../components/InlineLineItems";
 import LineItemAttachment from "../../components/LineItemAttachment";
 import ReviewTimeline from "../../components/ReviewTimeline";
+import { expenseListPath } from "./expenseStatusTabs";
+import { expenseStatus } from "./expenseLifecycle";
 import RecordChangedBanner from "../../components/RecordChangedBanner";
 import Breadcrumb from "../../components/Breadcrumb";
 import type { Expense, ExpenseLineItem, Project, SubCostCode, Vendor as FullVendor } from "../../types/api";
@@ -246,6 +248,12 @@ export default function ExpenseEdit() {
   // line dirtiness is cleared only after the line sync succeeds.
   const headerDirtyRef = useRef(false);
   const linesDirtyRef = useRef(false);
+  // The header PUT inside saveAll must send the LATEST form, not the one the
+  // click's closure captured: a keystroke typed while the flush PUT is in flight
+  // re-dirties the header, and (when that PUT resolves inside the 300ms debounce)
+  // saveAll's own PUT is the only one that will carry it. Reading the closure
+  // there silently dropped the keystroke.
+  const formRef = useRef<Record<string, any> | null>(null);
   // Last-seen persisted rows, including ones the user just removed from the DOM.
   const knownLineItemByPublicIdRef = useRef<Map<string, LineItemRow>>(new Map());
   for (const row of lineItems) {
@@ -356,6 +364,8 @@ export default function ExpenseEdit() {
     seedFrom,
     owned: ["row_version", "is_draft"],
   });
+
+  formRef.current = form;
 
   if (item && !form && fullVendors.length > 0) {
     seededForRef.current = item.public_id;
@@ -502,19 +512,29 @@ export default function ExpenseEdit() {
       }
 
       // Save header — only when it changed since the last write (the flush
-      // above already persisted a debounced edit).
+      // above already persisted a debounced edit). Body from formRef, never
+      // the closure: see the ref's comment.
       if (headerDirtyRef.current) {
+        const latest = formRef.current ?? form;
         headerDirtyRef.current = false;
-        const updated = await put<Expense>(`/api/v1/update/expense/${id}`, {
-          row_version: rowVersion.read(),
-          vendor_public_id: form.vendor_public_id || undefined,
-          expense_date: form.expense_date,
-          reference_number: form.reference_number,
-          total_amount: form.total_amount !== "" ? Number(form.total_amount) : null,
-          memo: form.memo || null,
-          is_draft: form.is_draft,
-          is_credit: form.is_credit,
-        });
+        let updated: Expense;
+        try {
+          updated = await put<Expense>(`/api/v1/update/expense/${id}`, {
+            row_version: rowVersion.read(),
+            vendor_public_id: latest.vendor_public_id || undefined,
+            expense_date: latest.expense_date,
+            reference_number: latest.reference_number,
+            total_amount: latest.total_amount !== "" ? Number(latest.total_amount) : null,
+            memo: latest.memo || null,
+            is_draft: latest.is_draft,
+            is_credit: latest.is_credit,
+          });
+        } catch (err) {
+          // The header is still unsaved; the next explicit save must resend it.
+          // (A later line failure must NOT re-dirty a header that did persist.)
+          headerDirtyRef.current = true;
+          throw err;
+        }
         rowVersion.set(updated.row_version);
         acceptBaseline(updated);
         setForm((prev: any) => ({ ...prev, row_version: updated.row_version }));
@@ -570,9 +590,6 @@ export default function ExpenseEdit() {
       autoSaveArmedRef.current = true;
       return true;
     } catch (err: any) {
-      // A failed header PUT leaves the header unsaved; make sure the next
-      // attempt sends it again rather than reading the form as clean.
-      headerDirtyRef.current = true;
       autoSaveArmedRef.current = false;
       cancelAutoSave();
       setSaveError(err.message);
@@ -610,7 +627,7 @@ export default function ExpenseEdit() {
     <div className="page form-page-wide">
       <Breadcrumb
         crumbs={[
-          { label: "Expenses", path: "/expense/list" },
+          { label: "Expenses", path: expenseListPath(item ? expenseStatus(item) : null) },
           { label: item?.reference_number || "…", path: `/expense/${id}` },
           { label: "Edit" },
         ]}
@@ -688,7 +705,7 @@ export default function ExpenseEdit() {
                   await deleteEntity(`/api/v1/delete/expense/${id}`);
                   queryClient.removeQueries({ queryKey: entityItemKey(expenseItemPath) });
                   toast("Expense deleted.");
-                  navigate("/expense/list");
+                  navigate(expenseListPath(item ? expenseStatus(item) : null));
                 } catch (err: any) {
                   toast(err.message, "error");
                   setDeleting(false);

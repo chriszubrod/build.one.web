@@ -13,7 +13,9 @@ const mockToast = vi.fn();
 
 vi.mock("react-router-dom", async (importOriginal) => {
   const mod = await importOriginal<typeof import("react-router-dom")>();
-  return { ...mod, useNavigate: () => mockNavigate };
+  // `__realUseNavigate` lets one spec drive REAL router navigation through the
+  // mock, so the same component instance sees a param change.
+  return { ...mod, useNavigate: () => mockNavigate, __realUseNavigate: mod.useNavigate };
 });
 
 vi.mock("../../components/Toast", () => ({
@@ -324,5 +326,84 @@ describe("ExpenseView — submit from the View, keep the tab, move to the next d
     });
     await flushEffects();
     expect(mockGetList.mock.calls.length).toBe(listCalls);
+  });
+});
+
+describe("ExpenseView — working the queue is not a one-shot (Pass 1 P1, 2026-10-04)", () => {
+  beforeEach(() => {
+    viewState.item = sampleExpense({ public_id: "exp-1", status: "draft", is_draft: true });
+    viewState.loading = false;
+    viewState.error = "";
+    mockGetList.mockReset();
+    mockGetOne.mockReset();
+    mockNavigate.mockReset();
+    mockToast.mockReset();
+    mockReviewTimeline.mockClear();
+    mockGetOne.mockResolvedValue({});
+  });
+
+  afterEach(async () => {
+    if (lastRoot) {
+      await act(async () => { lastRoot!.unmount(); });
+      lastRoot = null;
+    }
+    lastContainer?.remove();
+  });
+
+  it("a second submit on the same ExpenseView instance (param changed, no remount) still opens the next draft", async () => {
+    // Draft queue: exp-1 -> exp-2 -> exp-3. The route in this harness is NOT keyed,
+    // so navigating exp-1 -> exp-2 keeps the same instance — exactly the shape that
+    // left `advancingRef` stuck true and parked the user on the second item.
+    const queue = ["exp-2", "exp-3"];
+    mockGetList.mockImplementation((path: string) => {
+      if (String(path).startsWith("/api/v1/get/expenses?status=draft")) {
+        const next = queue.shift();
+        return Promise.resolve({ data: next ? [sampleExpense({ public_id: next, status: "draft" })] : [], count: queue.length });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    const rr = (await import("react-router-dom")) as unknown as {
+      __realUseNavigate: () => (to: string) => void;
+    };
+    let realNavigate: ((to: string) => void) | null = null;
+    function NavigateProbe() {
+      realNavigate = rr.__realUseNavigate();
+      return null;
+    }
+    mockNavigate.mockImplementation((to: string) => realNavigate?.(to));
+
+    const { default: ExpenseView } = await import("./ExpenseView");
+    const container = document.createElement("div");
+    lastContainer = container;
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    lastRoot = root;
+    await act(async () => {
+      root.render(
+        createElement(
+          MemoryRouter,
+          { initialEntries: ["/expense/exp-1"] },
+          createElement(NavigateProbe),
+          createElement(
+            Routes,
+            null,
+            createElement(Route, { path: "/expense/:publicId", element: createElement(ExpenseView) }),
+          ),
+        ),
+      );
+    });
+    await flushEffects();
+
+    // First submit: exp-1 -> exp-2.
+    await act(async () => { await lastTimelineProps().onAfterAction!("submit"); });
+    expect(mockNavigate).toHaveBeenLastCalledWith("/expense/exp-2");
+    viewState.item = sampleExpense({ public_id: "exp-2", status: "draft", is_draft: true });
+    await flushEffects();
+
+    // Second submit on the SAME instance: must advance again, exp-2 -> exp-3.
+    await act(async () => { await lastTimelineProps().onAfterAction!("submit"); });
+    expect(mockNavigate).toHaveBeenLastCalledWith("/expense/exp-3");
+    expect(mockNavigate).toHaveBeenCalledTimes(2);
   });
 });

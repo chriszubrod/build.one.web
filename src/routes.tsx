@@ -62,7 +62,7 @@ import BillEditRoute from "./pages/bills/BillEditRoute";
 // office/AP audience (gated on the Expenses module), like Bill in U-066.
 import ExpenseList from "./pages/expenses/ExpenseList";
 import ExpenseCreate from "./pages/expenses/ExpenseCreate";
-import ExpenseView from "./pages/expenses/ExpenseView";
+import ExpenseViewRoute from "./pages/expenses/ExpenseViewRoute";
 import ExpenseEditRoute from "./pages/expenses/ExpenseEditRoute";
 
 // Bill Credit surface (Phase 3) — renders inside the responsive AppLayout,
@@ -206,7 +206,7 @@ export const appRouteTree = (
 
         <Route path="/expense/list" element={<ExpenseList />} />
         <Route path="/expense/create" element={<ExpenseCreate />} />
-        <Route path="/expense/:publicId" element={<ExpenseView />} />
+        <Route path="/expense/:publicId" element={<ExpenseViewRoute />} />
         <Route path="/expense/:publicId/edit" element={<ExpenseEditRoute />} />
         <Route path="/expense/*" element={<Navigate to="/expense/list" replace />} />
 

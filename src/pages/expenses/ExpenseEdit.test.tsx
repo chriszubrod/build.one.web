@@ -954,6 +954,48 @@ describe("ExpenseEdit chained-save row_version", () => {
     expect(bodies[1].row_version).toBe("rv-2");
   });
 
+  it("a keystroke typed while the flush PUT is in flight is carried by saveAll's own header PUT (Pass 1 P2)", async () => {
+    // PUT#1 (the flush) is held so a second edit lands while it is in flight; it
+    // then resolves INSIDE the 300ms debounce, so no coalesced follow-up fires and
+    // saveAll's own header PUT is the only one left to carry the keystroke. Before
+    // the fix that PUT was built from the click-time closure: server "a", screen "ab".
+    let releaseFirstPut!: () => void;
+    const firstPutHeld = new Promise<void>((resolve) => { releaseFirstPut = resolve; });
+    let headerPuts = 0;
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/expense/exp-1") {
+        headerPuts += 1;
+        const response = sampleExpense({ row_version: `rv-${headerPuts + 1}` });
+        return headerPuts === 1 ? firstPutHeld.then(() => response) : Promise.resolve(response);
+      }
+      return Promise.reject(new Error("unexpected put: " + path));
+    });
+
+    renderExpenseEdit(root);
+    await waitForReady(container);
+    await flushMicrotasks();
+
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => { setTextareaValue(memo, "a"); });
+
+    // Save: flush runs PUT#1 (memo "a") and holds.
+    const saveBtn = Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Save")!;
+    await act(async () => { saveBtn.click(); await flushMicrotasks(); });
+    expect(headerPutBodies()).toHaveLength(1);
+
+    // Keystroke while PUT#1 is in flight.
+    await act(async () => { setTextareaValue(memo, "ab"); });
+
+    // PUT#1 resolves well inside the debounce; saveAll continues.
+    await act(async () => { releaseFirstPut(); await flushMicrotasks(); });
+    await flushUntil(() => headerPutBodies().length >= 2);
+
+    const bodies = headerPutBodies() as { memo?: string | null }[];
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0].memo).toBe("a");
+    expect(bodies[1].memo).toBe("ab");
+  });
+
   it("Complete on an untouched draft issues no header PUT at all", async () => {
     renderExpenseEdit(root);
     await waitForReady(container);
@@ -2059,6 +2101,27 @@ describe("ExpenseEdit auto-save disarm after failed save (U-476)", () => {
     });
 
     expect(expenseHeaderPutBodies()).toHaveLength(putsAfterFail);
+  });
+
+  it("a line-item failure after the header persisted does not re-dirty the header (next Save sends no header PUT)", async () => {
+    renderExpenseEdit(root);
+    await waitForReady(container);
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => { setTextareaValue(memo, "typed once"); });
+    await act(async () => {
+      setInputValue(inlineLineItemInput(inlineLineItemRows(container)[0]!), "edited line");
+    });
+
+    await clickSave(container);
+    await flushUntil(() => container.textContent?.includes("line fail") ?? false);
+    expect(expenseHeaderPutBodies()).toHaveLength(1);  // the flush wrote the header
+
+    // Retry: the line is still dirty, the header is not. Exactly one more line PUT, no header PUT.
+    await clickSave(container);
+    await flushUntil(() => mockPut.mock.calls.filter((c) => String(c[0]).startsWith("/api/v1/update/expense_line_item/")).length >= 2);
+    expect(expenseHeaderPutBodies()).toHaveLength(1);
   });
 
   it("cancels an already-armed debounce so a failed save does not fire a follow-up header PUT", async () => {

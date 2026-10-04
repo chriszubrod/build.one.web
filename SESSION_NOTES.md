@@ -29,6 +29,14 @@ in this unit, all pinned by specs:
   `entityItemKey`. **Ctrl/Cmd+Enter** confirms the review dialog.
 - Nine ExpenseEdit specs rewritten for the new contract; the chained-token spec now exercises the
   only remaining way a second header PUT happens (an edit typed while the auto-save PUT is in flight).
+- **Pass 1 fix round (2026-10-04, `/em` in-session; Claude-only F2 reviewer rung — Codex unreachable in
+  the cloud container, flagged at Gate 2).** CHANGES-REQUESTED → fixed, each with a spec proved red on the
+  pre-fix source: **P1** the next-draft guard never reset on the UNKEYED View route, so working the queue
+  stopped after the first item — reset on `publicId` change AND the route is now `ExpenseViewRoute`
+  (`keyedByPublicId`, mirroring U-465), pinned by displayName in `routes.test.tsx`; **P2** `saveAll`'s
+  post-flush header PUT was built from the click-time closure and silently dropped a keystroke typed while
+  the flush PUT was in flight — now `formRef`; **P3** any failure re-dirtied the header → header-PUT failure
+  only; Edit's breadcrumb + Delete use `expenseListPath`.
 - Booked, not fixed (build.one.api TODO.md, same heading): SW `NetworkFirst` 3 s timeout can serve a
   pre-submit `GET reviews`; `usePaginatedList` has no request-sequence guard; list search undebounced;
   Attach/remove controls shown with Expenses perms while the routes gate on `Modules.ATTACHMENTS`.

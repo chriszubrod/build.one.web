@@ -120,9 +120,15 @@ export default function ExpenseView() {
     return () => { cancelled = true; };
   }, [itemId]);
 
-  // Set once a submit from THIS page has landed, so the navigation below runs
-  // exactly once even if the timeline re-renders.
+  // Set once a submit for THIS expense has landed, so the navigation below runs
+  // exactly once even if the timeline re-renders. Reset when the route param
+  // changes: the View route is keyed by publicId (ExpenseViewRoute) so a new
+  // expense normally gets a fresh instance, but a direct render of this
+  // component (tests, a future unkeyed route) must not work the queue only once.
   const advancingRef = useRef(false);
+  useEffect(() => {
+    advancingRef.current = false;
+  }, [publicId]);
   const handleAfterReviewAction = async (action: ReviewActionKind) => {
     if (action !== "submit" || advancingRef.current) return;
     advancingRef.current = true;
