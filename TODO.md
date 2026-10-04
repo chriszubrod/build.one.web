@@ -5,6 +5,15 @@ tab-preserving links, card prefetch) shipped in `67f8f06`. Everything below was 
 and is open. The API-side list, including the cross-repo items, is in `build.one.api/TODO.md` under the
 same date.
 
+- [ ] 🟠 **P2 — a LINE keystroke typed while `saveAll` is running is silently lost from dirtiness tracking**
+  (`ExpenseEdit.tsx` saveAll: the line loop PUTs the click-time `lineItems` closure, `stampRow` merges only
+  `row_version`, then `linesDirtyRef.current = false` clobbers the mid-save edit's mark → next Save sees a
+  clean form and writes nothing). Line inputs are not disabled while saving. Fix: clear `linesDirtyRef`
+  BEFORE the loop (so a mid-loop edit re-dirties, the header's shape) and read rows from a `lineItemsRef`,
+  or disable line inputs while `saving`. Pre-existing; surfaced by the 2026-10-04 fix-round re-review.
+- [ ] 🟡 **P3 — a header keystroke typed after saveAll's `cancelAutoSave()` re-arms the debounce** (armed
+  flag still true), so a 300 ms-later auto-save PUT can race saveAll's own header PUT on the same
+  `row_version` (one 409s). Pre-existing. Same unit as the line-keystroke item.
 - [ ] 🟠 **P2 — SW `NetworkFirst` with `networkTimeoutSeconds: 3`** (`src/sw.ts` ~109-112). `/get/reviews/*`,
   `/get/expense/*` and `/get/expense-line-item-attachment/by-*` are all cacheable, so on a slow or cold API
   (10-15 s per CLAUDE.md) the post-submit `GET reviews` can return the pre-submit `[]` (Submit button
