@@ -7,11 +7,12 @@ import SectionCard from "../../components/ui/SectionCard";
 import ListRow from "../../components/ui/ListRow";
 import type { Project } from "../../types/api";
 import { filterProjectsBySearch } from "./projectListFilters";
+import { projectSubtitle } from "./projectSubtitle";
 
 /**
  * Minimal Project list — entry point to ProjectDetailScreen. Phase 1A
- * keeps this lightweight (name + abbreviation + status, single SectionCard)
- * with client-side name/abbreviation search.
+ * keeps this lightweight (name + abbreviation · customer + status, single
+ * SectionCard) with client-side name/abbreviation search.
  */
 export default function ProjectList() {
   const navigate = useNavigate();
@@ -74,7 +75,7 @@ export default function ProjectList() {
                 <ListRow
                   key={p.public_id}
                   title={p.name ?? "(unnamed)"}
-                  subtitle={p.abbreviation ?? undefined}
+                  subtitle={projectSubtitle(p)}
                   value={p.status ?? undefined}
                   onClick={() => navigate(`/project/${p.public_id}`)}
                 />

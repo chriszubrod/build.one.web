@@ -513,6 +513,8 @@ export interface Project {
   description: string | null;
   status: string | null;
   customer_id: number | null;
+  // U-071: optional — persisted caches predate it (no PERSISTER_BUSTER bump needed); null = no customer
+  customer_name?: string | null;
   abbreviation: string | null;
   notes: string | null;
 }
