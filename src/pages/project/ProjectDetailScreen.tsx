@@ -11,6 +11,7 @@ import SectionCard from "../../components/ui/SectionCard";
 import ListRow from "../../components/ui/ListRow";
 import { BudgetViewContent } from "../budgets/BudgetView";
 import type { Project } from "../../types/api";
+import { isCostPlusLabel } from "./projectFlags";
 
 const TABS = [
   { id: "overview", label: "Overview" },
@@ -142,6 +143,7 @@ function OverviewTab({ project }: { project: Project }) {
     <SectionCard header="Project">
       <ListRow title="Name" value={project.name ?? "—"} />
       <ListRow title="Abbreviation" value={project.abbreviation ?? "—"} />
+      <ListRow title="Cost plus" value={isCostPlusLabel(project)} />
       {project.status && <ListRow title="Status" value={project.status} />}
       {project.description && (
         <ListRow title="Description" value={project.description} />

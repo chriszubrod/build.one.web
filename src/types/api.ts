@@ -506,6 +506,8 @@ export interface Project {
   customer_id: number | null;
   // U-071: optional — persisted caches predate it (no PERSISTER_BUSTER bump needed); null = no customer
   customer_name?: string | null;
+  // U-099: optional — persisted caches predate it; null = unknown (old sproc), never assumed
+  is_cost_plus?: boolean | null;
   abbreviation: string | null;
   notes: string | null;
 }
