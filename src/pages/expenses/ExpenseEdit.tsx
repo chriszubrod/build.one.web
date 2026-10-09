@@ -20,6 +20,8 @@ import SelectField from "../../components/SelectField";
 import InlineLineItems, { type LineItemFieldDef } from "../../components/InlineLineItems";
 import LineItemAttachment from "../../components/LineItemAttachment";
 import ReviewTimeline from "../../components/ReviewTimeline";
+import { expenseListPath } from "./expenseStatusTabs";
+import { expenseStatus } from "./expenseLifecycle";
 import RecordChangedBanner from "../../components/RecordChangedBanner";
 import Breadcrumb from "../../components/Breadcrumb";
 import type { Expense, ExpenseLineItem, Project, SubCostCode, Vendor as FullVendor } from "../../types/api";
@@ -237,6 +239,21 @@ export default function ExpenseEdit() {
   // auto-save until an explicit Save succeeds, so the debounce cannot keep
   // firing header PUTs against a half-synced line set.
   const autoSaveArmedRef = useRef(true);
+  // What has changed since the last successful write. Submit-for-Review and
+  // Complete both run saveAll first; before these flags that meant a header
+  // PUT plus one PUT per line — each a ProcessEngine workflow with audit rows
+  // — on an expense nobody had touched. A clean form now skips the writes.
+  // Header dirtiness is cleared when the auto-save STARTS (an edit typed while
+  // the PUT is in flight re-dirties it, so the coalesced follow-up still runs);
+  // line dirtiness is cleared only after the line sync succeeds.
+  const headerDirtyRef = useRef(false);
+  const linesDirtyRef = useRef(false);
+  // The header PUT inside saveAll must send the LATEST form, not the one the
+  // click's closure captured: a keystroke typed while the flush PUT is in flight
+  // re-dirties the header, and (when that PUT resolves inside the 300ms debounce)
+  // saveAll's own PUT is the only one that will carry it. Reading the closure
+  // there silently dropped the keystroke.
+  const formRef = useRef<Record<string, any> | null>(null);
   // Last-seen persisted rows, including ones the user just removed from the DOM.
   const knownLineItemByPublicIdRef = useRef<Map<string, LineItemRow>>(new Map());
   for (const row of lineItems) {
@@ -257,15 +274,22 @@ export default function ExpenseEdit() {
     },
   );
 
-  // Load line items
+  // Load line items. Keyed on the expense's ID, not the `item` object: a
+  // review action (and the U-471 rebase) refetches the item, and the refetched
+  // object is a new identity for the same expense. Keying on it re-ran this
+  // whole chain — line items, one link GET per line, the attachment row, and
+  // a fresh receipt download — and flashed the viewer, for nothing the user
+  // could have changed from this page.
+  const itemId = item?.id ?? null;
   useEffect(() => {
-    if (!item) return;
+    if (itemId === null) return;
     let cancelled = false;
-    getList<ExpenseLineItem>(`/api/v1/get/expense_line_items/expense/${item.id}`)
+    setAttachmentPublicId(null);
+    getList<ExpenseLineItem>(`/api/v1/get/expense_line_items/expense/${itemId}`)
       .then(async (res) => {
         if (cancelled) return;
         setOrigLineItemPublicIds(res.data.map((li) => li.public_id));
-        setAttachmentPublicId(null);
+        linesDirtyRef.current = false;
         setLineItems((prev) => {
           const existing = existingUidsByPublicId(prev);
           return res.data.map((li) => ({
@@ -284,20 +308,21 @@ export default function ExpenseEdit() {
           }));
         });
 
-        for (const li of res.data) {
-          if (cancelled) return;
-          try {
-            const link = await getEliaLinkForLine(li.public_id);
-            if (cancelled || !link?.attachment_id) continue;
-            const att = await getOne<{ public_id: string }>(
-              `/api/v1/get/attachment/id/${link.attachment_id}`,
-            );
-            if (cancelled) return;
-            setAttachmentPublicId(att.public_id);
-            break;
-          } catch {
-            // display-only — try the next line
-          }
+        // One link GET per line, in parallel rather than one after another;
+        // the first line that holds a receipt wins (one attachment is shared).
+        const links = await Promise.all(
+          res.data.map((li) => getEliaLinkForLine(li.public_id).catch(() => null)),
+        );
+        if (cancelled) return;
+        const link = links.find((l) => l?.attachment_id);
+        if (!link?.attachment_id) return;
+        try {
+          const att = await getOne<{ public_id: string }>(
+            `/api/v1/get/attachment/id/${link.attachment_id}`,
+          );
+          if (!cancelled) setAttachmentPublicId(att.public_id);
+        } catch {
+          // display-only
         }
       })
       .catch(() => {
@@ -306,7 +331,7 @@ export default function ExpenseEdit() {
     return () => {
       cancelled = true;
     };
-  }, [item]);
+  }, [itemId]);
 
   // Init header form
   // U-465: which expense `form` was seeded from. The rebase below refuses a
@@ -340,6 +365,8 @@ export default function ExpenseEdit() {
     owned: ["row_version", "is_draft"],
   });
 
+  formRef.current = form;
+
   if (item && !form && fullVendors.length > 0) {
     seededForRef.current = item.public_id;
     acceptBaseline(item);
@@ -349,6 +376,8 @@ export default function ExpenseEdit() {
   // Auto-save header on changes (300ms debounce)
   const autoSaveHeader = useCallback(async () => {
     if (!form || !id) return;
+    if (!headerDirtyRef.current) return;
+    headerDirtyRef.current = false;
     try {
       const updated = await put<Expense>(`/api/v1/update/expense/${id}`, {
         row_version: rowVersion.read(),
@@ -364,7 +393,9 @@ export default function ExpenseEdit() {
       acceptBaseline(updated);
       setForm((prev: any) => prev ? { ...prev, row_version: updated.row_version } : prev);
     } catch {
-      // Silent fail for auto-save
+      // Silent fail for auto-save — but the edit is still unsaved, so the
+      // next explicit Save / Submit / Complete must retry the header PUT.
+      headerDirtyRef.current = true;
     }
   }, [form, id, rowVersion, acceptBaseline]);
 
@@ -425,21 +456,47 @@ export default function ExpenseEdit() {
     );
   }
 
-  const onChange = (name: string, value: string) => setForm((prev: any) => ({ ...prev, [name]: value }));
+  const onChange = (name: string, value: string) => {
+    headerDirtyRef.current = true;
+    setForm((prev: any) => ({ ...prev, [name]: value }));
+  };
+  const onLineItemsChange = (next: LineItemRow[]) => {
+    linesDirtyRef.current = true;
+    setLineItems(next);
+  };
 
   const saveAll = async () => {
-    // Cancel before any await so a 300ms header debounce cannot fire a second
-    // PUT with the same row_version while re-home GETs are in flight.
+    // FLUSH, don't cancel: a cancelled timer leaves an in-flight auto-save PUT
+    // racing the header PUT below on the same row_version (one of them 409s;
+    // if it is Submit, the user sees "Concurrency violation"). flush() resolves
+    // only once the latest header state is persisted (BillEdit does the same),
+    // and it clears headerDirtyRef on the way, so the header PUT below is
+    // skipped unless something changed since. Then cancel, so an edit typed
+    // during the re-home GETs cannot arm a second PUT mid-save.
+    try {
+      await flushAutoSave();
+    } catch {
+      // autoSaveHeader swallows its own errors; nothing reaches here.
+    }
     cancelAutoSave();
+
+    const survivingIds = lineItems.filter((li) => li.public_id).map((li) => li.public_id!);
+    const currentIds = new Set(survivingIds);
+    const removedIds = origLineItemPublicIds.filter((oid) => !currentIds.has(oid));
+    const hasUnsavedLines = lineItems.some((li) => !li.public_id);
+    const linesNeedSync = linesDirtyRef.current || removedIds.length > 0 || hasUnsavedLines;
+
+    // Nothing changed since the last successful write: Submit / Complete /
+    // Save can proceed with ZERO PUTs instead of a header PUT plus one per
+    // line (each a ProcessEngine workflow with audit rows).
+    if (!headerDirtyRef.current && !linesNeedSync) return true;
+
     setSaving(true);
     setSaveError("");
     try {
       // U-476: re-home the receipt BEFORE the header PUT and any line delete —
       // create-before-delete. If re-home throws, restore removed rows so the
       // message "the line was not removed" is true and the form stays saveable.
-      const survivingIds = lineItems.filter((li) => li.public_id).map((li) => li.public_id!);
-      const currentIds = new Set(survivingIds);
-      const removedIds = origLineItemPublicIds.filter((oid) => !currentIds.has(oid));
       try {
         await rehomeAttachmentsBeforeLineDeletes(removedIds, survivingIds);
       } catch (err) {
@@ -454,20 +511,39 @@ export default function ExpenseEdit() {
         throw err;
       }
 
-      // Save header
-      const updated = await put<Expense>(`/api/v1/update/expense/${id}`, {
-        row_version: rowVersion.read(),
-        vendor_public_id: form.vendor_public_id || undefined,
-        expense_date: form.expense_date,
-        reference_number: form.reference_number,
-        total_amount: form.total_amount !== "" ? Number(form.total_amount) : null,
-        memo: form.memo || null,
-        is_draft: form.is_draft,
-        is_credit: form.is_credit,
-      });
-      rowVersion.set(updated.row_version);
-      acceptBaseline(updated);
-      setForm((prev: any) => ({ ...prev, row_version: updated.row_version }));
+      // Save header — only when it changed since the last write (the flush
+      // above already persisted a debounced edit). Body from formRef, never
+      // the closure: see the ref's comment.
+      if (headerDirtyRef.current) {
+        const latest = formRef.current ?? form;
+        headerDirtyRef.current = false;
+        let updated: Expense;
+        try {
+          updated = await put<Expense>(`/api/v1/update/expense/${id}`, {
+            row_version: rowVersion.read(),
+            vendor_public_id: latest.vendor_public_id || undefined,
+            expense_date: latest.expense_date,
+            reference_number: latest.reference_number,
+            total_amount: latest.total_amount !== "" ? Number(latest.total_amount) : null,
+            memo: latest.memo || null,
+            is_draft: latest.is_draft,
+            is_credit: latest.is_credit,
+          });
+        } catch (err) {
+          // The header is still unsaved; the next explicit save must resend it.
+          // (A later line failure must NOT re-dirty a header that did persist.)
+          headerDirtyRef.current = true;
+          throw err;
+        }
+        rowVersion.set(updated.row_version);
+        acceptBaseline(updated);
+        setForm((prev: any) => ({ ...prev, row_version: updated.row_version }));
+      }
+
+      if (!linesNeedSync) {
+        autoSaveArmedRef.current = true;
+        return true;
+      }
 
       // Line-item sync (U-170). Each confirmed fact is committed through a
       // functional updater the instant it lands — never accumulated and written
@@ -510,6 +586,7 @@ export default function ExpenseEdit() {
           );
         }
       }
+      linesDirtyRef.current = false;
       autoSaveArmedRef.current = true;
       return true;
     } catch (err: any) {
@@ -550,7 +627,7 @@ export default function ExpenseEdit() {
     <div className="page form-page-wide">
       <Breadcrumb
         crumbs={[
-          { label: "Expenses", path: "/expense/list" },
+          { label: "Expenses", path: expenseListPath(item ? expenseStatus(item) : null) },
           { label: item?.reference_number || "…", path: `/expense/${id}` },
           { label: "Edit" },
         ]}
@@ -587,7 +664,10 @@ export default function ExpenseEdit() {
               <input
                 type="checkbox"
                 checked={form.is_credit}
-                onChange={(e) => setForm((prev: any) => ({ ...prev, is_credit: e.target.checked }))}
+                onChange={(e) => {
+                  headerDirtyRef.current = true;
+                  setForm((prev: any) => ({ ...prev, is_credit: e.target.checked }));
+                }}
               />
               {" "}Is Credit
             </label>
@@ -597,7 +677,7 @@ export default function ExpenseEdit() {
         <InlineLineItems
           fields={lineItemFields}
           items={lineItems}
-          onChange={setLineItems}
+          onChange={onLineItemsChange}
           newItem={newLineItem}
           extraColumn={{
             label: "Attachment",
@@ -625,7 +705,7 @@ export default function ExpenseEdit() {
                   await deleteEntity(`/api/v1/delete/expense/${id}`);
                   queryClient.removeQueries({ queryKey: entityItemKey(expenseItemPath) });
                   toast("Expense deleted.");
-                  navigate("/expense/list");
+                  navigate(expenseListPath(item ? expenseStatus(item) : null));
                 } catch (err: any) {
                   toast(err.message, "error");
                   setDeleting(false);

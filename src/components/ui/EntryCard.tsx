@@ -14,6 +14,12 @@ interface EntryCardProps {
    */
   badge?: ReactNode;
   onClick?: () => void;
+  /**
+   * Fired on hover / keyboard focus / touch-start, before any click. Lists
+   * use it to prefetch the row's detail query so the View mounts warm. Must be
+   * idempotent — it fires on every re-entry.
+   */
+  onPrefetch?: () => void;
 }
 
 export default function EntryCard({
@@ -25,6 +31,7 @@ export default function EntryCard({
   workerName,
   badge,
   onClick,
+  onPrefetch,
 }: EntryCardProps) {
   const metaLine = workerName ? `${workerName} · ${meta}` : meta;
   const inner = (
@@ -46,7 +53,14 @@ export default function EntryCard({
 
   if (onClick) {
     return (
-      <button type="button" className="entry-card" onClick={onClick}>
+      <button
+        type="button"
+        className="entry-card"
+        onClick={onClick}
+        onMouseEnter={onPrefetch}
+        onFocus={onPrefetch}
+        onTouchStart={onPrefetch}
+      >
         {inner}
       </button>
     );
