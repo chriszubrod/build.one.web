@@ -9,7 +9,6 @@ import Field from "../../components/ui/Field";
 import { useToast } from "../../components/Toast";
 import type {
   ComplianceDocumentType,
-  VendorComplianceDocument,
   VendorFolderBrowseItem,
   VendorFolderDrive,
   VendorFolderFile,
@@ -260,7 +259,7 @@ export default function VendorFolderSheet({
     setSaving(true);
     setError("");
     try {
-      await post<VendorComplianceDocument>(`${basePath}/import`, {
+      await post<unknown>(`${basePath}/import`, {
         graph_item_id: selectedFileId,
         document_type: documentType,
         issuing_authority: issuingAuthority || null,

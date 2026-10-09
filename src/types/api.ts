@@ -256,15 +256,6 @@ export interface VendorComplianceDashboard {
   roster: VendorComplianceRosterEntry[];
   suggestions: VendorComplianceSuggestion[];
 }
-export interface VendorComplianceDocument {
-  id: number; public_id: string; row_version: string;
-  created_datetime: string | null; modified_datetime: string | null;
-  vendor_id: number; document_type: ComplianceDocumentType;
-  issuing_authority: string | null; document_number: string | null; classification: string | null;
-  issue_date: string | null; expiry_date: string | null; attachment_id: number | null;
-  verification_status: ComplianceVerificationStatus; created_by_user_id: number | null;
-}
-
 export interface BusinessLicense {
   public_id: string;
   row_version: string;
