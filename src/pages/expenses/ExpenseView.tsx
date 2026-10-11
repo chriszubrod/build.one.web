@@ -16,6 +16,7 @@ import {
   expenseStatus,
   expenseStatusBadgeClass,
 } from "./expenseLifecycle";
+import { billableViewLabel } from "./billableDecision";
 
 function fmtMoney(v: string | null): string {
   if (!v) return "—";
@@ -46,7 +47,7 @@ function makeLineItemCols(
     {
       key: "is_billable",
       label: "Billable",
-      render: (v) => (v === null ? "" : v ? "Yes" : "No"),
+      render: (_v, li) => billableViewLabel(li),
     },
   ];
 }

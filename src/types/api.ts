@@ -838,6 +838,9 @@ export interface ExpenseLineItem {
   rate: string | null;
   amount: string | null;
   is_billable: boolean | null;
+  // U-646: set only when a person chose the Billable value; optional — persisted caches predate it
+  billable_decided_by_user_id?: number | null;
+  billable_decided_at?: string | null;
   is_billed: boolean | null;
   markup: string | null;
   price: string | null;

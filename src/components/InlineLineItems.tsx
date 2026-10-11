@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-export interface LineItemFieldDef {
+export interface LineItemFieldDef<T extends UidRow = UidRow> {
   key: string;
   label: string;
   type?: "text" | "number" | "select" | "checkbox" | "computed";
@@ -8,12 +8,13 @@ export interface LineItemFieldDef {
   align?: "left" | "right";
   width?: string;
   placeholder?: string;
+  hint?: (item: T) => string | null;
 }
 
 export type UidRow = Record<string, any> & { uid: string };
 
 interface InlineLineItemsProps<T extends UidRow> {
-  fields: LineItemFieldDef[];
+  fields: LineItemFieldDef<T>[];
   items: T[];
   onChange: (items: T[]) => void;
   newItem: () => T;
@@ -87,11 +88,18 @@ export default function InlineLineItems<T extends UidRow>({
                         })()
                       }</span>
                     ) : f.type === "checkbox" ? (
-                      <input
-                        type="checkbox"
-                        checked={!!item[f.key]}
-                        onChange={(e) => updateItem(rowIdx, f.key, e.target.checked)}
-                      />
+                      <>
+                        <input
+                          type="checkbox"
+                          checked={!!item[f.key]}
+                          onChange={(e) => updateItem(rowIdx, f.key, e.target.checked)}
+                        />
+                        {f.hint?.(item) ? (
+                          <span className="inline-li-hint text-muted" style={{ display: "block", fontSize: 11 }}>
+                            {f.hint(item)}
+                          </span>
+                        ) : null}
+                      </>
                     ) : f.type === "select" ? (
                       <select
                         className="inline-li-input"

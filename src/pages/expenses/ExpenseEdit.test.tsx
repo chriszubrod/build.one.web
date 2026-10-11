@@ -2601,3 +2601,185 @@ describe("ExpenseEdit U-487 bill parity", () => {
   });
 });
 
+
+
+describe("ExpenseEdit Billable decision on a NEW line (U-647, Codex P1)", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    mockGetOne.mockImplementation((path: string) => {
+      const elia404 = elia404IfMatch(path);
+      if (elia404) return elia404;
+      if (path === EXPENSE_GET_PATH) return Promise.resolve(sampleExpense({ is_draft: true }));
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+    mockGetListResolvedForAll({ data: [], count: 0 });
+    mockPost.mockImplementation((path: string) => {
+      if (path === "/api/v1/create/expense_line_item") {
+        return Promise.resolve({ public_id: "li-new", row_version: "rv-created" });
+      }
+      return Promise.reject(new Error("unexpected post: " + path));
+    });
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/expense/exp-1") {
+        return Promise.resolve(sampleExpense({ row_version: "rv-2", is_draft: true }));
+      }
+      if (path.startsWith("/api/v1/update/expense_line_item/")) {
+        return Promise.resolve({ public_id: path.split("/").pop(), row_version: "rv-stamped" });
+      }
+      return Promise.reject(new Error("unexpected put: " + path));
+    });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    document.body.removeChild(container);
+    vi.useRealTimers();
+  });
+
+  const button = (label: string) =>
+    Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.trim() === label) as
+      | HTMLButtonElement
+      | undefined;
+
+  it("stamps a person's toggle on a new line through the update route right after the create", async () => {
+    renderExpenseEdit(root);
+    await waitForCondition(() => button("+ Add Row") !== undefined);
+    await act(async () => {
+      button("+ Add Row")!.click();
+      await flushMicrotasks();
+    });
+    // The line grid's checkbox, not the header's is_credit checkbox.
+    const box = container.querySelector('td input[type="checkbox"]') as HTMLInputElement | null;
+    expect(box).not.toBeNull();
+    await act(async () => {
+      box!.click(); // a person unticks the default
+      await flushMicrotasks();
+    });
+    await act(async () => {
+      button("Save")!.click();
+      await flushMicrotasks();
+    });
+
+    expect(mockPost).toHaveBeenCalledWith("/api/v1/create/expense_line_item", expect.anything());
+    const stampCall = mockPut.mock.calls.find(([p]) => p === "/api/v1/update/expense_line_item/li-new");
+    expect(stampCall).toBeDefined();
+    expect(stampCall![1]).toMatchObject({ billable_decided: true, is_billable: false, row_version: "rv-created" });
+  });
+
+  it("a second save while the first is writing joins it instead of sending a duplicate update", async () => {
+    let releaseStamp!: () => void;
+    const stampGate = new Promise<void>((r) => (releaseStamp = r));
+    mockPut.mockImplementation(async (path: string) => {
+      if (path === "/api/v1/update/expense/exp-1") return sampleExpense({ row_version: "rv-2", is_draft: true });
+      if (path === "/api/v1/update/expense_line_item/li-new") { await stampGate; return { public_id: "li-new", row_version: "rv-stamped" }; }
+      throw new Error("unexpected put: " + path);
+    });
+    renderExpenseEdit(root);
+    await waitForCondition(() => button("+ Add Row") !== undefined);
+    await act(async () => { button("+ Add Row")!.click(); await flushMicrotasks(); });
+    const box = container.querySelector('td input[type="checkbox"]') as HTMLInputElement;
+    await act(async () => { box.click(); await flushMicrotasks(); });
+    await act(async () => { button("Save")!.click(); await flushMicrotasks(); });   // first save parks on the stamp PUT
+    // A second save while the first is writing — the review timeline's submit action
+    // calls saveAll the same way; the form submit reaches it here (the Save button is
+    // disabled while saving, which is not a guard for the other callers).
+    const form = container.querySelector("form") as HTMLFormElement;
+    await act(async () => { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); await flushMicrotasks(); });
+    // Nothing on screen can change under the in-flight save, so a caller that joins it
+    // gets a result that covers everything shown (round 3).
+    // :disabled, not .disabled — the IDL property ignores an ancestor <fieldset disabled>.
+    expect((container.querySelector('td input[type="checkbox"]') as HTMLInputElement).matches(":disabled")).toBe(true);
+    await act(async () => { releaseStamp(); await flushMicrotasks(); });
+    expect((container.querySelector('td input[type="checkbox"]') as HTMLInputElement).matches(":disabled")).toBe(false);
+    expect(mockPost.mock.calls.filter(([p]) => p === "/api/v1/create/expense_line_item")).toHaveLength(1);
+    expect(mockPut.mock.calls.filter(([p]) => p === "/api/v1/update/expense_line_item/li-new")).toHaveLength(1);
+  });
+
+  it("does not issue a stamping update for an untouched new line", async () => {
+    renderExpenseEdit(root);
+    await waitForCondition(() => button("+ Add Row") !== undefined);
+    await act(async () => {
+      button("+ Add Row")!.click();
+      await flushMicrotasks();
+    });
+    await act(async () => {
+      button("Save")!.click();
+      await flushMicrotasks();
+    });
+    expect(mockPost).toHaveBeenCalled();
+    expect(mockPut.mock.calls.some(([p]) => p === "/api/v1/update/expense_line_item/li-new")).toBe(false);
+  });
+});
+
+
+describe("ExpenseEdit Billable default when projects arrive mid-load (U-647, Codex P2)", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  afterEach(() => {
+    act(() => root.unmount());
+    document.body.removeChild(container);
+    vi.useRealTimers();
+  });
+
+  it("shows the cost-plus default for an undecided line whose projects landed while lines were loading", async () => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    mockGetOne.mockImplementation((path: string) => {
+      const elia404 = elia404IfMatch(path);
+      if (elia404) return elia404;
+      if (path === EXPENSE_GET_PATH) return Promise.resolve(sampleExpense({ is_draft: true }));
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+    let releaseProjects!: () => void;
+    let releaseLines!: () => void;
+    const projectsGate = new Promise<void>((r) => (releaseProjects = r));
+    const linesGate = new Promise<void>((r) => (releaseLines = r));
+    mockGetList.mockImplementation(async (path: string) => {
+      if (path === "/api/v1/get/projects") {
+        await projectsGate;
+        return { data: [{ id: 7, public_id: "p-7", name: "Cost-plus job", is_cost_plus: true }], count: 1 };
+      }
+      if (path.startsWith("/api/v1/get/expense_line_items/expense/")) {
+        await linesGate;
+        return {
+          data: [{
+            public_id: "li-a", row_version: "rv-li-a", description: "Ramp line", sub_cost_code_id: null,
+            project_id: 7, quantity: null, rate: null, amount: "10", is_billable: false,
+            markup: null, price: null, billable_decided_at: null,
+          }],
+          count: 1,
+        };
+      }
+      const catalog = codingCatalogGetList(path);
+      if (catalog) return catalog;
+      return { data: [], count: 0 };
+    });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    const settle = async () => {
+      for (let i = 0; i < 20; i++) {
+        await act(async () => { await vi.advanceTimersByTimeAsync(0); await Promise.resolve(); });
+      }
+    };
+    renderExpenseEdit(root);
+    await settle();                                               // expense loads; the line fetch starts and waits
+    expect(mockGetList.mock.calls.some(([p]) => String(p).startsWith("/api/v1/get/expense_line_items/expense/"))).toBe(true);
+    releaseProjects(); await settle();                            // projects land FIRST (rows still empty)
+    expect(container.textContent).not.toContain("Ramp line");
+    releaseLines(); await settle();                               // then the lines
+    await waitForCondition(() => container.querySelector('td input[type="checkbox"]') !== null);
+
+    const box = container.querySelector('td input[type="checkbox"]') as HTMLInputElement;
+    expect(box.checked).toBe(true);   // the project default, not the Ramp NotBillable mirror
+  });
+});

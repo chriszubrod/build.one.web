@@ -24,6 +24,12 @@ import RecordChangedBanner from "../../components/RecordChangedBanner";
 import Breadcrumb from "../../components/Breadcrumb";
 import type { Expense, ExpenseLineItem, Project, SubCostCode, Vendor as FullVendor } from "../../types/api";
 import { existingUidsByPublicId, newLineItemUid, persistedLineItemUid } from "../../shared/lineItemUid";
+import {
+  applyLineEdits,
+  billableHint,
+  billablePayload,
+  effectiveBillable,
+} from "./billableDecision";
 
 interface LineItemRow {
   uid: string;
@@ -36,6 +42,7 @@ interface LineItemRow {
   rate: string;
   amount: string;
   is_billable: boolean;
+  billable_decided: boolean;
   markup: string;
   price: string;
 }
@@ -44,7 +51,7 @@ function newLineItem(): LineItemRow {
   return {
     uid: newLineItemUid(),
     description: "", sub_cost_code_id: "", project_id: "",
-    quantity: "", rate: "", amount: "", is_billable: true, markup: "", price: "",
+    quantity: "", rate: "", amount: "", is_billable: true, billable_decided: false, markup: "", price: "",
   };
 }
 
@@ -217,6 +224,13 @@ export default function ExpenseEdit() {
   const { item, loading, error } = useEntityItem<Expense>(expenseItemPath);
   const { items: fullSubCostCodes } = useEntityList<SubCostCode>("/api/v1/get/sub-cost-codes");
   const { items: fullProjects } = useEntityList<Project>("/api/v1/get/projects");
+  // Bumped after each line load so the default effect below re-runs with the CURRENT
+  // project catalog — hydration captured whatever catalog existed when the fetch began.
+  const [linesHydrated, setLinesHydrated] = useState(0);
+  const projectBillableKey = useMemo(
+    () => fullProjects.map((p) => `${p.id}:${p.is_cost_plus ?? ""}`).join("|"),
+    [fullProjects],
+  );
   const { items: fullVendors } = useEntityList<FullVendor>("/api/v1/get/vendors");
   const { data: lookups } = useLookups("vendors");
   const { data: me, isLoading: meLoading } = useCurrentUser();
@@ -225,6 +239,7 @@ export default function ExpenseEdit() {
   const [lineItems, setLineItems] = useState<LineItemRow[]>([]);
   const [origLineItemPublicIds, setOrigLineItemPublicIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const saveInFlightRef = useRef<Promise<boolean> | null>(null); // see saveAll
   const [completing, setCompleting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [attachmentPublicId, setAttachmentPublicId] = useState<string | null>(null);
@@ -268,21 +283,32 @@ export default function ExpenseEdit() {
         setAttachmentPublicId(null);
         setLineItems((prev) => {
           const existing = existingUidsByPublicId(prev);
-          return res.data.map((li) => ({
-            uid: existing.get(li.public_id) ?? persistedLineItemUid(li.public_id),
-            public_id: li.public_id,
-            row_version: li.row_version,
-            description: li.description ?? "",
-            sub_cost_code_id: li.sub_cost_code_id != null ? String(li.sub_cost_code_id) : "",
-            project_id: li.project_id != null ? String(li.project_id) : "",
-            quantity: li.quantity != null ? String(li.quantity) : "",
-            rate: li.rate ?? "",
-            amount: li.amount ?? "",
-            is_billable: li.is_billable ?? true,
-            markup: li.markup ?? "",
-            price: li.price ?? "",
-          }));
+          return res.data.map((li) => {
+            const project_id = li.project_id != null ? String(li.project_id) : "";
+            const billable_decided = li.billable_decided_at != null;
+            const rowSoFar: LineItemRow = {
+              uid: existing.get(li.public_id) ?? persistedLineItemUid(li.public_id),
+              public_id: li.public_id,
+              row_version: li.row_version,
+              description: li.description ?? "",
+              sub_cost_code_id: li.sub_cost_code_id != null ? String(li.sub_cost_code_id) : "",
+              project_id,
+              quantity: li.quantity != null ? String(li.quantity) : "",
+              rate: li.rate ?? "",
+              amount: li.amount ?? "",
+              is_billable: li.is_billable ?? true,
+              billable_decided,
+              markup: li.markup ?? "",
+              price: li.price ?? "",
+            };
+            const project = fullProjects.find((p) => String(p.id) === project_id);
+            return {
+              ...rowSoFar,
+              is_billable: effectiveBillable(rowSoFar, project),
+            };
+          });
         });
+        setLinesHydrated((n) => n + 1);
 
         for (const li of res.data) {
           if (cancelled) return;
@@ -306,7 +332,28 @@ export default function ExpenseEdit() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fullProjects at fetch time; projectBillableKey effect covers late catalog
   }, [item]);
+
+  // When the project catalog arrives or cost-plus flags change, refresh undecided checkboxes.
+  useEffect(() => {
+    if (!projectBillableKey) return;
+    setLineItems((prev) => {
+      if (prev.length === 0) return prev;
+      let changed = false;
+      const next = prev.map((row) => {
+        if (row.billable_decided) return row;
+        const project = fullProjects.find((p) => String(p.id) === row.project_id);
+        const is_billable = effectiveBillable(row, project);
+        if (is_billable === row.is_billable) return row;
+        changed = true;
+        return { ...row, is_billable };
+      });
+      return changed ? next : prev;
+    });
+    // fullProjects is read when projectBillableKey changes (stable catalog snapshot).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fullProjects read when projectBillableKey changes
+  }, [projectBillableKey, linesHydrated]);
 
   // Init header form
   // U-465: which expense `form` was seeded from. The rebase below refuses a
@@ -379,7 +426,19 @@ export default function ExpenseEdit() {
     if (!actions.canEdit) cancelAutoSave();
   }, [actions.canEdit, cancelAutoSave]);
 
-  const lineItemFields = useMemo<LineItemFieldDef[]>(() => {
+  const projectFor = useCallback(
+    (projectId: string) => fullProjects.find((p) => String(p.id) === projectId),
+    [fullProjects],
+  );
+
+  const handleLineItemsChange = useCallback(
+    (next: LineItemRow[]) => {
+      setLineItems((prev) => applyLineEdits(prev, next, projectFor));
+    },
+    [projectFor],
+  );
+
+  const lineItemFields = useMemo<LineItemFieldDef<LineItemRow>[]>(() => {
     const sccOptions = fullSubCostCodes.map((s) => ({
       value: String(s.id),
       label: s.number ? `${s.number} — ${s.name}` : s.name,
@@ -406,9 +465,15 @@ export default function ExpenseEdit() {
       { key: "amount", label: "Amount", width: "100px", type: "number", align: "right" },
       { key: "markup", label: "Markup", width: "80px", type: "number", align: "right", placeholder: "0.10" },
       { key: "price", label: "Price", width: "100px", type: "number", align: "right" },
-      { key: "is_billable", label: "Billable", width: "60px", type: "checkbox" },
+      {
+        key: "is_billable",
+        label: "Billable",
+        width: "60px",
+        type: "checkbox",
+        hint: (row) => billableHint(row, projectFor(row.project_id)),
+      },
     ];
-  }, [fullSubCostCodes, fullProjects]);
+  }, [fullSubCostCodes, fullProjects, projectFor]);
 
   if (loading || meLoading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
@@ -427,7 +492,20 @@ export default function ExpenseEdit() {
 
   const onChange = (name: string, value: string) => setForm((prev: any) => ({ ...prev, [name]: value }));
 
-  const saveAll = async () => {
+  // One save at a time. A second caller (e.g. Submit for Review clicked while Save is
+  // still writing) JOINS the save in flight instead of starting another: saveAllOnce
+  // is a render closure, so a queued second run would replay stale row_versions and
+  // 409 (U-647 round 2).
+  const saveAll = (): Promise<boolean> => {
+    if (saveInFlightRef.current) return saveInFlightRef.current;
+    const p = saveAllOnce().finally(() => {
+      saveInFlightRef.current = null;
+    });
+    saveInFlightRef.current = p;
+    return p;
+  };
+
+  const saveAllOnce = async (): Promise<boolean> => {
     // Cancel before any await so a 300ms header debounce cannot fire a second
     // PUT with the same row_version while re-home GETs are in flight.
     cancelAutoSave();
@@ -482,7 +560,7 @@ export default function ExpenseEdit() {
         setLineItems((prev) => prev.map((r) => (r.uid === uid ? { ...r, ...patch } : r)));
 
       for (const li of lineItems) {
-        const body = {
+        const bodyBase = {
           expense_public_id: id!,
           sub_cost_code_id: li.sub_cost_code_id !== "" ? Number(li.sub_cost_code_id) : null,
           project_public_id:
@@ -491,23 +569,38 @@ export default function ExpenseEdit() {
           quantity: li.quantity !== "" ? Number(li.quantity) : null,
           rate: li.rate !== "" ? Number(li.rate) : null,
           amount: li.amount !== "" ? Number(li.amount) : null,
-          is_billable: li.is_billable,
           markup: li.markup !== "" ? Number(li.markup) : null,
           price: li.price !== "" ? Number(li.price) : null,
         };
 
         if (li.public_id) {
           const result = await put<ExpenseLineItem>(`/api/v1/update/expense_line_item/${li.public_id}`, {
-            ...body,
+            ...bodyBase,
+            ...billablePayload(li),
             row_version: li.row_version!,
           });
           stampRow(li.uid, { row_version: result.row_version });
         } else {
-          const result = await post<ExpenseLineItem>("/api/v1/create/expense_line_item", body);
+          // Create route never stamps billable_decided; send the displayed checkbox value.
+          const result = await post<ExpenseLineItem>("/api/v1/create/expense_line_item", {
+            ...bodyBase,
+            is_billable: li.is_billable,
+          });
           stampRow(li.uid, { public_id: result.public_id, row_version: result.row_version });
           setOrigLineItemPublicIds((prev) =>
             prev.includes(result.public_id) ? prev : [...prev, result.public_id],
           );
+          // The create route cannot stamp a decision, and Save navigates away, so a
+          // person's choice on a NEW line would be lost (reloads as undecided). Record
+          // it now through the update route. If this fails the row already has its
+          // public_id and keeps billable_decided, so the next save retries it.
+          if (li.billable_decided) {
+            const stamped = await put<ExpenseLineItem>(
+              `/api/v1/update/expense_line_item/${result.public_id}`,
+              { ...bodyBase, ...billablePayload(li), row_version: result.row_version },
+            );
+            stampRow(li.uid, { row_version: stamped.row_version });
+          }
         }
       }
       autoSaveArmedRef.current = true;
@@ -557,6 +650,10 @@ export default function ExpenseEdit() {
       />
       <div className="page-header"><h1>Edit Expense {item?.reference_number}</h1></div>
       <form className="form-card" onSubmit={handleSubmit}>
+        {/* Frozen while a save is writing: every caller that joins the in-flight save
+            (saveAll) must get a result that includes everything on screen, so nothing
+            may change underneath it (U-647 round 3). */}
+        <fieldset disabled={saving} className="form-fieldset-reset" style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         {diverged && <RecordChangedBanner entity="expense" />}
         {saveError && <div className="form-error">{saveError}</div>}
 
@@ -597,7 +694,7 @@ export default function ExpenseEdit() {
         <InlineLineItems
           fields={lineItemFields}
           items={lineItems}
-          onChange={setLineItems}
+          onChange={handleLineItemsChange}
           newItem={newLineItem}
           extraColumn={{
             label: "Attachment",
@@ -664,6 +761,7 @@ export default function ExpenseEdit() {
           viewLabel="View Expense"
           onView={() => navigate(`/expense/${id}`)}
         />
+        </fieldset>
       </form>
 
       {attachmentPublicId && (
