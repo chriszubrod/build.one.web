@@ -34,9 +34,20 @@ another.**
   Of the app's CoreData entities, the user-scoped ones include `CDTimeEntry`,
   `CDTimeLog`, `CDProject`, `CDContact`, `CDModule`, `CDUserRole`, and more —
   see the live count in the facts panel above.
-- **Do _not_ delete rows on logout.** `resetForLogout()` clears in-memory
-  `@Observable` state only. Deleting CoreData rows would destroy a worker's
-  offline-queued edits on a session-expiry logout. The queue must survive.
+- **Two kinds of per-user row, two fates at logout (U-566).** _Unsynced
+  writes_ (any entity with a `hasPending*` attribute — `CDTimeEntry`,
+  `CDTimeLog`, `CDBill`, `CDBillLineItem`, `CDCompany`, `CDContact`,
+  `CDPendingReviewDecision`) are never deleted: `resetForLogout()` clears
+  in-memory `@Observable` state only, so a worker's offline-queued edits survive
+  a session-expiry logout. _Read caches_ (a `userId` attribute and no
+  `hasPending*` — today `CDTaskRow`, `CDProject`, `CDModule`, `CDUserRole`,
+  `CDSubCostCode`, `CDTimeEntryStatus` at the time of writing) **are purged** by
+  `ReadCachePurge` at `AuthService`'s final teardown — the last step of every
+  logout path, deliberately after sign-out-all's revoke round-trip — so a
+  shared iPhone does not keep the previous worker's counterparties, amounts,
+  projects or roles on disk. The set is derived from the model at run time,
+  not hand-listed; the one exception is a `CDProject` row a pending line item
+  still needs in order to send, which is retained.
 - **Generation tokens.** A generation counter is bumped on logout; in-flight
   network responses are discarded if their generation no longer matches,
   preventing a prior user's data from resuming on the next user's screen after
