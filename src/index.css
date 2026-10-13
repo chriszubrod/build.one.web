@@ -634,40 +634,6 @@ body {
   font-size: var(--font-size-footnote);
 }
 
-/* Folder summary */
-.folder-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: var(--space-md) var(--space-lg);
-  margin-bottom: var(--space-md);
-}
-
-.folder-summary-info {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.folder-summary-icon {
-  font-size: var(--font-size-title-3);
-}
-
-.folder-summary-name {
-  display: block;
-  font-size: var(--font-size-body);
-  font-weight: 600;
-}
-
-.folder-summary-count {
-  display: block;
-  font-size: var(--font-size-caption);
-  color: var(--color-text-muted);
-}
-
 /* Drop zone */
 .drop-zone {
   border: 2px dashed var(--color-border);

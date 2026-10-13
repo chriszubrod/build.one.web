@@ -44,7 +44,7 @@ vi.mock("../../hooks/useIdNameMap", () => ({
   useIdNameMap: () => new Map<number, string>([[10, "Acme Supply"]]),
 }));
 vi.mock("../../api/client", () => ({
-  uploadFile: vi.fn(), getOne: vi.fn().mockResolvedValue({}), rawRequest: vi.fn(),
+  uploadFile: vi.fn(),
 }));
 
 let lastContainer: HTMLDivElement;
@@ -119,6 +119,14 @@ describe("BillList status tabs reach the API (U-451)", () => {
     // same filter is how they end up disagreeing.
     await mountAt("/bills");
     expect(lastContainer.querySelector("select.table-filter-select")).toBeNull();
+  });
+
+  it("does not render SharePoint bill-folder intake (Process Folder retired)", async () => {
+    await mountAt("/bills");
+    const processFolder = Array.from(lastContainer.querySelectorAll("button"))
+      .find((b) => b.textContent === "Process Folder");
+    expect(processFolder).toBeUndefined();
+    expect(lastContainer.querySelector(".folder-summary")).toBeNull();
   });
 
   // -------------------------------------------------------------------------

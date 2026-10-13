@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef, type DragEvent } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
-import { uploadFile, getOne, rawRequest } from "../../api/client";
+import { uploadFile } from "../../api/client";
 import Pagination from "../../components/Pagination";
 import PageHeader from "../../components/PageHeader";
 import SegmentedControl from "../../components/ui/SegmentedControl";
@@ -26,13 +26,6 @@ import {
   documentStatus,
   documentStatusBadgeClass,
 } from "../../shared/documentLifecycle";
-
-interface FolderSummary {
-  is_linked: boolean;
-  folder_name?: string;
-  folder_web_url?: string;
-  file_count?: number;
-}
 
 function fmtMoney(v: string | null): string {
   if (v === null || v === undefined || v === "") return "$0.00";
@@ -96,60 +89,6 @@ export default function BillList() {
   const toRaw = searchParams.get("to");
   const fromDate = isIsoDate(fromRaw) ? fromRaw! : "";
   const toDate = isIsoDate(toRaw) ? toRaw! : "";
-  const [folderSummary, setFolderSummary] = useState<FolderSummary | null>(null);
-  const [processingFolder, setProcessingFolder] = useState(false);
-  const [folderProgress, setFolderProgress] = useState<{ total: number; done: number; currentFile: string | null } | null>(null);
-
-  const refreshFolderSummary = useCallback(() => {
-    getOne<FolderSummary>("/api/v1/get/bill-folder-summary")
-      .then((data) => setFolderSummary(data))
-      .catch(() => setFolderSummary(null));
-  }, []);
-
-  useEffect(() => { refreshFolderSummary(); }, [refreshFolderSummary]);
-
-  const handleProcessFolder = async () => {
-    setProcessingFolder(true);
-    setFolderProgress(null);
-    try {
-      const { run_id } = await rawRequest<{ status: string; run_id: string; files_queued: number }>(
-        "/api/v1/process/bill-folder",
-        { method: "POST" },
-      );
-
-      const poll = async () => {
-        const data = await rawRequest<{
-          status: string;
-          files_total?: number;
-          files_processed?: number;
-          files_skipped?: number;
-          files_failed?: number;
-          files_queued?: number;
-          current_file?: string | null;
-          errors?: string[];
-        }>(`/api/v1/process/bill-folder/${run_id}`);
-
-        setFolderProgress({
-          total: data.files_total ?? 0,
-          done: (data.files_processed ?? 0) + (data.files_skipped ?? 0) + (data.files_failed ?? 0),
-          currentFile: data.current_file ?? null,
-        });
-
-        if (data.status === "processing" || data.status === "queued") {
-          setTimeout(poll, 2000);
-        } else {
-          setProcessingFolder(false);
-          setFolderProgress(null);
-          refreshFolderSummary();
-          reload();
-        }
-      };
-      setTimeout(poll, 2000);
-    } catch {
-      setProcessingFolder(false);
-      setFolderProgress(null);
-    }
-  };
 
   const extraParams =
     billListQuery(statusFilter) +
@@ -286,49 +225,6 @@ export default function BillList() {
           Refresh
         </button>
       </PageHeader>
-
-      {/* SharePoint folder summary */}
-      {folderSummary?.is_linked && (
-        <div className="folder-summary">
-          <div className="folder-summary-info">
-            <span className="folder-summary-icon">📂</span>
-            <div>
-              <span className="folder-summary-name">{folderSummary.folder_name ?? "Source Folder"}</span>
-              <span className="folder-summary-count">
-                {folderSummary.file_count} file{folderSummary.file_count !== 1 ? "s" : ""} to process
-              </span>
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            {(folderSummary.file_count ?? 0) > 0 && (
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                disabled={processingFolder}
-                onClick={handleProcessFolder}
-                title={folderProgress?.currentFile ?? undefined}
-              >
-                {processingFolder
-                  ? folderProgress && folderProgress.total > 0
-                    ? `Processing ${folderProgress.done}/${folderProgress.total}...`
-                    : "Processing..."
-                  : "Process Folder"}
-              </button>
-            )}
-            {folderSummary.folder_web_url && (
-              <a
-                href={folderSummary.folder_web_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn-secondary btn-sm"
-                onClick={(e) => e.stopPropagation()}
-              >
-                Open in SharePoint
-              </a>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Drop zone */}
       <div
