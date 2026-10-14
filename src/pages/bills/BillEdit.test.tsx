@@ -58,7 +58,10 @@ vi.mock("../../api/client", () => ({
 vi.mock("../../hooks/useLookups", () => ({
   useLookups: () => ({
     data: {
-      vendors: [{ public_id: "v-1", id: 1, name: "V" }],
+      vendors: [
+        { public_id: "v-1", id: 1, name: "V" },
+        { public_id: "v-2", id: 2, name: "V2" },
+      ],
       payment_terms: [{ public_id: "pt-1", id: 1, name: "Net 30" }],
       sub_cost_codes: [{ id: 1, public_id: "scc-1", name: "SCC", number: "01" }],
       projects: [{ public_id: "p-1", id: 1, name: "P" }],
@@ -270,6 +273,10 @@ function lineItemRows(): HTMLTableRowElement[] {
   return Array.from(container.querySelectorAll("tbody tr")).filter(
     (tr) => !tr.querySelector(".empty-state"),
   ) as HTMLTableRowElement[];
+}
+
+function headerBudgetBadge(): Element | null {
+  return container.querySelector(".inline-li-header-actions [class*='coding-budget-']");
 }
 
 /** flushUntil that fails loudly when the condition never becomes true (r1-6). */
@@ -1866,6 +1873,8 @@ function codingSuggestionPayloadEdit() {
     reason: "Vendor pattern",
     confidence: 0.72,
     model_version: "v1",
+    budget_check: null,
+    budget_remaining: null,
   };
 }
 
@@ -1893,13 +1902,325 @@ describe("BillEdit coding suggestions", () => {
     const scc = sccSelect(row);
     const project = projectSelect(row);
     expect(scc.value).toBe("10");
-    expect(project.value).toBe("p-visible");
+    expect(project.value).toBe("");
     expect(mockSuggestCoding).toHaveBeenCalledWith(
       expect.objectContaining({
         vendor_public_id: "v-1",
         bill_public_id: "bill-1",
       }),
     );
+    expect(mockSuggestCoding.mock.calls[0][0]).not.toHaveProperty("amount");
+  });
+
+  it("r4-1 first suggest after load uses saved memo and fires exactly once", async () => {
+    mockSuggestCoding.mockResolvedValue(null);
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-empty",
+        sub_cost_code_id: null,
+        project_id: null,
+      }),
+    ]);
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === BILL_GET_PATH) {
+        return Promise.resolve(sampleBill({ memo: "Lumber 2x4" }));
+      }
+      if (path.startsWith("/api/v1/get/bill-line-item-attachment/by-bill-line-item/")) {
+        return Promise.reject(new ApiError(404, "Not found"));
+      }
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
+    await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 1, "suggest after load");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
+    expect(mockSuggestCoding.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ memo: "Lumber 2x4" }),
+    );
+  });
+
+  it("r5-7 BillEdit loads draft with saved memo and covered lines: one request with amount and header chip", async () => {
+    mockSuggestCoding.mockResolvedValue({
+      ...codingSuggestionPayloadEdit(),
+      budget_check: "fits" as const,
+      budget_remaining: "500.00",
+    });
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-a",
+        sub_cost_code_id: null,
+        project_id: VISIBLE_PROJECT.id,
+        amount: "60.00",
+        quantity: 1,
+        rate: "60.00",
+      }),
+      sampleLineItem({
+        public_id: "li-b",
+        sub_cost_code_id: null,
+        project_id: VISIBLE_PROJECT.id,
+        amount: "40.00",
+        quantity: 1,
+        rate: "40.00",
+      }),
+    ]);
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === BILL_GET_PATH) {
+        return Promise.resolve(sampleBill({ memo: "Lumber 2x4" }));
+      }
+      if (path.startsWith("/api/v1/get/bill-line-item-attachment/by-bill-line-item/")) {
+        return Promise.reject(new ApiError(404, "Not found"));
+      }
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 2, "lines loaded");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    await flushUntilHard(() => mockSuggestCoding.mock.calls.length === 1, "single suggest");
+    expect(mockSuggestCoding.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ memo: "Lumber 2x4", amount: "100.00" }),
+    );
+    await flushUntilHard(() => headerBudgetBadge() !== null, "header budget chip");
+    expect(lineItemRows()[0].querySelector("[class*='coding-budget-']")).toBeNull();
+  });
+
+  it("r6-1 BillEdit load with 600 ms deferred response fills SCC, shows chip, one request", async () => {
+    let resolveSlow!: (value: ReturnType<typeof codingSuggestionPayloadEdit>) => void;
+    mockSuggestCoding.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSlow = resolve;
+        }),
+    );
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-a",
+        sub_cost_code_id: null,
+        project_id: VISIBLE_PROJECT.id,
+        amount: "100.00",
+        quantity: 1,
+        rate: "100.00",
+      }),
+    ]);
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === BILL_GET_PATH) {
+        return Promise.resolve(sampleBill({ memo: "Saved memo" }));
+      }
+      if (path.startsWith("/api/v1/get/bill-line-item-attachment/by-bill-line-item/")) {
+        return Promise.reject(new ApiError(404, "Not found"));
+      }
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 1, "lines loaded");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
+    expect(sccSelect(lineItemRows()[0]).value).toBe("");
+    expect(headerBudgetBadge()).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    await act(async () => {
+      resolveSlow({
+        ...codingSuggestionPayloadEdit(),
+        budget_check: "fits",
+        budget_remaining: "25.00",
+      } as unknown as ReturnType<typeof codingSuggestionPayloadEdit>);
+      await Promise.resolve();
+    });
+    await flushUntilHard(() => sccSelect(lineItemRows()[0]).value === "10", "SCC prefilled");
+    await flushUntilHard(() => headerBudgetBadge() !== null, "header budget chip");
+    expect(container.textContent).toContain("Within budget");
+    expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
+  });
+
+  it("r6-4 clearing line 0 project while line 1 stays on p-visible keeps hint and chip", async () => {
+    mockSuggestCoding.mockResolvedValue({
+      ...codingSuggestionPayloadEdit(),
+      budget_check: "fits" as const,
+      budget_remaining: "50.00",
+    });
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-a",
+        sub_cost_code_id: null,
+        project_id: VISIBLE_PROJECT.id,
+        amount: "60.00",
+        quantity: 1,
+        rate: "60.00",
+      }),
+      sampleLineItem({
+        public_id: "li-b",
+        sub_cost_code_id: null,
+        project_id: VISIBLE_PROJECT.id,
+        amount: "40.00",
+        quantity: 1,
+        rate: "40.00",
+      }),
+    ]);
+
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 2, "lines loaded");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    await flushUntilHard(() => headerBudgetBadge() !== null, "chip before clear");
+
+    await act(async () => {
+      setSelectValue(projectSelect(lineItemRows()[0]), "");
+    });
+    expect(headerBudgetBadge()).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    await flushUntilHard(() => headerBudgetBadge() !== null, "chip after clear line 0");
+    expect(container.textContent).toContain("Within budget");
+    expect(mockSuggestCoding.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ amount: "40.00", project_public_id: "p-visible" }),
+    );
+  });
+
+  it("shows budget chip in line items header and sends eligible line amount", async () => {
+    mockSuggestCoding.mockResolvedValue({
+      ...codingSuggestionPayloadEdit(),
+      budget_check: "fits" as const,
+      budget_remaining: "500.00",
+    });
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-empty",
+        sub_cost_code_id: null,
+        project_id: VISIBLE_PROJECT.id,
+        description: "",
+      }),
+    ]);
+
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
+    await flushUntilHard(
+      () => container.querySelector(".status-badge.coding-suggested") !== null,
+      "suggestion badge visible",
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+
+    expect(container.textContent).toContain("Within budget");
+    expect(headerBudgetBadge()).not.toBeNull();
+    expect(mockSuggestCoding.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ amount: "100.00" }),
+    );
+  });
+
+  it("r4-3 sends hint-project line sum as amount and refreshes amount on memo suggest", async () => {
+    mockSuggestCoding.mockResolvedValue({
+      ...codingSuggestionPayloadEdit(),
+      budget_check: "fits" as const,
+      budget_remaining: "400.00",
+    });
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-a",
+        sub_cost_code_id: null,
+        project_id: VISIBLE_PROJECT.id,
+        amount: "100.00",
+        quantity: 1,
+        rate: "100.00",
+      }),
+      sampleLineItem({
+        public_id: "li-b",
+        sub_cost_code_id: null,
+        project_id: null,
+        amount: "900.00",
+        description: "no project",
+      }),
+    ]);
+
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 2, "lines loaded");
+    await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 1, "initial suggest");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    expect(mockSuggestCoding.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ amount: "100.00" }),
+    );
+    expect(headerBudgetBadge()).not.toBeNull();
+    expect(lineItemRows()[1].querySelector("[class*='coding-budget-']")).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    const callsBefore = mockSuggestCoding.mock.calls.length;
+    const rateInput = lineItemRows()[0].querySelectorAll("td")[4].querySelector(
+      "input",
+    ) as HTMLInputElement;
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => {
+      setInputValue(rateInput, "150");
+      setTextareaValue(memo, "revised memo");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    await flushUntilHard(
+      () => mockSuggestCoding.mock.calls.length === callsBefore + 1,
+      "memo suggest with new amount",
+    );
+    expect(mockSuggestCoding.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ amount: "150.00", memo: "revised memo" }),
+    );
+  });
+
+  it("r4-2 project change keeps prefilled state, badge, accept-all, and save", async () => {
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayloadEdit());
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-empty",
+        sub_cost_code_id: null,
+        project_id: null,
+      }),
+    ]);
+
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 1, "line loaded");
+    await flushUntilHard(
+      () => container.querySelector(".status-badge.coding-suggested") !== null,
+      "SCC badge visible",
+    );
+
+    const projectSelectEl = projectSelect(lineItemRows()[0]);
+    await act(async () => {
+      setSelectValue(projectSelectEl, "p-visible");
+    });
+    expect(container.querySelector(".status-badge.coding-suggested")).not.toBeNull();
+
+    await act(async () => {
+      findButton("Accept all suggestions").click();
+    });
+    await act(async () => {
+      findSaveButton().click();
+    });
+    await flushUntilHard(
+      () => mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/bill_line_item/li-empty"),
+      "line saved",
+    );
+    const linePut = mockPut.mock.calls.find(
+      (c) => c[0] === "/api/v1/update/bill_line_item/li-empty",
+    );
+    expect((linePut![1] as Record<string, unknown>).coding_prefill_state).toBe("accepted");
   });
 
   it("r1-6 does not call suggestCoding on non-draft bills", async () => {
@@ -1942,10 +2263,10 @@ describe("BillEdit coding suggestions", () => {
     renderBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
     await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 1, "suggestCoding invoked");
-    await flushUntilHard(() => projectSelect(lineItemRows()[0]).value === "p-visible", "project prefilled");
 
     const row = lineItemRows()[0];
     expect(sccSelect(row).value).toBe("1");
+    expect(projectSelect(row).value).toBe("");
   });
 
   it("sends coding_prefill_state on line PUT after accept-all and save", async () => {
@@ -1992,10 +2313,17 @@ describe("BillEdit coding suggestions", () => {
     renderBillEdit();
     await flushUntil(() => lineItemRows().length === 1);
     await flushUntil(() => {
-      const project = lineItemRows()[0].querySelectorAll("td")[2].querySelector(
+      const scc = lineItemRows()[0].querySelectorAll("td")[1].querySelector(
         "select",
       ) as HTMLSelectElement;
-      return project.value === "p-visible";
+      return scc.value === "10";
+    });
+
+    const projectSelectEl = lineItemRows()[0].querySelectorAll("td")[2].querySelector(
+      "select",
+    ) as HTMLSelectElement;
+    await act(async () => {
+      setSelectValue(projectSelectEl, "p-visible");
     });
 
     const sccSelect = lineItemRows()[0].querySelectorAll("td")[1].querySelector(
@@ -2045,6 +2373,9 @@ describe("BillEdit coding suggestions", () => {
     const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
     await act(async () => {
       setTextareaValue(memo, "trigger second suggest");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
     });
     await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 2, "second suggest started");
 
@@ -2099,6 +2430,7 @@ describe("BillEdit coding suggestions", () => {
     renderBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
     expect(container.querySelector(".status-badge.coding-suggested")).toBeNull();
+    expect(container.querySelector("[class*='coding-budget-']")).toBeNull();
 
     const scc = sccSelect(lineItemRows()[0]);
     expect(scc.value).toBe("10");
@@ -2139,7 +2471,80 @@ describe("BillEdit coding suggestions", () => {
     });
 
     expect(container.querySelector(".status-badge.coding-suggested")).toBeNull();
+    expect(container.querySelector("[class*='coding-budget-']")).toBeNull();
     expect(sccSelect(lineItemRows()[0]).value).toBe("1");
+  });
+
+  it("r1-2 hides budget chip after editing line amount from a visible chip", async () => {
+    mockSuggestCoding.mockResolvedValue({
+      ...codingSuggestionPayloadEdit(),
+      budget_check: "fits" as const,
+      budget_remaining: "500.00",
+    });
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-empty",
+        sub_cost_code_id: null,
+        project_id: VISIBLE_PROJECT.id,
+        amount: "100.00",
+        quantity: 1,
+        rate: "100.00",
+      }),
+    ]);
+
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    await flushUntilHard(() => headerBudgetBadge() !== null, "budget chip visible");
+    expect(container.textContent).toContain("Within budget");
+
+    const row = lineItemRows()[0];
+    const rateInput = row.querySelectorAll("td")[4].querySelector("input") as HTMLInputElement;
+    await act(async () => {
+      setInputValue(rateInput, "2000");
+    });
+
+    await flushUntilHard(() => headerBudgetBadge() === null, "budget chip hidden after amount edit");
+    expect(container.textContent).not.toContain("Within budget");
+  });
+
+  it("r1-5 clears budget chip when vendor change yields null suggest", async () => {
+    mockSuggestCoding
+      .mockResolvedValueOnce({
+        ...codingSuggestionPayloadEdit(),
+        budget_check: "fits" as const,
+        budget_remaining: "500.00",
+      })
+      .mockResolvedValueOnce(null);
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-empty",
+        sub_cost_code_id: null,
+        project_id: VISIBLE_PROJECT.id,
+        amount: "100.00",
+      }),
+    ]);
+
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    await flushUntilHard(() => headerBudgetBadge() !== null, "budget chip visible");
+
+    const vendorSelect = container.querySelector("#vendor_public_id") as HTMLSelectElement;
+    await act(async () => {
+      setSelectValue(vendorSelect, "v-2");
+    });
+    await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 2, "second suggest");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    await flushUntilHard(() => headerBudgetBadge() === null, "budget chip cleared");
+    expect(container.textContent).not.toContain("Within budget");
   });
 
   it("r1-4 passes loaded project as hint when line has project and empty SCC", async () => {
@@ -2160,6 +2565,43 @@ describe("BillEdit coding suggestions", () => {
       expect.objectContaining({
         project_public_id: "p-visible",
       }),
+    );
+  });
+
+  it("r3-4 debounces memo: five keystrokes within 400ms yield one suggest call after debounce", async () => {
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayloadEdit());
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-empty",
+        sub_cost_code_id: null,
+        project_id: null,
+      }),
+    ]);
+
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
+    await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 1, "initial suggest");
+    const callsAfterLoad = mockSuggestCoding.mock.calls.length;
+
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => {
+      setTextareaValue(memo, "a");
+      setTextareaValue(memo, "ab");
+      setTextareaValue(memo, "abc");
+      setTextareaValue(memo, "abcd");
+      setTextareaValue(memo, "abcde");
+    });
+    expect(mockSuggestCoding.mock.calls.length).toBe(callsAfterLoad);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    await flushUntilHard(
+      () => mockSuggestCoding.mock.calls.length === callsAfterLoad + 1,
+      "debounced memo suggest",
+    );
+    expect(mockSuggestCoding.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ memo: "abcde" }),
     );
   });
 

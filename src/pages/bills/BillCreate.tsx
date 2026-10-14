@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { post, put, uploadFile } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
 import { computeBillLine, sumLineAmounts } from "./lineMath";
@@ -13,16 +14,16 @@ import Breadcrumb, { entityCrumbs } from "../../components/Breadcrumb";
 import type { Bill } from "../../types/api";
 import { hasBillPermission } from "./billPermissions";
 import {
-  applySuggestionToLines,
   acceptPrefilled,
   applyUserLinePatch,
+  codingSuggestAmountFromLines,
   formatSuggestionBadgeLabel,
   lineShowsSuggestionBadgeFor,
-  projectHintFromEmptySccLines,
-  suggestCoding,
+  projectHintFromLines,
   suggestionBadgeClassName,
   type LineCodingFields,
 } from "./codingSuggestion";
+import { useBillCodingSuggestion } from "./useBillCodingSuggestion";
 
 interface AttachmentResponse {
   public_id: string;
@@ -106,6 +107,11 @@ export default function BillCreate() {
   const [saveError, setSaveError] = useState("");
   /** User-selected project hint for coding suggest — not updated by pre-fill. */
   const [projectHintForSuggest, setProjectHintForSuggest] = useState<string | undefined>();
+  const debouncedMemo = useDebouncedValue(form.memo, 400);
+  const codingProjectHint =
+    projectHintForSuggest ?? projectHintFromLines(lines);
+  const codingSuggestAmount = codingSuggestAmountFromLines(lines, codingProjectHint);
+  const debouncedCodingAmount = useDebouncedValue(codingSuggestAmount ?? "", 400);
   // Which button triggered the submit? All three buttons are type="submit"
   // so HTML required-field validation runs uniformly; we just need to
   // remember which one fired the form's submit event. A ref (not state)
@@ -158,26 +164,17 @@ export default function BillCreate() {
     setLines((prev) => prev.map(acceptPrefilled));
   };
 
-  useEffect(() => {
-    if (!form.vendor_public_id) return;
-    let cancelled = false;
-    void (async () => {
-      const projectHint =
-        projectHintForSuggest ??
-        projectHintFromEmptySccLines(lines);
-      const suggestion = await suggestCoding({
-        vendor_public_id: form.vendor_public_id,
-        project_public_id: projectHint,
-        memo: form.memo,
-      });
-      if (cancelled || !suggestion) return;
-      const catalog = lookups.sub_cost_codes ?? [];
-      setLines((prev) => applySuggestionToLines(prev, suggestion, catalog));
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [form.vendor_public_id, form.memo, projectHintForSuggest]);
+  const { budgetChip } = useBillCodingSuggestion({
+    enabled: !!form.vendor_public_id,
+    vendor_public_id: form.vendor_public_id,
+    memo: form.memo,
+    debouncedMemo,
+    debouncedAmount: codingSuggestAmount == null ? undefined : debouncedCodingAmount,
+    projectHintForSuggest,
+    lines,
+    sccCatalog: lookups.sub_cost_codes ?? [],
+    setLines,
+  });
 
   const hasPrefilledSuggestions = lines.some((li) => li.coding_prefill_state === "prefilled");
 
@@ -570,16 +567,21 @@ export default function BillCreate() {
             <span className="text-muted" style={{ fontSize: 12 }}>
               Optional — fill in to enable Submit for Review.
             </span>
-            {hasPrefilledSuggestions && (
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={acceptAllSuggestions}
-                disabled={busy}
-              >
-                Accept all suggestions
-              </button>
-            )}
+            <div className="inline-li-header-actions">
+              {budgetChip && (
+                <span className={budgetChip.className}>{budgetChip.label}</span>
+              )}
+              {hasPrefilledSuggestions && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={acceptAllSuggestions}
+                  disabled={busy}
+                >
+                  Accept all suggestions
+                </button>
+              )}
+            </div>
           </div>
           <table className="data-table line-items-edit-table">
             <thead>
@@ -618,7 +620,7 @@ export default function BillCreate() {
                           <option key={o.value} value={o.value}>{o.label}</option>
                         ))}
                       </select>
-                      {lineShowsSuggestionBadgeFor(li, "sub_cost_code_id") && (
+                      {lineShowsSuggestionBadgeFor(li) && (
                         <div className="coding-suggestion-actions">
                           <span
                             className={suggestionBadgeClassName(li.coding_suggestion_confidence ?? null)}
@@ -656,27 +658,6 @@ export default function BillCreate() {
                           <option key={o.value} value={o.value}>{o.label}</option>
                         ))}
                       </select>
-                      {lineShowsSuggestionBadgeFor(li, "project_public_id") && (
-                        <div className="coding-suggestion-actions">
-                          <span
-                            className={suggestionBadgeClassName(li.coding_suggestion_confidence ?? null)}
-                            title={li.coding_suggestion_reason ?? undefined}
-                          >
-                            {formatSuggestionBadgeLabel(li.coding_suggestion_confidence ?? null)}
-                          </span>
-                          {li.coding_prefill_state === "prefilled" && (
-                            <button
-                              type="button"
-                              className="btn-coding-accept"
-                              title="Accept suggestion"
-                              aria-label={`Accept project suggestion for line ${index + 1}`}
-                              onClick={() => acceptLineSuggestion(index)}
-                            >
-                              ✓
-                            </button>
-                          )}
-                        </div>
-                      )}
                     </div>
                   </td>
                   <td style={{ textAlign: "right" }}>

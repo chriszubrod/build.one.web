@@ -802,11 +802,22 @@ export interface BillLineItem {
   coding_prefill_state?: BillLineCodingPrefillState | null;
 }
 
+export type BillCodingBudgetCheck =
+  | "fits"
+  | "tight"
+  | "over"
+  | "unbudgeted"
+  | "no_budget"
+  | "no_project"
+  | null;
+
 export interface BillCodingSuggestRequest {
   vendor_public_id: string;
   project_public_id?: string;
   memo?: string;
   bill_public_id?: string;
+  /** Optional bill amount (decimal string, ≥ 0) for budget cross-check. */
+  amount?: string;
 }
 
 export interface BillCodingSuggestResponse {
@@ -819,6 +830,8 @@ export interface BillCodingSuggestResponse {
   reason: string;
   confidence: number | string | null;
   model_version: string | null;
+  budget_check: BillCodingBudgetCheck;
+  budget_remaining: string | null;
 }
 
 export interface Expense {

@@ -3,11 +3,19 @@ import { ApiError } from "../../api/client";
 import {
   applySuggestionToLines,
   applyUserCodingFieldChange,
+  billLevelBudgetChip,
+  budgetChip,
+  buildCodingSuggestInputKey,
+  centsToDecimal,
+  codingSuggestAmountFromLines,
+  coveredLinesMatchSuggestedScc,
+  decimalToCents,
   nextPrefillState,
   parseConfidence,
+  serializeCodingSuggestKey,
   formatSuggestionBadgeLabel,
   isLowConfidence,
-  projectHintFromEmptySccLines,
+  projectHintFromLines,
   suggestCoding,
   resetSuggestCodingForTests,
   suggestionBadgeClassName,
@@ -36,11 +44,13 @@ function sampleSuggestion(overrides: Partial<BillCodingSuggestion> = {}): BillCo
     reason: "Most recent bill for this vendor",
     confidence: 0.72,
     model_version: "v1",
+    budget_check: null,
+    budget_remaining: null,
     ...overrides,
   };
 }
 
-type DraftLine = LineCodingFields & { uid: string };
+type DraftLine = LineCodingFields & { uid: string; amount?: string };
 
 function emptyLine(uid: string): DraftLine {
   return { uid, sub_cost_code_id: "", project_public_id: "" };
@@ -49,7 +59,7 @@ function emptyLine(uid: string): DraftLine {
 const catalog = [{ id: 42, public_id: "scc-pub" }];
 
 describe("applySuggestionToLines", () => {
-  it("fills only empty SCC and project cells", () => {
+  it("fills only empty SCC cells (never project)", () => {
     const lines = [
       emptyLine("a"),
       { ...emptyLine("b"), sub_cost_code_id: "99", project_public_id: "" },
@@ -57,11 +67,11 @@ describe("applySuggestionToLines", () => {
     ];
     const out = applySuggestionToLines(lines, sampleSuggestion(), catalog);
     expect(out[0].sub_cost_code_id).toBe("42");
-    expect(out[0].project_public_id).toBe("p-1");
+    expect(out[0].project_public_id).toBe("");
     expect(out[0].coding_prefill_state).toBe("prefilled");
     expect(out[1].sub_cost_code_id).toBe("99");
-    expect(out[1].project_public_id).toBe("p-1");
-    expect(out[1].coding_prefill_state).toBe("prefilled");
+    expect(out[1].project_public_id).toBe("");
+    expect(out[1].coding_prefill_state).toBeUndefined();
     expect(out[2].sub_cost_code_id).toBe("");
     expect(out[2].project_public_id).toBe("existing");
     expect(out[2].coding_prefill_state).toBeUndefined();
@@ -83,18 +93,8 @@ describe("applySuggestionToLines", () => {
       catalog,
     );
     expect(out[0].sub_cost_code_id).toBe("");
-    expect(out[0].project_public_id).toBe("p-1");
-    expect(out[0].coding_prefill_state).toBe("prefilled");
-  });
-
-  it("no-ops when source is none", () => {
-    const lines = [emptyLine("a")];
-    const out = applySuggestionToLines(
-      lines,
-      sampleSuggestion({ source: "none", sub_cost_code_public_id: null, project_public_id: null }),
-      catalog,
-    );
-    expect(out).toEqual(lines);
+    expect(out[0].project_public_id).toBe("");
+    expect(out[0].coding_prefill_state).toBeUndefined();
   });
 
   it("r1-1 does not prefill SCC or project on user-touched empty cells", () => {
@@ -106,7 +106,6 @@ describe("applySuggestionToLines", () => {
       },
       {
         ...emptyLine("b"),
-        coding_project_touched: true,
         coding_prefill_state: "changed",
       },
     ];
@@ -141,38 +140,77 @@ describe("applySuggestionToLines", () => {
     expect(out[1].project_public_id).toBe("p-b");
     expect(out[1].coding_prefill_state).toBe("prefilled");
     expect(out[2].sub_cost_code_id).toBe("42");
-    expect(out[2].project_public_id).toBe("p-b");
+    expect(out[2].project_public_id).toBe("");
     expect(out[2].coding_prefill_state).toBe("prefilled");
   });
+
+  it("r3-2 never prefills project_public_id from suggestion", () => {
+    const lines: DraftLine[] = [emptyLine("a")];
+    const out = applySuggestionToLines(lines, sampleSuggestion(), catalog);
+    expect(out[0].project_public_id).toBe("");
+  });
+
+  it('r6-5 applySuggestionToLines no-ops for source "none"', () => {
+    const lines: DraftLine[] = [emptyLine("a")];
+    const noneSuggestion = sampleSuggestion({ source: "none" });
+    expect(applySuggestionToLines(lines, noneSuggestion, catalog)).toBe(lines);
+  });
+
+  it("r6-5 applySuggestionToLines no-ops for null suggestion", () => {
+    const lines: DraftLine[] = [emptyLine("a")];
+    expect(applySuggestionToLines(lines, null, catalog)).toBe(lines);
+  });
+
 });
 
-describe("projectHintFromEmptySccLines", () => {
-  it("r1-4 returns shared project when all empty-SCC lines agree", () => {
-    const hint = projectHintFromEmptySccLines([
-      { sub_cost_code_id: "", project_public_id: "p-a", unresolved_project_id: undefined },
-      { sub_cost_code_id: "9", project_public_id: "p-b", unresolved_project_id: undefined },
-      { sub_cost_code_id: "", project_public_id: "p-a", unresolved_project_id: undefined },
-    ]);
-    expect(hint).toBe("p-a");
+describe("projectHintFromLines", () => {
+  it("r6-4 returns shared project from every non-empty accessible line", () => {
+    expect(
+      projectHintFromLines([
+        { project_public_id: "p-1", unresolved_project_id: undefined },
+        { project_public_id: "", unresolved_project_id: undefined },
+        { project_public_id: "p-1", unresolved_project_id: undefined },
+      ]),
+    ).toBe("p-1");
   });
 
-  it("r1-4 returns undefined when empty-SCC lines disagree on project", () => {
-    const hint = projectHintFromEmptySccLines([
-      { sub_cost_code_id: "", project_public_id: "p-a", unresolved_project_id: undefined },
-      { sub_cost_code_id: "", project_public_id: "p-b", unresolved_project_id: undefined },
-    ]);
-    expect(hint).toBeUndefined();
+  it("r6-4 returns undefined when non-empty lines disagree", () => {
+    expect(
+      projectHintFromLines([
+        { project_public_id: "p-1", unresolved_project_id: undefined },
+        { project_public_id: "p-2", unresolved_project_id: undefined },
+      ]),
+    ).toBeUndefined();
   });
 
-  it("r1-4 ignores inaccessible projects", () => {
-    const hint = projectHintFromEmptySccLines([
-      { sub_cost_code_id: "", project_public_id: "", unresolved_project_id: 144 },
-    ]);
-    expect(hint).toBeUndefined();
+  it("r6-4 returns undefined when only inaccessible projects are set", () => {
+    expect(
+      projectHintFromLines([{ project_public_id: "p-1", unresolved_project_id: 144 }]),
+    ).toBeUndefined();
   });
 });
 
 describe("applyUserCodingFieldChange (r2-P)", () => {
+  it("r4-2 project change does not transition prefilled or accepted state", () => {
+    const line: LineCodingFields = {
+      sub_cost_code_id: "42",
+      project_public_id: "",
+      coding_prefill_state: "prefilled",
+      coding_suggested_sub_cost_code_id: "42",
+    };
+    const next = applyUserCodingFieldChange(line, "project_public_id", "p-1");
+    expect(next.coding_prefill_state).toBe("prefilled");
+    expect(next.project_public_id).toBe("p-1");
+    const accepted: LineCodingFields = {
+      sub_cost_code_id: "42",
+      project_public_id: "",
+      coding_prefill_state: "accepted",
+    };
+    expect(applyUserCodingFieldChange(accepted, "project_public_id", "p-1").coding_prefill_state).toBe(
+      "accepted",
+    );
+  });
+
   it("r2-P transitions accepted to changed when SCC value changes from current hold", () => {
     const line: LineCodingFields = {
       sub_cost_code_id: "42",
@@ -211,6 +249,182 @@ describe("nextPrefillState", () => {
   });
 });
 
+describe("billLevelBudgetChip", () => {
+  function key(vendor: string, memo: string, project: string, amount: string) {
+    return serializeCodingSuggestKey(
+      buildCodingSuggestInputKey({
+        vendor_public_id: vendor,
+        memo,
+        project_public_id: project,
+        amount,
+      }),
+    );
+  }
+
+  it("r5-6 shows chip only when stored key, hint project, and amount align", () => {
+    const k = key("v-1", "memo", "p-1", "100.00");
+    const coveredLines: LineCodingFields[] = [
+      {
+        sub_cost_code_id: "42",
+        project_public_id: "p-1",
+        coding_prefill_state: "prefilled",
+        coding_suggested_sub_cost_code_id: "42",
+      },
+    ];
+    const stored = {
+      key: k,
+      budget_check: "fits" as const,
+      budget_remaining: "0",
+      project_public_id: "p-1",
+      suggested_scc_option_id: "42",
+    };
+    expect(billLevelBudgetChip(stored, k, "p-1", "100.00", coveredLines)?.label).toBe(
+      "Within budget",
+    );
+    expect(
+      billLevelBudgetChip(stored, key("v-1", "other", "p-1", "100.00"), "p-1", "100.00", coveredLines),
+    ).toBeNull();
+    expect(billLevelBudgetChip(stored, k, undefined, "100.00", coveredLines)).toBeNull();
+    expect(billLevelBudgetChip(stored, k, "p-2", "100.00", coveredLines)).toBeNull();
+    expect(billLevelBudgetChip(stored, k, "p-1", undefined, coveredLines)).toBeNull();
+  });
+
+  it("r6-3 hides chip when a covered line holds a different SCC than the stored response", () => {
+    const k = key("v-1", "memo", "p-2", "100.00");
+    const stored = {
+      key: k,
+      budget_check: "fits" as const,
+      budget_remaining: "0",
+      project_public_id: "p-2",
+      suggested_scc_option_id: "20",
+    };
+    const linesMismatch: LineCodingFields[] = [
+      {
+        sub_cost_code_id: "10",
+        project_public_id: "p-2",
+        coding_prefill_state: "prefilled",
+        coding_suggested_sub_cost_code_id: "10",
+      },
+    ];
+    expect(billLevelBudgetChip(stored, k, "p-2", "100.00", linesMismatch)).toBeNull();
+    expect(
+      coveredLinesMatchSuggestedScc(linesMismatch, "p-2", "20"),
+    ).toBe(false);
+
+    const linesMatch: LineCodingFields[] = [
+      {
+        sub_cost_code_id: "20",
+        project_public_id: "p-2",
+        coding_prefill_state: "prefilled",
+        coding_suggested_sub_cost_code_id: "20",
+      },
+    ];
+    expect(billLevelBudgetChip(stored, k, "p-2", "100.00", linesMatch)?.label).toBe(
+      "Within budget",
+    );
+  });
+});
+
+describe("budgetChip", () => {
+  it("r1-4 formats large over amounts without float corruption", () => {
+    expect(budgetChip("over", "-9999999999999999.99")?.label).toBe(
+      "Over by $9,999,999,999,999,999.99",
+    );
+  });
+
+  it("maps every budget_check value including negative remaining", () => {
+    expect(budgetChip("fits", "100.00")).toEqual({
+      label: "Within budget",
+      className: "status-badge coding-budget-fits",
+    });
+    expect(budgetChip("tight", "50.25")?.label).toBe("Tight: $50.25 left");
+    expect(budgetChip("tight", "50.25")?.className).toContain("coding-budget-tight");
+    expect(budgetChip("over", "-75.00")?.label).toBe("Over by $75.00");
+    expect(budgetChip("over", "-75.00")?.className).toContain("coding-budget-over");
+    expect(budgetChip("unbudgeted", null)?.label).toBe("No budget line");
+    expect(budgetChip("no_budget", null)?.label).toBe("No active budget");
+    expect(budgetChip("no_project", "0")).toBeNull();
+    expect(budgetChip(null, "0")).toBeNull();
+    expect(budgetChip(undefined, "0")).toBeNull();
+    expect(budgetChip("over", null)).toBeNull();
+  });
+});
+
+describe("codingSuggestAmountFromLines", () => {
+  it("sums amounts for SCC-eligible lines and omits zero", () => {
+    type Row = LineCodingFields & { amount: string };
+    const lines: Row[] = [
+      { sub_cost_code_id: "", project_public_id: "", amount: "100.00" },
+      { sub_cost_code_id: "", project_public_id: "p-1", amount: "50.00" },
+      { sub_cost_code_id: "9", project_public_id: "", amount: "999.00" },
+      { sub_cost_code_id: "", project_public_id: "p-2", amount: "25.00" },
+    ];
+    expect(codingSuggestAmountFromLines(lines, "p-1")).toBe("50.00");
+    expect(codingSuggestAmountFromLines([{ sub_cost_code_id: "", project_public_id: "", amount: "" }], undefined)).toBeUndefined();
+  });
+
+  it("r3-3 omits suggest amount without a project hint", () => {
+    type Row = LineCodingFields & { amount: string };
+    const lines: Row[] = [
+      { sub_cost_code_id: "", project_public_id: "", amount: "100.00" },
+    ];
+    expect(codingSuggestAmountFromLines(lines, undefined)).toBeUndefined();
+  });
+
+  it("r1-3 omits amount when empty-SCC lines disagree on project without hint", () => {
+    type Row = LineCodingFields & { amount: string };
+    const lines: Row[] = [
+      { sub_cost_code_id: "", project_public_id: "p-1", amount: "100.00" },
+      { sub_cost_code_id: "", project_public_id: "p-2", amount: "200.00" },
+      { sub_cost_code_id: "", project_public_id: "", amount: "10.00" },
+    ];
+    expect(codingSuggestAmountFromLines(lines, undefined)).toBeUndefined();
+  });
+
+  it("r2-2 omits suggest amount when an eligible line has invalid non-blank amount", () => {
+    type Row = LineCodingFields & { amount: string };
+    const lines: Row[] = [
+      { sub_cost_code_id: "", project_public_id: "p-1", amount: "100.00" },
+      { sub_cost_code_id: "", project_public_id: "p-1", amount: "invalid" },
+    ];
+    expect(codingSuggestAmountFromLines(lines, "p-1")).toBeUndefined();
+  });
+
+  it("r1-4 sums exact cents and omits zero total", () => {
+    expect(
+      codingSuggestAmountFromLines(
+        [
+          { sub_cost_code_id: "", project_public_id: "p-1", amount: "10.10" },
+          { sub_cost_code_id: "", project_public_id: "p-1", amount: "20.20" },
+        ],
+        "p-1",
+      ),
+    ).toBe("30.30");
+    expect(decimalToCents("70368744177663.98")! + decimalToCents("0.01")!).toBe(
+      decimalToCents("70368744177663.99")!,
+    );
+    expect(
+      codingSuggestAmountFromLines(
+        [
+          { sub_cost_code_id: "", project_public_id: "p-1", amount: "10.10" },
+          { sub_cost_code_id: "", project_public_id: "p-1", amount: "20.20" },
+        ],
+        "p-1",
+      ),
+    ).not.toBe("-0.00");
+    expect(centsToDecimal(0n)).toBe("0.00");
+  });
+
+  it("r6-2 omits suggest amount when eligible lines net to zero or negative cents", () => {
+    type Row = LineCodingFields & { amount: string };
+    const lines: Row[] = [
+      { sub_cost_code_id: "", project_public_id: "p-1", amount: "50.00" },
+      { sub_cost_code_id: "", project_public_id: "p-1", amount: "-100.00" },
+    ];
+    expect(codingSuggestAmountFromLines(lines, "p-1")).toBeUndefined();
+  });
+});
+
 describe("confidence helpers", () => {
   it("parses ratio and percent confidence", () => {
     expect(parseConfidence(0.72)).toBe(0.72);
@@ -242,6 +456,22 @@ describe("suggestCoding", () => {
       "/api/v1/bill/coding/suggest",
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it("includes amount in the request body only when provided", async () => {
+    mockRawRequest.mockResolvedValue({ data: sampleSuggestion() });
+    await suggestCoding({ vendor_public_id: "v-1" });
+    const bodyWithout = JSON.parse(
+      (mockRawRequest.mock.calls[0][1] as RequestInit).body as string,
+    ) as Record<string, unknown>;
+    expect(bodyWithout.amount).toBeUndefined();
+
+    mockRawRequest.mockClear();
+    await suggestCoding({ vendor_public_id: "v-1", amount: "250.00" });
+    const bodyWith = JSON.parse(
+      (mockRawRequest.mock.calls[0][1] as RequestInit).body as string,
+    ) as Record<string, unknown>;
+    expect(bodyWith.amount).toBe("250.00");
   });
 
   it("swallows 404 and 422", async () => {

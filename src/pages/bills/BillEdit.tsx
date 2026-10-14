@@ -1,5 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEntityItem, deleteEntity, entityItemKey } from "../../hooks/useEntity";
 import { useAutoSave } from "../../hooks/useAutoSave";
@@ -27,16 +28,37 @@ import Breadcrumb from "../../components/Breadcrumb";
 import type { Bill, BillLineItem } from "../../types/api";
 import type { ReviewActionKind } from "../../components/ReviewTimeline";
 import {
-  applySuggestionToLines,
+  codingSuggestAmountFromLines,
   formatSuggestionBadgeLabel,
   acceptPrefilled,
   applyUserLinePatch,
   lineShowsSuggestionBadgeFor,
-  projectHintFromEmptySccLines,
-  suggestCoding,
+  projectHintFromLines,
   suggestionBadgeClassName,
   type LineCodingFields,
 } from "./codingSuggestion";
+import { useBillCodingSuggestion } from "./useBillCodingSuggestion";
+
+/** Debounced memo for coding suggest; syncs immediately once draft lines have loaded. */
+function useDebouncedMemoAfterBaseline(
+  memo: string,
+  ms: number,
+  baselineKey: string | null,
+): string {
+  const [debounced, setDebounced] = useState(memo);
+  const syncedBaselineRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (baselineKey != null && syncedBaselineRef.current !== baselineKey) {
+      syncedBaselineRef.current = baselineKey;
+      setDebounced(memo);
+      return;
+    }
+    if (baselineKey == null) return;
+    const t = window.setTimeout(() => setDebounced(memo), ms);
+    return () => window.clearTimeout(t);
+  }, [memo, ms, baselineKey]);
+  return debounced;
+}
 
 const SUBMIT_REQUIRES_PROJECT_MSG =
   "Add a line item with a project before submitting for review.";
@@ -204,6 +226,12 @@ export default function BillEdit() {
   const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [projectHintForSuggest, setProjectHintForSuggest] = useState<string | undefined>();
+  const memoValue = form?.memo ?? "";
+  const debouncedMemo = useDebouncedMemoAfterBaseline(
+    memoValue,
+    400,
+    lineItemsLoaded && form ? publicId ?? null : null,
+  );
   const { state: pollState, start: startPolling } = useCompletionPolling<Bill>(
     billItemPath,
     {
@@ -250,7 +278,7 @@ export default function BillEdit() {
           });
         });
         setLineItems(mapped);
-        setProjectHintForSuggest(projectHintFromEmptySccLines(mapped));
+        setProjectHintForSuggest(projectHintFromLines(mapped));
         persistedLineTotalRef.current = sumLineAmounts(res.data);
         setLineItemsLoaded(true);
 
@@ -393,36 +421,30 @@ export default function BillEdit() {
     if (!actions.canEdit) cancelAutoSave();
   }, [actions.canEdit, cancelAutoSave]);
 
-  useEffect(() => {
-    if (!item?.is_draft || !form?.is_draft || !form.vendor_public_id || !lineItemsLoaded || !publicId) {
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      const projectHint =
-        projectHintForSuggest ?? projectHintFromEmptySccLines(lineItems);
-      const suggestion = await suggestCoding({
-        vendor_public_id: form.vendor_public_id,
-        project_public_id: projectHint,
-        memo: form.memo,
-        bill_public_id: publicId,
-      });
-      if (cancelled || !suggestion) return;
-      setLineItems((prev) => applySuggestionToLines(prev, suggestion, fullSubCostCodes));
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    item?.is_draft,
-    form?.is_draft,
-    form?.vendor_public_id,
-    form?.memo,
+  const codingSuggestEnabled =
+    !!item?.is_draft &&
+    !!form?.is_draft &&
+    !!form?.vendor_public_id &&
+    lineItemsLoaded &&
+    !!publicId;
+
+  const codingProjectHint =
+    projectHintForSuggest ?? projectHintFromLines(lineItems);
+  const codingSuggestAmount = codingSuggestAmountFromLines(lineItems, codingProjectHint);
+  const debouncedCodingAmount = useDebouncedValue(codingSuggestAmount ?? "", 400);
+
+  const { budgetChip } = useBillCodingSuggestion({
+    enabled: codingSuggestEnabled,
+    vendor_public_id: form?.vendor_public_id ?? "",
+    memo: memoValue,
+    debouncedMemo,
+    debouncedAmount: codingSuggestAmount == null ? undefined : debouncedCodingAmount,
     projectHintForSuggest,
-    lineItemsLoaded,
-    publicId,
-    fullSubCostCodes.length,
-  ]);
+    lines: lineItems,
+    sccCatalog: fullSubCostCodes,
+    bill_public_id: publicId,
+    setLines: setLineItems,
+  });
 
   if (loading || meLoading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
@@ -745,19 +767,24 @@ export default function BillEdit() {
         <div className="li-cards-section">
           <div className="inline-li-header">
             <h3 className="line-items-heading">Line Items ({lineItems.length})</h3>
-            {form.is_draft && hasPrefilledSuggestions && (
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={acceptAllSuggestions}
-                disabled={saving || completing || submitting}
-              >
-                Accept all suggestions
+            <div className="inline-li-header-actions">
+              {form.is_draft && budgetChip && (
+                <span className={budgetChip.className}>{budgetChip.label}</span>
+              )}
+              {form.is_draft && hasPrefilledSuggestions && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={acceptAllSuggestions}
+                  disabled={saving || completing || submitting}
+                >
+                  Accept all suggestions
+                </button>
+              )}
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setLineItems([...lineItems.map(computeLineItem), computeLineItem(newLineItem())])}>
+                + Add Row
               </button>
-            )}
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setLineItems([...lineItems.map(computeLineItem), computeLineItem(newLineItem())])}>
-              + Add Row
-            </button>
+            </div>
           </div>
 
           <table className="data-table line-items-edit-table">
@@ -826,7 +853,7 @@ export default function BillEdit() {
                           {sccOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                         </select>
                         {form.is_draft &&
-                          lineShowsSuggestionBadgeFor(li, "sub_cost_code_id") && (
+                          lineShowsSuggestionBadgeFor(li) && (
                           <div className="coding-suggestion-actions">
                             <span
                               className={suggestionBadgeClassName(li.coding_suggestion_confidence ?? null)}
@@ -864,28 +891,6 @@ export default function BillEdit() {
                           )}
                           {projectOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                         </select>
-                        {form.is_draft &&
-                          lineShowsSuggestionBadgeFor(li, "project_public_id") && (
-                          <div className="coding-suggestion-actions">
-                            <span
-                              className={suggestionBadgeClassName(li.coding_suggestion_confidence ?? null)}
-                              title={li.coding_suggestion_reason ?? undefined}
-                            >
-                              {formatSuggestionBadgeLabel(li.coding_suggestion_confidence ?? null)}
-                            </span>
-                            {li.coding_prefill_state === "prefilled" && (
-                              <button
-                                type="button"
-                                className="btn-coding-accept"
-                                title="Accept suggestion"
-                                aria-label={`Accept project suggestion for line ${idx + 1}`}
-                                onClick={acceptLineSuggestion}
-                              >
-                                ✓
-                              </button>
-                            )}
-                          </div>
-                        )}
                       </div>
                     </td>
                     <td style={{ textAlign: "right" }}>
