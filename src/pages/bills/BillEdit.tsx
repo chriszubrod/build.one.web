@@ -26,11 +26,22 @@ import RecordChangedBanner from "../../components/RecordChangedBanner";
 import Breadcrumb from "../../components/Breadcrumb";
 import type { Bill, BillLineItem } from "../../types/api";
 import type { ReviewActionKind } from "../../components/ReviewTimeline";
+import {
+  applySuggestionToLines,
+  formatSuggestionBadgeLabel,
+  acceptPrefilled,
+  applyUserLinePatch,
+  lineShowsSuggestionBadgeFor,
+  projectHintFromEmptySccLines,
+  suggestCoding,
+  suggestionBadgeClassName,
+  type LineCodingFields,
+} from "./codingSuggestion";
 
 const SUBMIT_REQUIRES_PROJECT_MSG =
   "Add a line item with a project before submitting for review.";
 
-interface LineItemRow {
+interface LineItemRow extends LineCodingFields {
   /** Stable client-side row identity, minted on load and on Add Row. saveAll stamps
    * server-confirmed facts back by uid, never by array index: Save does not disable
    * "+ Add Row" / remove, so a mid-loop remove shifts indices and an index-keyed
@@ -41,8 +52,6 @@ interface LineItemRow {
   public_id?: string;
   row_version?: string;
   description: string;
-  sub_cost_code_id: string;
-  project_public_id: string;
   /** Set when the stored line references a project outside this actor's UserProject
    * scope, so it is absent from /get/projects. project_public_id stays '' (we have no
    * public_id for it), and this field is what distinguishes 'cannot render it' from
@@ -194,6 +203,7 @@ export default function BillEdit() {
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [projectHintForSuggest, setProjectHintForSuggest] = useState<string | undefined>();
   const { state: pollState, start: startPolling } = useCompletionPolling<Bill>(
     billItemPath,
     {
@@ -217,7 +227,7 @@ export default function BillEdit() {
         if (cancelled) return;
         setOrigLineItemPublicIds(res.data.map((li) => li.public_id));
         setAttachmentPublicId(null);
-        setLineItems(res.data.map((li) => {
+        const mapped = res.data.map((li) => {
           const project = fullProjects.find((p) => p.id === li.project_id) ?? null;
           // A stored project absent from the scoped list keeps its numeric id here so a
           // save cannot mistake "cannot render it" for "user cleared it".
@@ -236,8 +246,11 @@ export default function BillEdit() {
             is_billable: li.is_billable ?? true,
             markup: li.markup ?? "",
             price: li.price ?? "",
+            coding_prefill_state: li.coding_prefill_state ?? undefined,
           });
-        }));
+        });
+        setLineItems(mapped);
+        setProjectHintForSuggest(projectHintFromEmptySccLines(mapped));
         persistedLineTotalRef.current = sumLineAmounts(res.data);
         setLineItemsLoaded(true);
 
@@ -380,6 +393,37 @@ export default function BillEdit() {
     if (!actions.canEdit) cancelAutoSave();
   }, [actions.canEdit, cancelAutoSave]);
 
+  useEffect(() => {
+    if (!item?.is_draft || !form?.is_draft || !form.vendor_public_id || !lineItemsLoaded || !publicId) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const projectHint =
+        projectHintForSuggest ?? projectHintFromEmptySccLines(lineItems);
+      const suggestion = await suggestCoding({
+        vendor_public_id: form.vendor_public_id,
+        project_public_id: projectHint,
+        memo: form.memo,
+        bill_public_id: publicId,
+      });
+      if (cancelled || !suggestion) return;
+      setLineItems((prev) => applySuggestionToLines(prev, suggestion, fullSubCostCodes));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    item?.is_draft,
+    form?.is_draft,
+    form?.vendor_public_id,
+    form?.memo,
+    projectHintForSuggest,
+    lineItemsLoaded,
+    publicId,
+    fullSubCostCodes.length,
+  ]);
+
   if (loading || meLoading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
   if (!form) return null;
@@ -495,6 +539,9 @@ export default function BillEdit() {
           // API later makes null mean "clear" (U-172).
           ...(li.unresolved_project_id == null
             ? { project_public_id: li.project_public_id || null }
+            : {}),
+          ...(li.coding_prefill_state !== undefined
+            ? { coding_prefill_state: li.coding_prefill_state }
             : {}),
         };
 
@@ -628,6 +675,12 @@ export default function BillEdit() {
   const sccOptions = fullSubCostCodes.map((s) => ({ value: String(s.id), label: s.number ? `${s.number} — ${s.name}` : s.name }));
   const projectOptions = fullProjects.map((p) => ({ value: p.public_id, label: p.name }));
 
+  const hasPrefilledSuggestions = lineItems.some((li) => li.coding_prefill_state === "prefilled");
+
+  const acceptAllSuggestions = () => {
+    setLineItems((prev) => prev.map(acceptPrefilled));
+  };
+
   return (
     <div className="page form-page-wide">
       <Breadcrumb
@@ -692,6 +745,16 @@ export default function BillEdit() {
         <div className="li-cards-section">
           <div className="inline-li-header">
             <h3 className="line-items-heading">Line Items ({lineItems.length})</h3>
+            {form.is_draft && hasPrefilledSuggestions && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={acceptAllSuggestions}
+                disabled={saving || completing || submitting}
+              >
+                Accept all suggestions
+              </button>
+            )}
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => setLineItems([...lineItems.map(computeLineItem), computeLineItem(newLineItem())])}>
               + Add Row
             </button>
@@ -726,11 +789,18 @@ export default function BillEdit() {
                 // amount/price from stored values (U-167), so narrowing it to the edited
                 // row would change which rows get derived.
                 const patchRow = (patch: Partial<LineItemRow>) => {
-                  const updated = lineItems.map((item, i) => (i === idx ? { ...item, ...patch } : item));
+                  const updated = lineItems.map((item, i) => {
+                    if (i !== idx) return item;
+                    return applyUserLinePatch(item, patch);
+                  });
                   setLineItems(updated.map(computeLineItem));
                 };
                 const updateField = (key: string, value: any) =>
                   patchRow({ [key]: value } as Partial<LineItemRow>);
+                const acceptLineSuggestion = () => {
+                  if (li.coding_prefill_state !== "prefilled") return;
+                  patchRow({ coding_prefill_state: "accepted" });
+                };
                 const removeRow = () => setLineItems(lineItems.filter((_, i) => i !== idx));
                 const projectSelectValue =
                   li.project_public_id ||
@@ -740,6 +810,7 @@ export default function BillEdit() {
                 const handleProjectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
                   const value = e.target.value;
                   if (value === UNRESOLVED_PROJECT_VALUE) return;
+                  setProjectHintForSuggest(value || undefined);
                   patchRow({ project_public_id: value, unresolved_project_id: undefined });
                 };
 
@@ -749,25 +820,73 @@ export default function BillEdit() {
                       <input className="inline-li-input" value={li.description} onChange={(e) => updateField("description", e.target.value)} />
                     </td>
                     <td>
-                      <select className="inline-li-input" value={li.sub_cost_code_id} onChange={(e) => updateField("sub_cost_code_id", e.target.value)}>
-                        <option value="">—</option>
-                        {sccOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                      </select>
+                      <div className="coding-suggestion-cell">
+                        <select className="inline-li-input" value={li.sub_cost_code_id} onChange={(e) => updateField("sub_cost_code_id", e.target.value)}>
+                          <option value="">—</option>
+                          {sccOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
+                        {form.is_draft &&
+                          lineShowsSuggestionBadgeFor(li, "sub_cost_code_id") && (
+                          <div className="coding-suggestion-actions">
+                            <span
+                              className={suggestionBadgeClassName(li.coding_suggestion_confidence ?? null)}
+                              title={li.coding_suggestion_reason ?? undefined}
+                            >
+                              {formatSuggestionBadgeLabel(li.coding_suggestion_confidence ?? null)}
+                            </span>
+                            {li.coding_prefill_state === "prefilled" && (
+                              <button
+                                type="button"
+                                className="btn-coding-accept"
+                                title="Accept suggestion"
+                                aria-label={`Accept sub cost code suggestion for line ${idx + 1}`}
+                                onClick={acceptLineSuggestion}
+                              >
+                                ✓
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </td>
                     <td>
-                      <select
-                        className="inline-li-input"
-                        value={projectSelectValue}
-                        onChange={handleProjectChange}
-                      >
-                        <option value="">—</option>
-                        {li.unresolved_project_id != null && (
-                          <option value={UNRESOLVED_PROJECT_VALUE} disabled>
-                            Project #{li.unresolved_project_id} (not in your projects)
-                          </option>
+                      <div className="coding-suggestion-cell">
+                        <select
+                          className="inline-li-input"
+                          value={projectSelectValue}
+                          onChange={handleProjectChange}
+                        >
+                          <option value="">—</option>
+                          {li.unresolved_project_id != null && (
+                            <option value={UNRESOLVED_PROJECT_VALUE} disabled>
+                              Project #{li.unresolved_project_id} (not in your projects)
+                            </option>
+                          )}
+                          {projectOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
+                        {form.is_draft &&
+                          lineShowsSuggestionBadgeFor(li, "project_public_id") && (
+                          <div className="coding-suggestion-actions">
+                            <span
+                              className={suggestionBadgeClassName(li.coding_suggestion_confidence ?? null)}
+                              title={li.coding_suggestion_reason ?? undefined}
+                            >
+                              {formatSuggestionBadgeLabel(li.coding_suggestion_confidence ?? null)}
+                            </span>
+                            {li.coding_prefill_state === "prefilled" && (
+                              <button
+                                type="button"
+                                className="btn-coding-accept"
+                                title="Accept suggestion"
+                                aria-label={`Accept project suggestion for line ${idx + 1}`}
+                                onClick={acceptLineSuggestion}
+                              >
+                                ✓
+                              </button>
+                            )}
+                          </div>
                         )}
-                        {projectOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                      </select>
+                      </div>
                     </td>
                     <td style={{ textAlign: "right" }}>
                       <input className="inline-li-input" type="number" step="any" value={li.quantity} onChange={(e) => updateField("quantity", e.target.value)} />

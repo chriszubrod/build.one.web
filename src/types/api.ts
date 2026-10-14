@@ -779,6 +779,8 @@ export interface Bill {
   review_status_is_declined?: boolean | null;
 }
 
+export type BillLineCodingPrefillState = "prefilled" | "accepted" | "changed";
+
 export interface BillLineItem {
   id: number;
   public_id: string;
@@ -797,6 +799,26 @@ export interface BillLineItem {
   markup: string | null;
   price: string | null;
   is_draft: boolean;
+  coding_prefill_state?: BillLineCodingPrefillState | null;
+}
+
+export interface BillCodingSuggestRequest {
+  vendor_public_id: string;
+  project_public_id?: string;
+  memo?: string;
+  bill_public_id?: string;
+}
+
+export interface BillCodingSuggestResponse {
+  project_public_id: string | null;
+  project_name: string | null;
+  sub_cost_code_public_id: string | null;
+  sub_cost_code_number: string | null;
+  sub_cost_code_name: string | null;
+  source: "vendor_project_history" | "vendor_history" | "memo" | "none";
+  reason: string;
+  confidence: number | string | null;
+  model_version: string | null;
 }
 
 export interface Expense {

@@ -12,6 +12,17 @@ import SelectField from "../../components/SelectField";
 import Breadcrumb, { entityCrumbs } from "../../components/Breadcrumb";
 import type { Bill } from "../../types/api";
 import { hasBillPermission } from "./billPermissions";
+import {
+  applySuggestionToLines,
+  acceptPrefilled,
+  applyUserLinePatch,
+  formatSuggestionBadgeLabel,
+  lineShowsSuggestionBadgeFor,
+  projectHintFromEmptySccLines,
+  suggestCoding,
+  suggestionBadgeClassName,
+  type LineCodingFields,
+} from "./codingSuggestion";
 
 interface AttachmentResponse {
   public_id: string;
@@ -21,10 +32,8 @@ interface AttachmentResponse {
 // Local shape for the line items entered alongside the bill header. Same
 // field names as BillEdit's LineItemRow so the compute helpers + downstream
 // POST payload line up.
-interface LineItemDraft {
+interface LineItemDraft extends LineCodingFields {
   uid: string;
-  project_public_id: string;
-  sub_cost_code_id: string;
   description: string;
   quantity: string;
   rate: string;
@@ -95,6 +104,8 @@ export default function BillCreate() {
   const [busyAction, setBusyAction] = useState<"save" | "submit" | "complete" | null>(null);
   const busy = busyAction !== null;
   const [saveError, setSaveError] = useState("");
+  /** User-selected project hint for coding suggest — not updated by pre-fill. */
+  const [projectHintForSuggest, setProjectHintForSuggest] = useState<string | undefined>();
   // Which button triggered the submit? All three buttons are type="submit"
   // so HTML required-field validation runs uniformly; we just need to
   // remember which one fired the form's submit event. A ref (not state)
@@ -132,10 +143,43 @@ export default function BillCreate() {
   const updateLine = (index: number, key: keyof LineItemDraft, value: string | boolean) => {
     setLines((prev) =>
       prev.map((li, i) =>
-        i === index ? computeBillLine({ ...li, [key]: value } as LineItemDraft) : li,
+        i === index
+          ? computeBillLine(applyUserLinePatch(li, { [key]: value } as Partial<LineItemDraft>))
+          : li,
       ),
     );
   };
+
+  const acceptLineSuggestion = (index: number) => {
+    setLines((prev) => prev.map((li, i) => (i === index ? acceptPrefilled(li) : li)));
+  };
+
+  const acceptAllSuggestions = () => {
+    setLines((prev) => prev.map(acceptPrefilled));
+  };
+
+  useEffect(() => {
+    if (!form.vendor_public_id) return;
+    let cancelled = false;
+    void (async () => {
+      const projectHint =
+        projectHintForSuggest ??
+        projectHintFromEmptySccLines(lines);
+      const suggestion = await suggestCoding({
+        vendor_public_id: form.vendor_public_id,
+        project_public_id: projectHint,
+        memo: form.memo,
+      });
+      if (cancelled || !suggestion) return;
+      const catalog = lookups.sub_cost_codes ?? [];
+      setLines((prev) => applySuggestionToLines(prev, suggestion, catalog));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [form.vendor_public_id, form.memo, projectHintForSuggest]);
+
+  const hasPrefilledSuggestions = lines.some((li) => li.coding_prefill_state === "prefilled");
 
   const addLine = () => setLines((prev) => [...prev, newLine()]);
 
@@ -274,8 +318,16 @@ export default function BillCreate() {
       body.line_sub_cost_code_id =
         first.sub_cost_code_id !== "" ? Number(first.sub_cost_code_id) : null;
       body.line_project_public_id = first.project_public_id || null;
+      if (first.coding_prefill_state !== undefined) {
+        body.line_coding_prefill_state = first.coding_prefill_state;
+      }
     }
     return body;
+  };
+
+  const lineItemBodyExtras = (li: LineItemDraft): Record<string, unknown> => {
+    if (li.coding_prefill_state === undefined) return {};
+    return { coding_prefill_state: li.coding_prefill_state };
   };
 
   const handleSubmit = async (action: "save" | "submit" | "complete") => {
@@ -325,6 +377,7 @@ export default function BillCreate() {
             is_billable: li.is_billable,
             markup: li.markup !== "" ? Number(li.markup) : null,
             price: li.price !== "" ? Number(li.price) : null,
+            ...lineItemBodyExtras(li),
           });
           persistedLines.push(li);
         } catch {
@@ -517,6 +570,16 @@ export default function BillCreate() {
             <span className="text-muted" style={{ fontSize: 12 }}>
               Optional — fill in to enable Submit for Review.
             </span>
+            {hasPrefilledSuggestions && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={acceptAllSuggestions}
+                disabled={busy}
+              >
+                Accept all suggestions
+              </button>
+            )}
           </div>
           <table className="data-table line-items-edit-table">
             <thead>
@@ -544,28 +607,77 @@ export default function BillCreate() {
                     />
                   </td>
                   <td>
-                    <select
-                      className="inline-li-input"
-                      value={li.sub_cost_code_id}
-                      onChange={(e) => updateLine(index, "sub_cost_code_id", e.target.value)}
-                    >
-                      <option value="">—</option>
-                      {sccOptions.map((o) => (
-                        <option key={o.value} value={o.value}>{o.label}</option>
-                      ))}
-                    </select>
+                    <div className="coding-suggestion-cell">
+                      <select
+                        className="inline-li-input"
+                        value={li.sub_cost_code_id}
+                        onChange={(e) => updateLine(index, "sub_cost_code_id", e.target.value)}
+                      >
+                        <option value="">—</option>
+                        {sccOptions.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                      {lineShowsSuggestionBadgeFor(li, "sub_cost_code_id") && (
+                        <div className="coding-suggestion-actions">
+                          <span
+                            className={suggestionBadgeClassName(li.coding_suggestion_confidence ?? null)}
+                            title={li.coding_suggestion_reason ?? undefined}
+                          >
+                            {formatSuggestionBadgeLabel(li.coding_suggestion_confidence ?? null)}
+                          </span>
+                          {li.coding_prefill_state === "prefilled" && (
+                            <button
+                              type="button"
+                              className="btn-coding-accept"
+                              title="Accept suggestion"
+                              aria-label={`Accept sub cost code suggestion for line ${index + 1}`}
+                              onClick={() => acceptLineSuggestion(index)}
+                            >
+                              ✓
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </td>
                   <td>
-                    <select
-                      className="inline-li-input"
-                      value={li.project_public_id}
-                      onChange={(e) => updateLine(index, "project_public_id", e.target.value)}
-                    >
-                      <option value="">—</option>
-                      {projectOptions.map((o) => (
-                        <option key={o.value} value={o.value}>{o.label}</option>
-                      ))}
-                    </select>
+                    <div className="coding-suggestion-cell">
+                      <select
+                        className="inline-li-input"
+                        value={li.project_public_id}
+                        onChange={(e) => {
+                          setProjectHintForSuggest(e.target.value || undefined);
+                          updateLine(index, "project_public_id", e.target.value);
+                        }}
+                      >
+                        <option value="">—</option>
+                        {projectOptions.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                      {lineShowsSuggestionBadgeFor(li, "project_public_id") && (
+                        <div className="coding-suggestion-actions">
+                          <span
+                            className={suggestionBadgeClassName(li.coding_suggestion_confidence ?? null)}
+                            title={li.coding_suggestion_reason ?? undefined}
+                          >
+                            {formatSuggestionBadgeLabel(li.coding_suggestion_confidence ?? null)}
+                          </span>
+                          {li.coding_prefill_state === "prefilled" && (
+                            <button
+                              type="button"
+                              className="btn-coding-accept"
+                              title="Accept suggestion"
+                              aria-label={`Accept project suggestion for line ${index + 1}`}
+                              onClick={() => acceptLineSuggestion(index)}
+                            >
+                              ✓
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </td>
                   <td style={{ textAlign: "right" }}>
                     <input

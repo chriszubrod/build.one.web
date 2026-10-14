@@ -7,7 +7,7 @@ import BillEdit from "./BillEdit";
 import ReviewTimeline from "../../components/ReviewTimeline";
 import { ApiError } from "../../api/client";
 import { flushUntil } from "../../__testutils__/flush";
-import { setInputValue, setTextareaValue } from "../../__testutils__/domEvents";
+import { setInputValue, setSelectValue, setTextareaValue } from "../../__testutils__/domEvents";
 import { entityItemKey, entityListKey } from "../../hooks/useEntity";
 import type { Bill, BillLineItem } from "../../types/api";
 
@@ -28,6 +28,7 @@ const mockUseViewAttachmentObjectUrl = vi.fn(() => ({
   loading: false,
   loadError: null,
 }));
+const mockSuggestCoding = vi.fn();
 
 vi.mock("react-router-dom", async (importOriginal) => {
   const mod = await importOriginal<typeof import("react-router-dom")>();
@@ -95,6 +96,14 @@ vi.mock("../../hooks/useCurrentUser", () => ({
 vi.mock("../../hooks/useViewAttachmentObjectUrl", () => ({
   useViewAttachmentObjectUrl: () => mockUseViewAttachmentObjectUrl(),
 }));
+
+vi.mock("./codingSuggestion", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./codingSuggestion")>();
+  return {
+    ...actual,
+    suggestCoding: (...args: unknown[]) => mockSuggestCoding(...args),
+  };
+});
 
 function sampleBill(overrides: Partial<Bill> = {}): Bill {
   return {
@@ -183,8 +192,11 @@ function setupMocks(lineItems: BillLineItem[]) {
     }
     if (path === "/api/v1/get/sub-cost-codes") {
       return Promise.resolve({
-        data: [{ id: 1, public_id: "scc-1", name: "SCC", number: "01" }],
-        count: 1,
+        data: [
+          { id: 1, public_id: "scc-1", name: "SCC", number: "01" },
+          { id: 10, public_id: "scc-pub", name: "Suggested SCC", number: "01-100" },
+        ],
+        count: 2,
       });
     }
     if (path === "/api/v1/get/projects") {
@@ -260,6 +272,20 @@ function lineItemRows(): HTMLTableRowElement[] {
   ) as HTMLTableRowElement[];
 }
 
+/** flushUntil that fails loudly when the condition never becomes true (r1-6). */
+async function flushUntilHard(check: () => boolean, label: string): Promise<void> {
+  await flushUntil(check);
+  expect(check(), label).toBe(true);
+}
+
+function sccSelect(row: HTMLTableRowElement): HTMLSelectElement {
+  return row.querySelectorAll("td")[1].querySelector("select") as HTMLSelectElement;
+}
+
+function projectSelect(row: HTMLTableRowElement): HTMLSelectElement {
+  return row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
+}
+
 function descriptionInput(row: HTMLTableRowElement): HTMLInputElement {
   return row.querySelectorAll("td")[0].querySelector("input") as HTMLInputElement;
 }
@@ -327,6 +353,8 @@ beforeEach(() => {
   mockDel.mockReset();
   mockToast.mockClear();
   mockNavigate.mockClear();
+  mockSuggestCoding.mockReset();
+  mockSuggestCoding.mockResolvedValue(null);
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   setupMocks([unresolvedProjectLine()]);
 
@@ -350,15 +378,6 @@ describe("BillEdit unresolved project handling (U-169)", () => {
 
   function projectSelect(row: HTMLTableRowElement): HTMLSelectElement {
     return row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
-  }
-
-  function setSelectValue(select: HTMLSelectElement, value: string): void {
-    const nativeSetter = Object.getOwnPropertyDescriptor(
-      HTMLSelectElement.prototype,
-      "value",
-    )!.set!;
-    nativeSetter.call(select, value);
-    select.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
   function findSubmitForReviewButton(): HTMLButtonElement | undefined {
@@ -1835,3 +1854,321 @@ describe("BillEdit ReviewTimeline onBeforeAction (U-530)", () => {
     expect(reviewsCallsAfter).toBe(reviewsCallsBefore);
   });
 });
+
+function codingSuggestionPayloadEdit() {
+  return {
+    project_public_id: "p-visible",
+    project_name: "Visible Project",
+    sub_cost_code_public_id: "scc-pub",
+    sub_cost_code_number: "01-100",
+    sub_cost_code_name: "Suggested SCC",
+    source: "vendor_history" as const,
+    reason: "Vendor pattern",
+    confidence: 0.72,
+    model_version: "v1",
+  };
+}
+
+describe("BillEdit coding suggestions", () => {
+  it("prefills empty coding cells and shows Suggested badge on draft bills", async () => {
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayloadEdit());
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-empty",
+        sub_cost_code_id: null,
+        project_id: null,
+        description: "",
+      }),
+    ]);
+
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
+
+    await flushUntilHard(
+      () => container.querySelector(".status-badge.coding-suggested") !== null,
+      "suggestion badge visible",
+    );
+
+    const row = lineItemRows()[0];
+    const scc = sccSelect(row);
+    const project = projectSelect(row);
+    expect(scc.value).toBe("10");
+    expect(project.value).toBe("p-visible");
+    expect(mockSuggestCoding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        vendor_public_id: "v-1",
+        bill_public_id: "bill-1",
+      }),
+    );
+  });
+
+  it("r1-6 does not call suggestCoding on non-draft bills", async () => {
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-empty",
+        sub_cost_code_id: null,
+        project_id: null,
+      }),
+    ]);
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === BILL_GET_PATH) {
+        return Promise.resolve(sampleBill({ is_draft: false }));
+      }
+      if (path.startsWith("/api/v1/get/bill-line-item-attachment/by-bill-line-item/")) {
+        return Promise.reject(new ApiError(404, "Not found"));
+      }
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    expect(mockSuggestCoding).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite user-entered sub cost code", async () => {
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayloadEdit());
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-user-scc",
+        sub_cost_code_id: 1,
+        project_id: null,
+      }),
+    ]);
+
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
+    await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 1, "suggestCoding invoked");
+    await flushUntilHard(() => projectSelect(lineItemRows()[0]).value === "p-visible", "project prefilled");
+
+    const row = lineItemRows()[0];
+    expect(sccSelect(row).value).toBe("1");
+  });
+
+  it("sends coding_prefill_state on line PUT after accept-all and save", async () => {
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayloadEdit());
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-empty",
+        sub_cost_code_id: null,
+        project_id: null,
+      }),
+    ]);
+
+    renderBillEdit();
+    await flushUntil(() => lineItemRows().length === 1);
+    await flushUntil(() => findButton("Accept all suggestions") !== undefined);
+
+    await act(async () => {
+      findButton("Accept all suggestions").click();
+    });
+
+    await act(async () => {
+      findSaveButton().click();
+    });
+
+    await flushUntil(() =>
+      mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/bill_line_item/li-empty"),
+    );
+    const linePut = mockPut.mock.calls.find(
+      (c) => c[0] === "/api/v1/update/bill_line_item/li-empty",
+    );
+    expect((linePut![1] as Record<string, unknown>).coding_prefill_state).toBe("accepted");
+  });
+
+  it("sends coding_prefill_state changed when user edits prefilled project", async () => {
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayloadEdit());
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-empty",
+        sub_cost_code_id: null,
+        project_id: null,
+      }),
+    ]);
+
+    renderBillEdit();
+    await flushUntil(() => lineItemRows().length === 1);
+    await flushUntil(() => {
+      const project = lineItemRows()[0].querySelectorAll("td")[2].querySelector(
+        "select",
+      ) as HTMLSelectElement;
+      return project.value === "p-visible";
+    });
+
+    const sccSelect = lineItemRows()[0].querySelectorAll("td")[1].querySelector(
+      "select",
+    ) as HTMLSelectElement;
+    await act(async () => {
+      setSelectValue(sccSelect, "1");
+    });
+
+    await flushUntil(() => sccSelect.value === "1");
+
+    await act(async () => {
+      findSaveButton().click();
+    });
+
+    await flushUntil(() =>
+      mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/bill_line_item/li-empty"),
+    );
+    const linePut = mockPut.mock.calls.find(
+      (c) => c[0] === "/api/v1/update/bill_line_item/li-empty",
+    );
+    expect((linePut![1] as Record<string, unknown>).coding_prefill_state).toBe("changed");
+  });
+
+  it("r1-1 user clear wins when a deferred suggestion response arrives", async () => {
+    mockSuggestCoding.mockResolvedValueOnce(codingSuggestionPayloadEdit());
+    let resolveSecond!: (value: ReturnType<typeof codingSuggestionPayloadEdit>) => void;
+    mockSuggestCoding.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSecond = resolve;
+        }),
+    );
+
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-empty",
+        sub_cost_code_id: null,
+        project_id: null,
+      }),
+    ]);
+
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
+    await flushUntilHard(() => sccSelect(lineItemRows()[0]).value === "10", "first prefill");
+
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => {
+      setTextareaValue(memo, "trigger second suggest");
+    });
+    await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 2, "second suggest started");
+
+    const scc = sccSelect(lineItemRows()[0]);
+    await act(async () => {
+      setSelectValue(scc, "");
+    });
+    await flushUntilHard(() => scc.value === "", "user cleared SCC");
+
+    await act(async () => {
+      resolveSecond(codingSuggestionPayloadEdit());
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 2, "second suggest settled");
+
+    expect(scc.value).toBe("");
+  });
+
+  it("r1-2 does not prefill project or SCC on unresolved_project_id lines", async () => {
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayloadEdit());
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-hidden-proj",
+        sub_cost_code_id: null,
+        project_id: HIDDEN_PROJECT_ID,
+      }),
+    ]);
+
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
+    await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 1, "suggestCoding invoked");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    const row = lineItemRows()[0];
+    expect(sccSelect(row).value).toBe("");
+    expect(projectSelect(row).value).toBe("__unresolved_project__");
+  });
+
+  it("r2-P after reload editing held SCC on accepted line saves changed", async () => {
+    mockSuggestCoding.mockResolvedValue(null);
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-accepted",
+        sub_cost_code_id: 10,
+        project_id: null,
+        coding_prefill_state: "accepted",
+      }),
+    ]);
+
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
+    expect(container.querySelector(".status-badge.coding-suggested")).toBeNull();
+
+    const scc = sccSelect(lineItemRows()[0]);
+    expect(scc.value).toBe("10");
+
+    await act(async () => {
+      setSelectValue(scc, "1");
+    });
+    await flushUntilHard(() => scc.value === "1", "SCC edited");
+
+    await act(async () => {
+      findSaveButton().click();
+    });
+    await flushUntilHard(
+      () => mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/bill_line_item/li-accepted"),
+      "line saved",
+    );
+    const linePut = mockPut.mock.calls.find(
+      (c) => c[0] === "/api/v1/update/bill_line_item/li-accepted",
+    );
+    expect((linePut![1] as Record<string, unknown>).coding_prefill_state).toBe("changed");
+  });
+
+  it("r2-P after reload no Suggested badge on manually entered SCC", async () => {
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayloadEdit());
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-manual-scc",
+        sub_cost_code_id: 1,
+        project_id: VISIBLE_PROJECT.id,
+        coding_prefill_state: "accepted",
+      }),
+    ]);
+
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(container.querySelector(".status-badge.coding-suggested")).toBeNull();
+    expect(sccSelect(lineItemRows()[0]).value).toBe("1");
+  });
+
+  it("r1-4 passes loaded project as hint when line has project and empty SCC", async () => {
+    mockSuggestCoding.mockResolvedValue(null);
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-proj-a",
+        sub_cost_code_id: null,
+        project_id: VISIBLE_PROJECT.id,
+      }),
+    ]);
+
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
+    await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 1, "suggestCoding invoked");
+
+    expect(mockSuggestCoding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        project_public_id: "p-visible",
+      }),
+    );
+  });
+
+});
+
+function findButton(label: string): HTMLButtonElement {
+  const btn = Array.from(container.querySelectorAll("button")).find(
+    (b) => b.textContent?.trim() === label,
+  );
+  expect(btn).toBeDefined();
+  return btn!;
+}

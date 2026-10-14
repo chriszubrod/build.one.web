@@ -1620,6 +1620,43 @@ button[type="submit"]:disabled {
   color: var(--color-info-fg);
 }
 
+.status-badge.coding-suggested.coding-suggested-low {
+  background: var(--color-warning-bg, #fef3cd);
+  color: var(--color-warning-fg, #856404);
+}
+
+.coding-suggestion-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: stretch;
+}
+
+.coding-suggestion-cell .inline-li-input {
+  width: 100%;
+}
+
+.coding-suggestion-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.btn-coding-accept {
+  padding: 2px 6px;
+  font-size: 12px;
+  line-height: 1.2;
+  border: 1px solid var(--color-border, #ccc);
+  border-radius: 4px;
+  background: var(--color-surface, #fff);
+  cursor: pointer;
+}
+
+.btn-coding-accept:hover {
+  background: var(--color-info-bg);
+}
+
 .status-badge.coding-flagged {
   background: var(--color-danger-bg, #fde8e8);
   color: var(--color-danger-fg, #9b1c1c);

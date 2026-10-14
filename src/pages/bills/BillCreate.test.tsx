@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import BillCreate from "./BillCreate";
 import { flushUntil } from "../../__testutils__/flush";
-import { setInputValue } from "../../__testutils__/domEvents";
+import { setInputValue, setSelectValue, setTextareaValue } from "../../__testutils__/domEvents";
 import { Modules } from "../../shared/modules";
 import type { CurrentUser, CurrentUserModule } from "../../types/api";
 
@@ -16,6 +16,7 @@ const mockPost = vi.fn();
 const mockPut = vi.fn();
 const mockUploadFile = vi.fn();
 const mockToast = vi.fn();
+const mockSuggestCoding = vi.fn();
 
 vi.mock("react-router-dom", async (importOriginal) => {
   const mod = await importOriginal<typeof import("react-router-dom")>();
@@ -43,11 +44,22 @@ vi.mock("../../hooks/useLookups", () => ({
         { public_id: "p-1", id: 1, name: "Project One", abbreviation: "P1" },
         { public_id: "p-2", id: 2, name: "Project Two", abbreviation: "P2" },
       ],
-      sub_cost_codes: [{ id: 10, number: "01-100", name: "SCC Ten" }],
+      sub_cost_codes: [
+        { id: 10, public_id: "scc-pub", number: "01-100", name: "SCC Ten" },
+        { id: 99, public_id: "scc-user", number: "99-999", name: "User SCC" },
+      ],
     },
     loading: false,
   }),
 }));
+
+vi.mock("./codingSuggestion", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./codingSuggestion")>();
+  return {
+    ...actual,
+    suggestCoding: (...args: unknown[]) => mockSuggestCoding(...args),
+  };
+});
 
 vi.mock("../../components/Toast", () => ({
   useToast: () => ({ toast: mockToast }),
@@ -300,6 +312,7 @@ beforeEach(() => {
   mockUseCurrentUser.mockReturnValue({ data: adminUser(), isLoading: false });
   mockUploadFile.mockResolvedValue({ public_id: "att-1", content_type: "application/pdf" });
   mockPut.mockResolvedValue({});
+  mockSuggestCoding.mockResolvedValue(null);
   stubPost();
 
   originalCreateObjectURL = URL.createObjectURL;
@@ -834,5 +847,183 @@ describe("BillCreate post-create navigation", () => {
     await flushUntil(() => mockNavigate.mock.calls.length > 0);
     expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-1/edit");
     expect(mockNavigate).not.toHaveBeenCalledWith("/bill/list");
+  });
+});
+
+function codingSuggestionPayload() {
+  return {
+    project_public_id: "p-1",
+    project_name: "Project One",
+    sub_cost_code_public_id: "scc-pub",
+    sub_cost_code_number: "01-100",
+    sub_cost_code_name: "SCC Ten",
+    source: "vendor_history" as const,
+    reason: "Recent vendor coding",
+    confidence: 0.72,
+    model_version: "v1",
+  };
+}
+
+describe("BillCreate coding suggestions", () => {
+  it("prefills empty line cells and shows Suggested badge after vendor is set", async () => {
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
+    renderPage();
+    await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+
+    await act(async () => {
+      fillHeader();
+    });
+
+    await flushUntil(() =>
+      container.querySelector(".status-badge.coding-suggested") !== null,
+    );
+    expect(sccSelectAt(0).value).toBe("10");
+    const row = container.querySelectorAll("tbody tr")[0];
+    const projectSelect = row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
+    expect(projectSelect.value).toBe("p-1");
+    expect(container.textContent).toContain("Suggested 72%");
+    expect(mockSuggestCoding).toHaveBeenCalledWith(
+      expect.objectContaining({ vendor_public_id: "v-1" }),
+    );
+  });
+
+  it("does not overwrite user-entered sub cost code", async () => {
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
+    renderPage();
+    await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+
+    await act(async () => {
+      fillLineScc(0, "99");
+      selectChange(container.querySelector("#vendor_public_id") as HTMLSelectElement, "v-1");
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(sccSelectAt(0).value).toBe("99");
+    const row = container.querySelectorAll("tbody tr")[0];
+    const projectSelect = row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
+    expect(projectSelect.value).toBe("p-1");
+  });
+
+  it("sends coding_prefill_state accepted after accept-all and save", async () => {
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
+    renderPage();
+    await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+
+    await act(async () => {
+      fillHeader();
+      attachPdf();
+    });
+
+    await flushUntil(() => findButton("Accept all suggestions") !== undefined);
+    await act(async () => {
+      findButton("Accept all suggestions").click();
+    });
+
+    await act(async () => {
+      findButton("Save For Later").click();
+    });
+
+    await flushUntil(() => mockPost.mock.calls.some((c) => c[0] === "/api/v1/create/bill"));
+    expect(createBillBody().line_coding_prefill_state).toBe("accepted");
+  });
+
+  it("sends coding_prefill_state changed when user edits a prefilled project", async () => {
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
+    renderPage();
+    await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+
+    await act(async () => {
+      fillHeader();
+      attachPdf();
+    });
+
+    await flushUntil(() => sccSelectAt(0).value === "10");
+
+    const row = container.querySelectorAll("tbody tr")[0];
+    const projectSelect = row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
+    await act(async () => {
+      selectChange(projectSelect, "p-2");
+    });
+
+    await act(async () => {
+      findButton("Save For Later").click();
+    });
+
+    await flushUntil(() => mockPost.mock.calls.some((c) => c[0] === "/api/v1/create/bill"));
+    expect(createBillBody().line_coding_prefill_state).toBe("changed");
+    expect(createBillBody().line_project_public_id).toBe("p-2");
+  });
+
+  it("r2-P manual SCC with prefilled project becomes changed when user edits SCC before save", async () => {
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
+    renderPage();
+    await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+
+    await act(async () => {
+      fillLineScc(0, "99");
+      fillHeader();
+      attachPdf();
+    });
+
+    await flushUntil(() => {
+      const row = container.querySelectorAll("tbody tr")[0];
+      const projectSelect = row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
+      return projectSelect.value === "p-1";
+    });
+    expect(sccSelectAt(0).value).toBe("99");
+
+    await act(async () => {
+      fillLineScc(0, "10");
+    });
+
+    await act(async () => {
+      findButton("Save For Later").click();
+    });
+
+    await flushUntil(() => mockPost.mock.calls.some((c) => c[0] === "/api/v1/create/bill"));
+    expect(createBillBody().line_coding_prefill_state).toBe("changed");
+    expect(createBillBody().line_sub_cost_code_id).toBe(10);
+  });
+
+  it("r1-1 user clear wins when a deferred suggestion response arrives", async () => {
+    mockSuggestCoding.mockResolvedValueOnce(codingSuggestionPayload());
+    let resolveSecond!: (value: ReturnType<typeof codingSuggestionPayload>) => void;
+    mockSuggestCoding.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSecond = resolve;
+        }),
+    );
+
+    renderPage();
+    await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+    await act(async () => {
+      fillHeader();
+    });
+    await flushUntil(() => sccSelectAt(0).value === "10");
+
+    await act(async () => {
+      setTextareaValue(
+        container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement,
+        "second suggest",
+      );
+    });
+    await flushUntil(() => mockSuggestCoding.mock.calls.length >= 2);
+
+    const scc = sccSelectAt(0);
+    await act(async () => {
+      setSelectValue(scc, "");
+    });
+    await flushUntil(() => scc.value === "");
+
+    await act(async () => {
+      resolveSecond(codingSuggestionPayload());
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(scc.value).toBe("");
   });
 });
