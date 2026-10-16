@@ -9,9 +9,13 @@ import {
   suggestedSccOptionIdFromResponse,
   suggestCoding,
   type BillCodingBudgetSnapshot,
+  type BillCodingSuggestion,
   type LineCodingFields,
   type SccCatalogEntry,
 } from "./codingSuggestion";
+
+const TEXT_POLL_INTERVAL_MS = 20_000;
+const TEXT_POLL_MAX_ATTEMPTS = 6;
 
 export interface UseBillCodingSuggestionParams<
   T extends LineCodingFields & { amount?: string | null },
@@ -27,6 +31,47 @@ export interface UseBillCodingSuggestionParams<
   sccCatalog: SccCatalogEntry[];
   bill_public_id?: string;
   setLines: (updater: (prev: T[]) => T[]) => void;
+  /** BillEdit drafts only: poll while API returns text_status pending. */
+  textSuggestionPoll?: boolean;
+  /** Parent increments when the user edits a line — stops text polling. */
+  lineUserEditEpoch?: number;
+}
+
+function applySuggestionResponse<T extends LineCodingFields & { amount?: string | null }>(
+  requestKey: string,
+  projectHint: string | undefined,
+  suggestion: BillCodingSuggestion | null,
+  catalog: SccCatalogEntry[],
+  setLines: (updater: (prev: T[]) => T[]) => void,
+  setBudgetSnapshot: (v: BillCodingBudgetSnapshot | null) => void,
+): void {
+  setLines((prev) => applySuggestionToLines(prev, suggestion, catalog));
+
+  const check = suggestion?.budget_check;
+  const responseProject = suggestion?.project_public_id ?? "";
+  const projectMismatch =
+    projectHint != null &&
+    responseProject !== "" &&
+    responseProject !== projectHint;
+  const suggestedSccOptionId = suggestedSccOptionIdFromResponse(suggestion, catalog);
+  if (
+    !projectMismatch &&
+    (check === "fits" ||
+      check === "tight" ||
+      check === "over" ||
+      check === "unbudgeted" ||
+      check === "no_budget")
+  ) {
+    setBudgetSnapshot({
+      key: requestKey,
+      budget_check: check,
+      budget_remaining: suggestion?.budget_remaining ?? null,
+      project_public_id: projectHint ?? "",
+      suggested_scc_option_id: suggestedSccOptionId,
+    });
+  } else {
+    setBudgetSnapshot(null);
+  }
 }
 
 export function useBillCodingSuggestion<
@@ -42,6 +87,8 @@ export function useBillCodingSuggestion<
   sccCatalog,
   bill_public_id,
   setLines,
+  textSuggestionPoll = false,
+  lineUserEditEpoch = 0,
 }: UseBillCodingSuggestionParams<T>) {
   const [budgetSnapshot, setBudgetSnapshot] = useState<BillCodingBudgetSnapshot | null>(null);
   const lastFiredRequestKeyRef = useRef<string | null>(null);
@@ -49,6 +96,15 @@ export function useBillCodingSuggestion<
   const prevImmediateRef = useRef({ vendor: "", project: "" });
   const sccCatalogRef = useRef(sccCatalog);
   sccCatalogRef.current = sccCatalog;
+
+  const [textPollSession, setTextPollSession] = useState<{
+    requestKey: string;
+    editEpochAtStart: number;
+  } | null>(null);
+  const textPollAttemptsRef = useRef(0);
+  const pollInFlightRef = useRef(false);
+  const lineUserEditEpochRef = useRef(lineUserEditEpoch);
+  lineUserEditEpochRef.current = lineUserEditEpoch;
 
   const projectHint = projectHintForSuggest ?? projectHintFromLines(lines);
   const memoSettled = memo === debouncedMemo;
@@ -73,6 +129,44 @@ export function useBillCodingSuggestion<
   const currentKey = memoSettled && amountSettled ? liveInputKey : null;
   const liveInputKeyRef = useRef<string | null>(null);
   liveInputKeyRef.current = liveInputKey;
+
+  const suggestParamsRef = useRef({
+    vendor_public_id,
+    debouncedMemo,
+    projectHint,
+    amount,
+    bill_public_id,
+  });
+  suggestParamsRef.current = {
+    vendor_public_id,
+    debouncedMemo,
+    projectHint,
+    amount,
+    bill_public_id,
+  };
+
+  const requestSuggestion = () => {
+    const p = suggestParamsRef.current;
+    return {
+      projectHint: p.projectHint,
+      response: suggestCoding({
+        vendor_public_id: p.vendor_public_id,
+        project_public_id: p.projectHint,
+        memo: p.debouncedMemo,
+        bill_public_id: p.bill_public_id,
+        ...(p.amount != null ? { amount: p.amount } : {}),
+      }),
+    };
+  };
+  const requestSuggestionRef = useRef(requestSuggestion);
+  requestSuggestionRef.current = requestSuggestion;
+
+  /** A poll session ends once the user edits a line or the inputs move off its key. */
+  const pollSessionIsLive = (session: { requestKey: string; editEpochAtStart: number }) =>
+    lineUserEditEpochRef.current === session.editEpochAtStart &&
+    liveInputKeyRef.current === session.requestKey;
+  const pollSessionIsLiveRef = useRef(pollSessionIsLive);
+  pollSessionIsLiveRef.current = pollSessionIsLive;
 
   useEffect(() => {
     if (!enabled || !vendor_public_id || !memoSettled) return;
@@ -100,13 +194,8 @@ export function useBillCodingSuggestion<
 
     void (async () => {
       try {
-        const suggestion = await suggestCoding({
-          vendor_public_id,
-          project_public_id: projectHint,
-          memo: debouncedMemo,
-          bill_public_id,
-          ...(amount != null ? { amount } : {}),
-        });
+        const { projectHint: requestProjectHint, response } = requestSuggestionRef.current();
+        const suggestion = await response;
         // Ordering note: two requests for the SAME key cannot both land here because
         // suggestCoding aborts the previous request (a superseded one resolves null
         // while the live key differs). Keep that abort if suggestCoding changes.
@@ -118,32 +207,26 @@ export function useBillCodingSuggestion<
         }
 
         const catalog = sccCatalogRef.current;
-        setLines((prev) => applySuggestionToLines(prev, suggestion, catalog));
+        applySuggestionResponse(
+          requestKey,
+          requestProjectHint,
+          suggestion,
+          catalog,
+          setLines,
+          setBudgetSnapshot,
+        );
 
-        const check = suggestion?.budget_check;
-        const responseProject = suggestion?.project_public_id ?? "";
-        const projectMismatch =
-          projectHint != null &&
-          responseProject !== "" &&
-          responseProject !== projectHint;
-        const suggestedSccOptionId = suggestedSccOptionIdFromResponse(suggestion, catalog);
         if (
-          !projectMismatch &&
-          (check === "fits" ||
-            check === "tight" ||
-            check === "over" ||
-            check === "unbudgeted" ||
-            check === "no_budget")
+          textSuggestionPoll &&
+          suggestion?.text_status === "pending"
         ) {
-          setBudgetSnapshot({
-            key: requestKey,
-            budget_check: check,
-            budget_remaining: suggestion?.budget_remaining ?? null,
-            project_public_id: projectHint ?? "",
-            suggested_scc_option_id: suggestedSccOptionId,
+          textPollAttemptsRef.current = 0;
+          setTextPollSession({
+            requestKey,
+            editEpochAtStart: lineUserEditEpochRef.current,
           });
         } else {
-          setBudgetSnapshot(null);
+          setTextPollSession(null);
         }
       } finally {
         if (inFlightRequestKeyRef.current === requestKey) {
@@ -163,7 +246,62 @@ export function useBillCodingSuggestion<
     bill_public_id,
     sccCatalog.length,
     setLines,
+    textSuggestionPoll,
   ]);
+
+  // Stop polling as soon as the user edits a line or inputs move off the polled key.
+  useEffect(() => {
+    if (textPollSession != null && !pollSessionIsLiveRef.current(textPollSession)) {
+      setTextPollSession(null);
+    }
+  }, [textPollSession, lineUserEditEpoch, liveInputKey]);
+
+  useEffect(() => {
+    if (textPollSession == null || !textSuggestionPoll) return;
+
+    const session = textPollSession;
+
+    const id = window.setInterval(() => {
+      // One poll at a time: a slow response must not be overtaken by the next tick.
+      if (pollInFlightRef.current) return;
+      if (!pollSessionIsLiveRef.current(session)) {
+        setTextPollSession(null);
+        return;
+      }
+      textPollAttemptsRef.current += 1;
+      if (textPollAttemptsRef.current > TEXT_POLL_MAX_ATTEMPTS) {
+        setTextPollSession(null);
+        return;
+      }
+
+      pollInFlightRef.current = true;
+      void (async () => {
+        try {
+          const { projectHint: requestProjectHint, response } = requestSuggestionRef.current();
+          const suggestion = await response;
+          // null = aborted or failed: keep what is on screen and try again next tick.
+          if (suggestion == null) return;
+          if (!pollSessionIsLiveRef.current(session)) {
+            setTextPollSession(null);
+            return;
+          }
+          applySuggestionResponse(
+            session.requestKey,
+            requestProjectHint,
+            suggestion,
+            sccCatalogRef.current,
+            setLines,
+            setBudgetSnapshot,
+          );
+          if (suggestion.text_status !== "pending") setTextPollSession(null);
+        } finally {
+          pollInFlightRef.current = false;
+        }
+      })();
+    }, TEXT_POLL_INTERVAL_MS);
+
+    return () => window.clearInterval(id);
+  }, [textPollSession, textSuggestionPoll, setLines]);
 
   const budgetChip = billLevelBudgetChip(
     budgetSnapshot,

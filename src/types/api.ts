@@ -826,12 +826,14 @@ export interface BillCodingSuggestResponse {
   sub_cost_code_public_id: string | null;
   sub_cost_code_number: string | null;
   sub_cost_code_name: string | null;
-  source: "vendor_project_history" | "vendor_history" | "memo" | "none";
+  source: "vendor_project_history" | "vendor_history" | "memo" | "llm" | "none";
   reason: string;
   confidence: number | string | null;
   model_version: string | null;
   budget_check: BillCodingBudgetCheck;
   budget_remaining: string | null;
+  /** Present when the API runs text/LLM coding; omitted on older API builds. */
+  text_status?: "ready" | "pending" | "none";
 }
 
 export interface Expense {

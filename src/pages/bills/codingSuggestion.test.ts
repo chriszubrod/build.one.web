@@ -15,6 +15,7 @@ import {
   serializeCodingSuggestKey,
   formatSuggestionBadgeLabel,
   isLowConfidence,
+  lineShowsProjectSuggestionMarker,
   projectHintFromLines,
   suggestCoding,
   resetSuggestCodingForTests,
@@ -144,10 +145,192 @@ describe("applySuggestionToLines", () => {
     expect(out[2].coding_prefill_state).toBe("prefilled");
   });
 
-  it("r3-2 never prefills project_public_id from suggestion", () => {
+  it("r3-2 never prefills project_public_id from history suggestion", () => {
     const lines: DraftLine[] = [emptyLine("a")];
     const out = applySuggestionToLines(lines, sampleSuggestion(), catalog);
     expect(out[0].project_public_id).toBe("");
+  });
+
+  it("llm source prefills project on empty untouched lines only", () => {
+    const lines: DraftLine[] = [
+      emptyLine("a"),
+      { ...emptyLine("b"), project_public_id: "user-proj" },
+      { ...emptyLine("c"), coding_project_touched: true },
+    ];
+    const out = applySuggestionToLines(
+      lines,
+      sampleSuggestion({ source: "llm", project_public_id: "p-llm" }),
+      catalog,
+    );
+    expect(out[0].project_public_id).toBe("p-llm");
+    expect(out[0].coding_suggested_project_public_id).toBe("p-llm");
+    expect(out[0].coding_prefill_state).toBe("prefilled");
+    expect(out[1].project_public_id).toBe("user-proj");
+    expect(out[2].project_public_id).toBe("");
+  });
+
+  it("llm SCC auto-fills empty untouched line with AI source on badge fields", () => {
+    const lines: DraftLine[] = [emptyLine("a")];
+    const out = applySuggestionToLines(
+      lines,
+      sampleSuggestion({ source: "llm", confidence: 0.81 }),
+      catalog,
+    );
+    expect(out[0].sub_cost_code_id).toBe("42");
+    expect(out[0].coding_suggestion_source).toBe("llm");
+    expect(formatSuggestionBadgeLabel(out[0].coding_suggestion_confidence ?? null, "llm")).toBe(
+      "AI 81%",
+    );
+  });
+
+  it("llm never overwrites touched line or set SCC", () => {
+    const lines: DraftLine[] = [
+      { ...emptyLine("a"), coding_scc_touched: true },
+      { ...emptyLine("b"), sub_cost_code_id: "7" },
+    ];
+    const out = applySuggestionToLines(
+      lines,
+      sampleSuggestion({ source: "llm" }),
+      catalog,
+    );
+    expect(out[0].sub_cost_code_id).toBe("");
+    expect(out[1].sub_cost_code_id).toBe("7");
+  });
+
+  it("web-r3 an accepted line is never replaced by a later llm result", () => {
+    const accepted: DraftLine = {
+      ...emptyLine("a"),
+      sub_cost_code_id: "42",
+      coding_suggested_sub_cost_code_id: "42",
+      coding_prefill_state: "accepted",
+      coding_suggestion_source: "vendor_history",
+      coding_suggestion_reason: "history",
+    };
+    const llmCatalog = [...catalog, { id: 99, public_id: "scc-llm" }];
+    const out = applySuggestionToLines(
+      [accepted],
+      sampleSuggestion({
+        source: "llm",
+        sub_cost_code_public_id: "scc-llm",
+        project_public_id: "p-llm",
+        reason: "text",
+      }),
+      llmCatalog,
+    );
+    // The project fill is allowed (empty cell) but must not touch the SCC or its badge.
+    expect(out[0].sub_cost_code_id).toBe("42");
+    expect(out[0].coding_prefill_state).toBe("accepted");
+    expect(out[0].coding_suggestion_source).toBe("vendor_history");
+    expect(out[0].coding_suggestion_reason).toBe("history");
+    expect(out[0].project_public_id).toBe("p-llm");
+  });
+
+  it("web-r3 a project-only llm fill leaves the SCC badge state alone and marks the project", () => {
+    const userScc: DraftLine = { ...emptyLine("a"), sub_cost_code_id: "7" };
+    const out = applySuggestionToLines(
+      [userScc],
+      sampleSuggestion({ source: "llm", project_public_id: "p-llm" }),
+      catalog,
+    );
+    expect(out[0].project_public_id).toBe("p-llm");
+    expect(out[0].coding_prefill_state).toBeUndefined();
+    expect(out[0].coding_suggestion_source).toBeUndefined();
+    expect(out[0].coding_suggestion_confidence).toBeUndefined();
+    expect(lineShowsProjectSuggestionMarker(out[0])).toBe(true);
+    expect(lineShowsProjectSuggestionMarker({ ...out[0], coding_project_touched: true })).toBe(false);
+    expect(lineShowsProjectSuggestionMarker({ ...out[0], project_public_id: "other" })).toBe(false);
+  });
+
+  it("web-r3 a history result never replaces a prefilled SCC", () => {
+    const prefilled: DraftLine = {
+      ...emptyLine("a"),
+      sub_cost_code_id: "42",
+      coding_suggested_sub_cost_code_id: "42",
+      coding_prefill_state: "prefilled",
+      coding_suggestion_source: "llm",
+    };
+    const historyCatalog = [...catalog, { id: 99, public_id: "scc-hist" }];
+    const out = applySuggestionToLines(
+      [prefilled],
+      sampleSuggestion({ sub_cost_code_public_id: "scc-hist" }),
+      historyCatalog,
+    );
+    expect(out).toEqual([prefilled]);
+  });
+
+  it("web-r3 an llm result refreshes a prefilled untouched SCC", () => {
+    const prefilled: DraftLine = {
+      ...emptyLine("a"),
+      sub_cost_code_id: "42",
+      coding_suggested_sub_cost_code_id: "42",
+      coding_prefill_state: "prefilled",
+      coding_suggestion_source: "vendor_history",
+    };
+    const llmCatalog = [...catalog, { id: 99, public_id: "scc-llm" }];
+    const out = applySuggestionToLines(
+      [prefilled],
+      sampleSuggestion({ source: "llm", sub_cost_code_public_id: "scc-llm" }),
+      llmCatalog,
+    );
+    expect(out[0].sub_cost_code_id).toBe("99");
+    expect(out[0].coding_prefill_state).toBe("prefilled");
+    expect(out[0].coding_suggestion_source).toBe("llm");
+  });
+
+  it("web-r4 an llm refresh that moves the project also refreshes its SCC", () => {
+    const llmCatalog = [...catalog, { id: 99, public_id: "scc-2" }];
+    const first = applySuggestionToLines(
+      [emptyLine("a")],
+      sampleSuggestion({ source: "llm", project_public_id: "p-1", reason: "first" }),
+      llmCatalog,
+    );
+    expect(first[0]).toMatchObject({ project_public_id: "p-1", sub_cost_code_id: "42" });
+    const out = applySuggestionToLines(
+      first,
+      sampleSuggestion({
+        source: "llm",
+        project_public_id: "p-2",
+        sub_cost_code_public_id: "scc-2",
+        reason: "second",
+      }),
+      llmCatalog,
+    );
+    expect(out[0]).toMatchObject({
+      project_public_id: "p-2",
+      sub_cost_code_id: "99",
+      coding_prefill_state: "prefilled",
+      coding_suggestion_reason: "second",
+    });
+  });
+
+  it("web-r4 an llm refresh fills an empty SCC on the project it moves to", () => {
+    const llmCatalog = [...catalog, { id: 99, public_id: "scc-2" }];
+    const first = applySuggestionToLines(
+      [emptyLine("a")],
+      sampleSuggestion({ source: "llm", project_public_id: "p-1", sub_cost_code_public_id: "unmapped" }),
+      llmCatalog,
+    );
+    expect(first[0]).toMatchObject({ project_public_id: "p-1", sub_cost_code_id: "" });
+    const out = applySuggestionToLines(
+      first,
+      sampleSuggestion({ source: "llm", project_public_id: "p-2", sub_cost_code_public_id: "scc-2" }),
+      llmCatalog,
+    );
+    expect(out[0]).toMatchObject({ project_public_id: "p-2", sub_cost_code_id: "99" });
+  });
+
+  it("web-r4 an llm refresh never moves the project away from its unrefreshable SCC", () => {
+    const first = applySuggestionToLines(
+      [emptyLine("a")],
+      sampleSuggestion({ source: "llm", project_public_id: "p-1" }),
+      catalog,
+    );
+    const out = applySuggestionToLines(
+      first,
+      sampleSuggestion({ source: "llm", project_public_id: "p-2", sub_cost_code_public_id: "unmapped" }),
+      catalog,
+    );
+    expect(out).toBe(first);
   });
 
   it('r6-5 applySuggestionToLines no-ops for source "none"', () => {
@@ -191,7 +374,7 @@ describe("projectHintFromLines", () => {
 });
 
 describe("applyUserCodingFieldChange (r2-P)", () => {
-  it("r4-2 project change does not transition prefilled or accepted state", () => {
+  it("r4-2 project change does not transition prefilled state when project was not suggested", () => {
     const line: LineCodingFields = {
       sub_cost_code_id: "42",
       project_public_id: "",
@@ -201,6 +384,7 @@ describe("applyUserCodingFieldChange (r2-P)", () => {
     const next = applyUserCodingFieldChange(line, "project_public_id", "p-1");
     expect(next.coding_prefill_state).toBe("prefilled");
     expect(next.project_public_id).toBe("p-1");
+    expect(next.coding_project_touched).toBe(true);
     const accepted: LineCodingFields = {
       sub_cost_code_id: "42",
       project_public_id: "",
@@ -209,6 +393,36 @@ describe("applyUserCodingFieldChange (r2-P)", () => {
     expect(applyUserCodingFieldChange(accepted, "project_public_id", "p-1").coding_prefill_state).toBe(
       "accepted",
     );
+  });
+
+  it("llm suggested project edit transitions prefilled to changed", () => {
+    const line: LineCodingFields = {
+      sub_cost_code_id: "42",
+      project_public_id: "p-llm",
+      coding_prefill_state: "prefilled",
+      coding_suggested_sub_cost_code_id: "42",
+      coding_suggested_project_public_id: "p-llm",
+      coding_suggestion_source: "llm",
+    };
+    const next = applyUserCodingFieldChange(line, "project_public_id", "p-other");
+    expect(next.coding_prefill_state).toBe("changed");
+    expect(next.coding_project_touched).toBe(true);
+  });
+
+  it("web-r4 editing an llm project filled beside a history SCC leaves the SCC state", () => {
+    for (const state of ["prefilled", "accepted"] as const) {
+      const line: LineCodingFields = {
+        sub_cost_code_id: "42",
+        project_public_id: "p-llm",
+        coding_prefill_state: state,
+        coding_suggested_sub_cost_code_id: "42",
+        coding_suggested_project_public_id: "p-llm",
+        coding_suggestion_source: "vendor_history",
+      };
+      const next = applyUserCodingFieldChange(line, "project_public_id", "p-9");
+      expect(next.coding_prefill_state).toBe(state);
+      expect(lineShowsProjectSuggestionMarker(next)).toBe(false);
+    }
   });
 
   it("r2-P transitions accepted to changed when SCC value changes from current hold", () => {

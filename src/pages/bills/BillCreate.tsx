@@ -18,6 +18,7 @@ import {
   applyUserLinePatch,
   codingSuggestAmountFromLines,
   formatSuggestionBadgeLabel,
+  lineShowsProjectSuggestionMarker,
   lineShowsSuggestionBadgeFor,
   projectHintFromLines,
   suggestionBadgeClassName,
@@ -626,7 +627,10 @@ export default function BillCreate() {
                             className={suggestionBadgeClassName(li.coding_suggestion_confidence ?? null)}
                             title={li.coding_suggestion_reason ?? undefined}
                           >
-                            {formatSuggestionBadgeLabel(li.coding_suggestion_confidence ?? null)}
+                            {formatSuggestionBadgeLabel(
+                              li.coding_suggestion_confidence ?? null,
+                              li.coding_suggestion_source,
+                            )}
                           </span>
                           {li.coding_prefill_state === "prefilled" && (
                             <button
@@ -658,6 +662,16 @@ export default function BillCreate() {
                           <option key={o.value} value={o.value}>{o.label}</option>
                         ))}
                       </select>
+                      {lineShowsProjectSuggestionMarker(li) && (
+                        <div className="coding-suggestion-actions">
+                          <span
+                            className="status-badge coding-suggested"
+                            title="Project predicted from the bill's attachment text"
+                          >
+                            AI
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </td>
                   <td style={{ textAlign: "right" }}>

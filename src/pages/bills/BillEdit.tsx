@@ -32,6 +32,7 @@ import {
   formatSuggestionBadgeLabel,
   acceptPrefilled,
   applyUserLinePatch,
+  lineShowsProjectSuggestionMarker,
   lineShowsSuggestionBadgeFor,
   projectHintFromLines,
   suggestionBadgeClassName,
@@ -226,6 +227,7 @@ export default function BillEdit() {
   const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [projectHintForSuggest, setProjectHintForSuggest] = useState<string | undefined>();
+  const [lineUserEditEpoch, setLineUserEditEpoch] = useState(0);
   const memoValue = form?.memo ?? "";
   const debouncedMemo = useDebouncedMemoAfterBaseline(
     memoValue,
@@ -444,6 +446,8 @@ export default function BillEdit() {
     sccCatalog: fullSubCostCodes,
     bill_public_id: publicId,
     setLines: setLineItems,
+    textSuggestionPoll: codingSuggestEnabled,
+    lineUserEditEpoch,
   });
 
   if (loading || meLoading) return <div className="page-loading">Loading...</div>;
@@ -816,6 +820,7 @@ export default function BillEdit() {
                 // amount/price from stored values (U-167), so narrowing it to the edited
                 // row would change which rows get derived.
                 const patchRow = (patch: Partial<LineItemRow>) => {
+                  setLineUserEditEpoch((n) => n + 1);
                   const updated = lineItems.map((item, i) => {
                     if (i !== idx) return item;
                     return applyUserLinePatch(item, patch);
@@ -859,7 +864,10 @@ export default function BillEdit() {
                               className={suggestionBadgeClassName(li.coding_suggestion_confidence ?? null)}
                               title={li.coding_suggestion_reason ?? undefined}
                             >
-                              {formatSuggestionBadgeLabel(li.coding_suggestion_confidence ?? null)}
+                              {formatSuggestionBadgeLabel(
+                                li.coding_suggestion_confidence ?? null,
+                                li.coding_suggestion_source,
+                              )}
                             </span>
                             {li.coding_prefill_state === "prefilled" && (
                               <button
@@ -891,6 +899,16 @@ export default function BillEdit() {
                           )}
                           {projectOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                         </select>
+                        {form.is_draft && lineShowsProjectSuggestionMarker(li) && (
+                          <div className="coding-suggestion-actions">
+                            <span
+                              className="status-badge coding-suggested"
+                              title="Project predicted from the bill's attachment text"
+                            >
+                              AI
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td style={{ textAlign: "right" }}>

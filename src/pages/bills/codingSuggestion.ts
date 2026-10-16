@@ -28,8 +28,13 @@ export interface LineCodingFields {
   coding_suggestion_confidence?: number | null;
   /** Set at prefill time — used to detect user overrides. */
   coding_suggested_sub_cost_code_id?: string;
+  /** Set when an llm suggestion prefills project_public_id. */
+  coding_suggested_project_public_id?: string;
   /** User edited this cell (including clear) — prefill must not touch it. */
   coding_scc_touched?: boolean;
+  coding_project_touched?: boolean;
+  /** Source of the live line suggestion (drives badge label, e.g. AI vs Suggested). */
+  coding_suggestion_source?: BillCodingSuggestionSource | null;
 }
 
 let activeSuggestAbort: AbortController | null = null;
@@ -53,10 +58,14 @@ export function confidenceDisplayPct(conf: number | null): number | null {
   return conf <= 1 ? Math.round(conf * 100) : Math.round(conf);
 }
 
-export function formatSuggestionBadgeLabel(conf: number | null): string {
+export function formatSuggestionBadgeLabel(
+  conf: number | null,
+  source?: BillCodingSuggestionSource | null,
+): string {
+  const prefix = source === "llm" ? "AI" : "Suggested";
   const pct = confidenceDisplayPct(conf);
-  if (pct == null) return "Suggested";
-  return `Suggested ${pct}%`;
+  if (pct == null) return prefix;
+  return `${prefix} ${pct}%`;
 }
 
 /** Raw confidence on a 0–100 scale (unrounded). */
@@ -324,12 +333,23 @@ export function applyUserCodingFieldChange<T extends LineCodingFields>(
   const withValue =
     field === "sub_cost_code_id"
       ? ({ ...line, sub_cost_code_id: newValue, coding_scc_touched: true } as T)
-      : ({ ...line, project_public_id: newValue } as T);
+      : ({ ...line, project_public_id: newValue, coding_project_touched: true } as T);
   let next = withValue;
-  // Project is never prefilled from suggestions (r3-2) — only an SCC override drops prefilled/accepted.
+  // The prefill state describes the SCC suggestion. A project edit drops it only when
+  // the project and the SCC came from the same llm fill — the SCC was predicted for
+  // that project. An llm project filled beside a history (or user) SCC leaves it alone.
+  const projectFromSameFillAsScc =
+    field === "project_public_id" &&
+    line.coding_suggestion_source === "llm" &&
+    line.coding_suggested_project_public_id != null &&
+    line.coding_suggested_project_public_id !== "" &&
+    previousValue === line.coding_suggested_project_public_id &&
+    line.coding_suggested_sub_cost_code_id != null &&
+    line.coding_suggested_sub_cost_code_id !== "" &&
+    line.sub_cost_code_id === line.coding_suggested_sub_cost_code_id;
   if (
-    field === "sub_cost_code_id" &&
-    shouldTransitionCodingPrefillOnFieldEdit(line.coding_prefill_state, previousValue, newValue)
+    shouldTransitionCodingPrefillOnFieldEdit(line.coding_prefill_state, previousValue, newValue) &&
+    (field === "sub_cost_code_id" || projectFromSameFillAsScc)
   ) {
     next = {
       ...next,
@@ -403,36 +423,77 @@ export function applySuggestionToLines<
     : mapSccPublicIdToOptionId(suggestion.sub_cost_code_public_id, sccCatalog);
   const projectId = empty ? "" : (suggestion.project_public_id ?? "");
   const conf = empty ? null : parseConfidence(suggestion.confidence);
+  const llmSource = !empty && suggestion.source === "llm";
 
-  const canFillSccOnLine = (line: T): boolean => {
+  /**
+   * The cell still holds the value a suggestion put there and the line is neither
+   * accepted nor user-changed — the only state a fresher llm result may replace.
+   */
+  const holdsSuggested = (line: T, field: "sub_cost_code_id" | "project_public_id"): boolean => {
+    if (line.coding_prefill_state === "accepted" || line.coding_prefill_state === "changed") {
+      return false;
+    }
+    const suggested =
+      field === "sub_cost_code_id"
+        ? line.coding_suggested_sub_cost_code_id
+        : line.coding_suggested_project_public_id;
+    return suggested != null && suggested !== "" && line[field] === suggested;
+  };
+
+  // History fills empty cells only; an llm result may also refresh an untouched prefill.
+  // Eligibility is judged against the project the line ends up with after this pass.
+  const canFillSccOnLine = (line: T, fillsProject: boolean): boolean => {
     if (empty || line.unresolved_project_id != null) return false;
     return (
       !line.coding_scc_touched &&
-      line.sub_cost_code_id === "" &&
       sccId !== "" &&
-      lineEligibleForSuggestionScc(line, projectId)
+      lineEligibleForSuggestionScc(fillsProject ? { project_public_id: projectId } : line, projectId) &&
+      (line.sub_cost_code_id === "" ||
+        (llmSource && !line.coding_project_touched && holdsSuggested(line, "sub_cost_code_id")))
     );
   };
 
-  const plans = lines.map((line) => canFillSccOnLine(line));
+  const canFillProjectOnLine = (line: T): boolean => {
+    if (empty || !llmSource || line.unresolved_project_id != null) return false;
+    return (
+      !line.coding_project_touched &&
+      projectId !== "" &&
+      (line.project_public_id === "" || holdsSuggested(line, "project_public_id"))
+    );
+  };
 
   let changed = false;
-  const mapped = lines.map((line, i) => {
-    const canFillScc = plans[i];
-    if (!canFillScc) {
+  const mapped = lines.map((line) => {
+    let canFillProject = canFillProjectOnLine(line);
+    const canFillScc = canFillSccOnLine(line, canFillProject);
+    // Never move a suggested project out from under the SCC predicted with it.
+    if (
+      canFillProject &&
+      !canFillScc &&
+      line.project_public_id !== "" &&
+      line.coding_suggestion_source === "llm" &&
+      holdsSuggested(line, "sub_cost_code_id")
+    ) {
+      canFillProject = false;
+    }
+    if (!canFillScc && !canFillProject) {
       return line;
     }
 
     changed = true;
     const next: T = { ...line };
-    next.sub_cost_code_id = sccId;
-    next.coding_suggested_sub_cost_code_id = sccId;
-    if (next.coding_prefill_state !== "changed") {
-      next.coding_prefill_state = "prefilled";
+    if (canFillProject) {
+      next.project_public_id = projectId;
+      next.coding_suggested_project_public_id = projectId;
     }
-    if (!empty) {
-      next.coding_suggestion_reason = suggestion.reason;
+    // The badge state describes the SCC suggestion; a project-only fill leaves it alone.
+    if (canFillScc) {
+      next.sub_cost_code_id = sccId;
+      next.coding_suggested_sub_cost_code_id = sccId;
+      if (next.coding_prefill_state !== "changed") next.coding_prefill_state = "prefilled";
+      next.coding_suggestion_reason = suggestion!.reason;
       next.coding_suggestion_confidence = conf;
+      next.coding_suggestion_source = suggestion!.source;
     }
     return next;
   });
@@ -465,6 +526,16 @@ export function lineShowsSuggestionBadgeFor(line: LineCodingFields): boolean {
     lineShowsSuggestionBadge(line) &&
     line.coding_suggested_sub_cost_code_id === line.sub_cost_code_id &&
     line.sub_cost_code_id !== ""
+  );
+}
+
+/** "AI" marker on the project cell: an llm-predicted project the user has not changed. */
+export function lineShowsProjectSuggestionMarker(line: LineCodingFields): boolean {
+  return (
+    !line.coding_project_touched &&
+    line.coding_suggested_project_public_id != null &&
+    line.coding_suggested_project_public_id !== "" &&
+    line.project_public_id === line.coding_suggested_project_public_id
   );
 }
 

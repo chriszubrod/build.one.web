@@ -48,6 +48,9 @@ function Harness(props: {
   debouncedAmount?: string;
   sccCatalog?: typeof catalog;
   vendor?: string;
+  textSuggestionPoll?: boolean;
+  lineUserEditEpoch?: number;
+  bill_public_id?: string;
 }) {
   const [lines, setLines] = useState(props.initialLines);
   const [memo, setMemo] = useState(props.memo ?? "memo");
@@ -68,6 +71,9 @@ function Harness(props: {
     lines,
     sccCatalog,
     setLines,
+    textSuggestionPoll: props.textSuggestionPoll,
+    lineUserEditEpoch: props.lineUserEditEpoch,
+    bill_public_id: props.bill_public_id,
   });
 
   return {
@@ -317,6 +323,179 @@ describe("useBillCodingSuggestion", () => {
       expect(mockSuggestCoding.mock.calls[0][0].amount).toBe("100.00");
       expect(h.result.current.lines.map((l) => l.sub_cost_code_id)).toEqual(["10", ""]);
       expect(h.result.current.budgetChip?.label).toBe("Within budget");
+    });
+  });
+
+  describe("text_status pending poll (BillEdit drafts)", () => {
+    it("polls every 20s while pending and stops when ready", async () => {
+      mockSuggestCoding
+        .mockResolvedValueOnce({ ...resp(), text_status: "pending" })
+        .mockResolvedValueOnce({
+          ...resp(),
+          source: "llm",
+          text_status: "ready",
+          sub_cost_code_public_id: "scc-b",
+        });
+
+      const h = renderHarness({
+        initialLines: [line({ uid: "a", project_public_id: "p-1", amount: "100.00" })],
+        debouncedAmount: "100.00",
+        textSuggestionPoll: true,
+        bill_public_id: "bill-1",
+      });
+      await tick();
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
+
+      await tick(20_000);
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(2);
+      expect(h.result.current.lines[0].sub_cost_code_id).toBe("20");
+      // Ready ends the session: no further polls.
+      await tick(60_000);
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(2);
+    });
+
+    it("web-r3 a slow poll is not overtaken by the next tick", async () => {
+      mockSuggestCoding.mockResolvedValueOnce({ ...resp(), text_status: "pending" });
+      const pending: Array<(v: unknown) => void> = [];
+      mockSuggestCoding.mockImplementation(() => new Promise((r) => pending.push(r)));
+
+      renderHarness({
+        initialLines: [line({ uid: "a", project_public_id: "p-1", amount: "100.00" })],
+        debouncedAmount: "100.00",
+        textSuggestionPoll: true,
+      });
+      await tick();
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
+
+      await tick(20_000);
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(2);
+      await tick(40_000);
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        pending[0]({ ...resp(), text_status: "pending" });
+        await drain();
+      });
+      await tick(20_000);
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(3);
+    });
+
+    it("web-r3 a null poll result keeps the lines and the session", async () => {
+      mockSuggestCoding
+        .mockResolvedValueOnce({ ...resp(), text_status: "pending" })
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          ...resp(),
+          source: "llm",
+          text_status: "ready",
+          sub_cost_code_public_id: "scc-b",
+        });
+
+      const h = renderHarness({
+        initialLines: [line({ uid: "a", project_public_id: "p-1", amount: "100.00" })],
+        debouncedAmount: "100.00",
+        textSuggestionPoll: true,
+      });
+      await tick();
+      expect(h.result.current.lines[0].sub_cost_code_id).toBe("10");
+      expect(h.result.current.budgetChip).not.toBeNull();
+
+      await tick(20_000);
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(2);
+      expect(h.result.current.lines[0].sub_cost_code_id).toBe("10");
+      expect(h.result.current.budgetChip).not.toBeNull();
+
+      await tick(20_000);
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(3);
+      expect(h.result.current.lines[0].sub_cost_code_id).toBe("20");
+    });
+
+    it("stops after 6 poll attempts", async () => {
+      mockSuggestCoding.mockResolvedValue({ ...resp(), text_status: "pending" });
+
+      renderHarness({
+        initialLines: [line({ uid: "a", project_public_id: "p-1", amount: "100.00" })],
+        debouncedAmount: "100.00",
+        textSuggestionPoll: true,
+      });
+      await tick();
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
+
+      for (let i = 0; i < 6; i++) {
+        await tick(20_000);
+      }
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(7);
+
+      await tick(20_000);
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(7);
+    });
+
+    it("does not poll when text_status is absent", async () => {
+      mockSuggestCoding.mockResolvedValue(resp());
+
+      renderHarness({
+        initialLines: [line({ uid: "a", project_public_id: "p-1", amount: "100.00" })],
+        debouncedAmount: "100.00",
+        textSuggestionPoll: true,
+      });
+      await tick();
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
+      await tick(60_000);
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not poll when textSuggestionPoll is false (BillCreate)", async () => {
+      mockSuggestCoding.mockResolvedValue({ ...resp(), text_status: "pending" });
+
+      renderHarness({
+        initialLines: [line({ uid: "a", project_public_id: "p-1", amount: "100.00" })],
+        debouncedAmount: "100.00",
+        textSuggestionPoll: false,
+      });
+      await tick();
+      await tick(40_000);
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
+    });
+
+    it("stops polling when lineUserEditEpoch changes", async () => {
+      mockSuggestCoding.mockResolvedValue({ ...resp(), text_status: "pending" });
+
+      function EpochHarness() {
+        const [epoch, setEpoch] = useState(0);
+        const inner = Harness({
+          initialLines: [line({ uid: "a", project_public_id: "p-1", amount: "100.00" })],
+          debouncedAmount: "100.00",
+          textSuggestionPoll: true,
+          lineUserEditEpoch: epoch,
+        });
+        return { ...inner, bumpEpoch: () => setEpoch((n) => n + 1) };
+      }
+
+      const h = renderHook(() => EpochHarness());
+      await tick();
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        h.result.current.bumpEpoch();
+        h.rerender();
+      });
+
+      await tick(20_000);
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
+    });
+
+    it("stops polling on unmount", async () => {
+      mockSuggestCoding.mockResolvedValue({ ...resp(), text_status: "pending" });
+
+      const h = renderHarness({
+        initialLines: [line({ uid: "a", project_public_id: "p-1", amount: "100.00" })],
+        debouncedAmount: "100.00",
+        textSuggestionPoll: true,
+      });
+      await tick();
+      h.unmount();
+      await tick(25_000);
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
     });
   });
 });
