@@ -1,3 +1,17 @@
+## U-654b follow-ups — bill text-tier coding suggestions (booked 2026-10-16)
+
+- [ ] 🟢 **P3 — "same fill" is inferred, not recorded.** `applyUserCodingFieldChange` (`projectFromSameFillAsScc`) and the
+  project-move veto in `applySuggestionToLines` (`src/pages/bills/codingSuggestion.ts`) treat an llm SCC + llm project
+  as one prediction when both still equal their suggested values — but they can come from different passes
+  (llm(no project, S1) then llm(P2, unmappable SCC) puts P2 beside S1). Effect: a project edit flips S1 to `changed`,
+  and the veto can pin P2 against a later llm project. Fix: on an SCC fill, stamp `coding_scc_fill_project_public_id =
+  projectId` and compare against that in both places. Found by the round-4 stand-in re-check.
+- [ ] 🟢 **P3 — a memo edited then reverted mid-poll silently ends text polling.** The key moves off, the session is
+  dropped, and the main request does not re-fire for the same key (`lastFiredRequestKeyRef`), so the text-tier
+  result is never polled for. Reload recovers it.
+- [ ] 🟢 **P3 — a hung request stalls polling.** `rawRequest` has no timeout, so a never-settling poll keeps
+  `pollInFlightRef` true and the attempt cap is never reached (no further requests; benign).
+
 ## U-585 follow-ups — system-admin console `/admin` (booked 2026-09-30)
 
 U-585 shipped `/admin` (user list + search) and `/admin/user/:publicId` (info, roles, reset password,
