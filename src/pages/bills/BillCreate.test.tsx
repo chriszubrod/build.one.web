@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import BillCreate from "./BillCreate";
+import { UNREVIEWED_PREFILL_MSG } from "./codingSuggestion";
 import { flushUntil } from "../../__testutils__/flush";
 import { setInputValue, setSelectValue, setTextareaValue } from "../../__testutils__/domEvents";
 import { Modules } from "../../shared/modules";
@@ -974,6 +975,32 @@ describe("BillCreate coding suggestions", () => {
 
     await flushUntil(() => mockPost.mock.calls.some((c) => c[0] === "/api/v1/create/bill"));
     expect(createBillBody().line_coding_prefill_state).toBe("accepted");
+  });
+
+  it("U-674 Submit For Review and Complete stay disabled until the pre-filled code is accepted", async () => {
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
+    renderPage();
+    await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+
+    await act(async () => {
+      fillLineRow(0, "Line one", "p-1");
+      fillHeader();
+      attachPdf();
+    });
+
+    await flushUntil(() => sccSelectAt(0).value === "10");
+    expect(sccSelectAt(0).value).toBe("10");
+    expect(submitForReviewButton().disabled).toBe(true);
+    expect(submitForReviewButton().title).toBe(UNREVIEWED_PREFILL_MSG);
+    expect(completeBillButton().disabled).toBe(true);
+
+    await act(async () => {
+      findButton("Accept all suggestions").click();
+    });
+
+    await flushUntil(() => !submitForReviewButton().disabled);
+    expect(submitForReviewButton().disabled).toBe(false);
+    expect(completeBillButton().disabled).toBe(false);
   });
 
   it("r4-2 project change on prefilled line keeps prefilled state on save", async () => {

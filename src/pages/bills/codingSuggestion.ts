@@ -516,6 +516,18 @@ export function nextPrefillState(
   return prev;
 }
 
+/**
+ * U-674: an untouched pre-filled cost code is not a reviewed one. The API refuses
+ * Submit for Review and Complete (422 `unreviewed_prefill`) while any line is still
+ * `prefilled`; the pages disable those buttons with this message.
+ */
+export const UNREVIEWED_PREFILL_MSG =
+  "Accept or change each suggested cost code before submitting or completing.";
+
+export function linesHaveUnreviewedPrefill(lines: readonly LineCodingFields[]): boolean {
+  return lines.some((li) => li.coding_prefill_state === "prefilled");
+}
+
 export function lineShowsSuggestionBadge(line: LineCodingFields): boolean {
   return line.coding_prefill_state === "prefilled" || line.coding_prefill_state === "accepted";
 }

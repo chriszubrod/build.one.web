@@ -30,6 +30,8 @@ import type { ReviewActionKind } from "../../components/ReviewTimeline";
 import {
   codingSuggestAmountFromLines,
   formatSuggestionBadgeLabel,
+  linesHaveUnreviewedPrefill,
+  UNREVIEWED_PREFILL_MSG,
   acceptPrefilled,
   applyUserLinePatch,
   lineShowsProjectSuggestionMarker,
@@ -691,6 +693,12 @@ export default function BillEdit() {
       toast(SUBMIT_REQUIRES_PROJECT_MSG);
       return false;
     }
+    // U-674: moving a bill forward on an untouched suggested code would record a review
+    // nobody gave. Decline stays open — it sends the bill back.
+    if ((action === "submit" || action === "advance") && linesHaveUnreviewedPrefill(lineItems)) {
+      toast(UNREVIEWED_PREFILL_MSG);
+      return false;
+    }
     return saveAll();
   };
 
@@ -701,7 +709,7 @@ export default function BillEdit() {
   const sccOptions = fullSubCostCodes.map((s) => ({ value: String(s.id), label: s.number ? `${s.number} — ${s.name}` : s.name }));
   const projectOptions = fullProjects.map((p) => ({ value: p.public_id, label: p.name }));
 
-  const hasPrefilledSuggestions = lineItems.some((li) => li.coding_prefill_state === "prefilled");
+  const hasPrefilledSuggestions = linesHaveUnreviewedPrefill(lineItems);
 
   const acceptAllSuggestions = () => {
     setLineItems((prev) => prev.map(acceptPrefilled));
@@ -784,6 +792,9 @@ export default function BillEdit() {
                 >
                   Accept all suggestions
                 </button>
+              )}
+              {form.is_draft && hasPrefilledSuggestions && (
+                <span className="text-muted" style={{ fontSize: 12 }}>{UNREVIEWED_PREFILL_MSG}</span>
               )}
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => setLineItems([...lineItems.map(computeLineItem), computeLineItem(newLineItem())])}>
                 + Add Row
@@ -983,11 +994,13 @@ export default function BillEdit() {
               type="button"
               className="btn btn-primary"
               onClick={handleSubmitForReview}
-              disabled={saving || completing || submitting || deleting || !lineItemsLoaded || !hasProjectOnLineItem}
+              disabled={saving || completing || submitting || deleting || !lineItemsLoaded || !hasProjectOnLineItem || hasPrefilledSuggestions}
               title={
-                hasProjectOnLineItem
-                  ? "Submit for review — drafts an email to the project PMs and advances the bill state."
-                  : SUBMIT_REQUIRES_PROJECT_MSG
+                !hasProjectOnLineItem
+                  ? SUBMIT_REQUIRES_PROJECT_MSG
+                  : hasPrefilledSuggestions
+                    ? UNREVIEWED_PREFILL_MSG
+                    : "Submit for review — drafts an email to the project PMs and advances the bill state."
               }
             >
               {submitting ? "Submitting..." : "Submit for Review"}
@@ -998,7 +1011,8 @@ export default function BillEdit() {
               type="button"
               className="btn btn-success"
               onClick={handleComplete}
-              disabled={saving || completing || submitting || deleting || !lineItemsLoaded}
+              disabled={saving || completing || submitting || deleting || !lineItemsLoaded || hasPrefilledSuggestions}
+              title={hasPrefilledSuggestions ? UNREVIEWED_PREFILL_MSG : undefined}
             >
               {completing ? "Completing..." : "Complete Bill"}
             </button>

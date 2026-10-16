@@ -18,6 +18,8 @@ import {
   applyUserLinePatch,
   codingSuggestAmountFromLines,
   formatSuggestionBadgeLabel,
+  linesHaveUnreviewedPrefill,
+  UNREVIEWED_PREFILL_MSG,
   lineShowsProjectSuggestionMarker,
   lineShowsSuggestionBadgeFor,
   projectHintFromLines,
@@ -177,7 +179,7 @@ export default function BillCreate() {
     setLines,
   });
 
-  const hasPrefilledSuggestions = lines.some((li) => li.coding_prefill_state === "prefilled");
+  const hasPrefilledSuggestions = linesHaveUnreviewedPrefill(lines);
 
   const addLine = () => setLines((prev) => [...prev, newLine()]);
 
@@ -259,12 +261,14 @@ export default function BillCreate() {
   const hasUpdatePerm = hasBillPermission(me, "can_update");
   const hasSubmitPerms = hasCreatePerm && hasUpdatePerm;
   const hasProjectOnLine = populatedLines.some((li) => !!li.project_public_id);
-  const canSubmitForReview = hasSubmitPerms && hasProjectOnLine;
+  const canSubmitForReview = hasSubmitPerms && hasProjectOnLine && !hasPrefilledSuggestions;
   const submitForReviewTitle = !hasSubmitPerms
     ? "Bills create and update permissions are required — Submit for Review creates the bill and calls the review submit endpoint."
     : !hasProjectOnLine
       ? "Set Project on at least one line item to enable Submit for Review."
-      : "Save the bill AND queue the reviewer notification email.";
+      : hasPrefilledSuggestions
+        ? UNREVIEWED_PREFILL_MSG
+        : "Save the bill AND queue the reviewer notification email.";
 
   // Complete needs EVERY populated line to have both project AND SCC —
   // completion enqueues one SharePoint upload per project and one Excel row
@@ -272,6 +276,7 @@ export default function BillCreate() {
   // one populated line so there's anything to complete.
   const canCompleteFromHere =
     hasLineData &&
+    !hasPrefilledSuggestions &&
     populatedLines.every((li) => !!li.project_public_id && !!li.sub_cost_code_id);
 
   // Bill.TotalAmount = sum of all populated lines' amounts. Server writes
@@ -785,7 +790,9 @@ export default function BillCreate() {
               title={
                 canCompleteFromHere
                   ? "Save the bill AND finalize it directly — bypasses review, kicks off SharePoint / Excel / QBO push."
-                  : "Set both Project and Sub Cost Code on the line item to enable Complete."
+                  : hasPrefilledSuggestions
+                    ? UNREVIEWED_PREFILL_MSG
+                    : "Set both Project and Sub Cost Code on the line item to enable Complete."
               }
             >
               {busyAction === "complete" ? "Completing..." : "Complete Bill"}

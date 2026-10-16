@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import BillEdit from "./BillEdit";
+import { UNREVIEWED_PREFILL_MSG } from "./codingSuggestion";
 import ReviewTimeline from "../../components/ReviewTimeline";
 import { ApiError } from "../../api/client";
 import { flushUntil } from "../../__testutils__/flush";
@@ -1787,6 +1788,62 @@ describe("BillEdit ReviewTimeline onBeforeAction (U-530)", () => {
     expect(mockPost.mock.calls.some((c) => c[0] === REVIEW_ADVANCE_PATH)).toBe(true);
     expect(mockToast).not.toHaveBeenCalledWith(SUBMIT_REQUIRES_PROJECT_MSG);
     expect(mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/bill/bill-1")).toBe(true);
+  });
+
+  it("U-674 an untouched pre-filled code blocks submit and advance but not decline", async () => {
+    wireReviewMocks(
+      [sampleLineItem({ public_id: "li-pre", description: "pre-filled", coding_prefill_state: "prefilled" })],
+      [activeReviewRow()],
+    );
+    mockPost.mockImplementation(() => Promise.resolve({}));
+
+    renderBillEdit();
+    await flushUntil(() => lineItemRows().length === 1);
+
+    for (const stub of ["review-submit-stub", "review-advance-stub"]) {
+      await act(async () => {
+        container.querySelector<HTMLButtonElement>(`[data-testid="${stub}"]`)!.click();
+      });
+    }
+    await flushUntil(() => mockToast.mock.calls.length >= 2);
+    expect(mockToast).toHaveBeenCalledWith(UNREVIEWED_PREFILL_MSG);
+    expect(mockPost.mock.calls.some((c) => c[0] === REVIEW_SUBMIT_PATH || c[0] === REVIEW_ADVANCE_PATH)).toBe(false);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="review-decline-stub"]')!.click();
+    });
+    await flushUntil(() => mockPost.mock.calls.some((c) => c[0] === "/api/v1/decline/review/bill/bill-1"));
+    expect(mockPost.mock.calls.some((c) => c[0] === "/api/v1/decline/review/bill/bill-1")).toBe(true);
+  });
+
+  it("U-674 Submit for Review and Complete Bill are disabled while a line holds an untouched pre-fill", async () => {
+    wireReviewMocks([sampleLineItem({ public_id: "li-pre", description: "pre-filled", coding_prefill_state: "prefilled" })]);
+
+    renderBillEdit();
+    await flushUntil(() => lineItemRows().length === 1);
+
+    const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>("button"));
+    const submit = buttons.find((b) => b.textContent === "Submit for Review" && !b.dataset.testid);
+    const complete = buttons.find((b) => b.textContent === "Complete Bill");
+    expect(submit).toBeDefined();
+    expect(complete).toBeDefined();
+    expect(submit!.disabled).toBe(true);
+    expect(submit!.title).toBe(UNREVIEWED_PREFILL_MSG);
+    expect(complete!.disabled).toBe(true);
+    expect(container.textContent).toContain(UNREVIEWED_PREFILL_MSG);
+  });
+
+  it("U-674 accepted suggestions leave Submit for Review and Complete Bill enabled", async () => {
+    wireReviewMocks([sampleLineItem({ public_id: "li-acc", description: "accepted", coding_prefill_state: "accepted" })]);
+
+    renderBillEdit();
+    await flushUntil(() => lineItemRows().length === 1);
+
+    const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>("button"));
+    const submit = buttons.find((b) => b.textContent === "Submit for Review" && !b.dataset.testid);
+    const complete = buttons.find((b) => b.textContent === "Complete Bill");
+    expect(submit!.disabled).toBe(false);
+    expect(complete!.disabled).toBe(false);
   });
 
   it("passes onBeforeAction to ReviewTimeline", async () => {
