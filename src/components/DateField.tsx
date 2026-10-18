@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 interface DateFieldProps {
   label: string;
   name: string;
@@ -5,6 +7,7 @@ interface DateFieldProps {
   onChange: (name: string, value: string) => void;
   required?: boolean;
   error?: string;
+  adornment?: ReactNode;
 }
 
 export default function DateField({
@@ -14,6 +17,7 @@ export default function DateField({
   onChange,
   required = false,
   error,
+  adornment,
 }: DateFieldProps) {
   // Convert ISO datetime strings to YYYY-MM-DD for the date input
   const dateValue = value ? value.substring(0, 10) : "";
@@ -32,6 +36,7 @@ export default function DateField({
         onChange={(e) => onChange(name, e.target.value)}
         required={required}
       />
+      {adornment}
       {error && <span className="field-error">{error}</span>}
     </div>
   );

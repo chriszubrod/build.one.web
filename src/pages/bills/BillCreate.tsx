@@ -1,5 +1,5 @@
-import { useNavigate } from "react-router-dom";
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { post, put, uploadFile } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
@@ -18,15 +18,43 @@ import {
   applyUserLinePatch,
   codingSuggestAmountFromLines,
   formatSuggestionBadgeLabel,
-  linesHaveUnreviewedPrefill,
   UNREVIEWED_PREFILL_MSG,
   lineShowsProjectSuggestionMarker,
+  linesHaveUnreviewedPrefill,
   lineShowsSuggestionBadgeFor,
   projectHintFromLines,
   suggestionBadgeClassName,
   type LineCodingFields,
 } from "./codingSuggestion";
 import { useBillCodingSuggestion } from "./useBillCodingSuggestion";
+import {
+  acceptAllHeaderPrefill,
+  acceptAllLine1Prefill,
+  acceptHeaderPrefillField,
+  acceptLine1PrefillField,
+  createEmptyHeaderPrefill,
+  createEmptyLine1Prefill,
+  HEADER_PREFILL_BADGE_LABEL,
+  headersHaveUnreviewedPrefill,
+  line1HasUnreviewedPrefill,
+  markHeaderUserEdit,
+  markLine1PrefillUserEdit,
+  revertUnacceptedHeaderPrefill,
+  revertUnacceptedLine1Prefill,
+  type HeaderPrefillField,
+  type HeaderPrefillMeta,
+  type HeaderUserTouched,
+  type Line1PrefillField,
+  type Line1PrefillMeta,
+} from "./headerPrefill";
+import {
+  applyReadAttachmentResult,
+  GENERIC_READ_ERROR,
+  pullBillPdfFromLocationState,
+  readBillAttachment,
+  revertUnacceptedCodingPrefill,
+  revertUnacceptedLine1Scalars,
+} from "./readAttachment";
 
 interface AttachmentResponse {
   public_id: string;
@@ -73,9 +101,48 @@ function fmtMoney(v: string): string {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
+const UPLOAD_PDF_ERROR = "Could not upload this PDF";
+
+function filePrefillAdornment(
+  ariaLabel: string,
+  onAccept: () => void,
+  busy: boolean,
+): ReactNode {
+  return (
+    <div className="coding-suggestion-actions header-prefill-adornment">
+      <span className="status-badge coding-suggested">{HEADER_PREFILL_BADGE_LABEL}</span>
+      <button
+        type="button"
+        className="btn-coding-accept"
+        title="Accept value from file"
+        aria-label={ariaLabel}
+        disabled={busy}
+        onClick={onAccept}
+      >
+        ✓
+      </button>
+    </div>
+  );
+}
+
+/** "From file" badge + ✓ for a header or line-1 field still awaiting acceptance. */
+function prefillAdornment<F extends string>(
+  meta: { [K in F]?: { state?: string } },
+  field: F,
+  labelPrefix: string,
+  onAccept: (field: F) => void,
+  busy: boolean,
+): ReactNode {
+  if (meta[field]?.state !== "prefilled") return null;
+  return filePrefillAdornment(`Accept ${labelPrefix}${field} from file`, () => onAccept(field), busy);
+}
+
 export default function BillCreate() {
   const navigate = useNavigate();
-  const { data: lookups } = useLookups("vendors,payment_terms,sub_cost_codes,projects");
+  const location = useLocation();
+  const { data: lookups, loading: lookupsLoading } = useLookups(
+    "vendors,payment_terms,sub_cost_codes,projects",
+  );
   const { data: me } = useCurrentUser();
   const { toast } = useToast();
   // Complete bypasses Review entirely — straight to IsDraft=False + outbox
@@ -96,6 +163,42 @@ export default function BillCreate() {
   // multi-line support landed.
   const [lines, setLines] = useState<LineItemDraft[]>(() => [newLine()]);
   const [file, setFile] = useState<File | null>(null);
+  const [attachmentPublicId, setAttachmentPublicId] = useState<string | null>(null);
+  const [readingAttachment, setReadingAttachment] = useState(false);
+  const [readInlineMessage, setReadInlineMessage] = useState<string | null>(null);
+  const [headerPrefill, setHeaderPrefill] = useState<HeaderPrefillMeta>(() =>
+    createEmptyHeaderPrefill(),
+  );
+  const [headerUserTouched, setHeaderUserTouched] = useState<HeaderUserTouched>({});
+  const [line1Prefill, setLine1Prefill] = useState<Line1PrefillMeta>(() =>
+    createEmptyLine1Prefill(),
+  );
+  /** Line row uid that owns line1Prefill badges/gates (not index 0 after row removal). */
+  const [line1PrefillUid, setLine1PrefillUid] = useState<string | null>(null);
+  const readAbortRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(false);
+  const readGenerationRef = useRef(0);
+  const navPdfStartedRef = useRef(false);
+  const pendingReadApplyRef = useRef<{
+    result: Awaited<ReturnType<typeof readBillAttachment>>;
+    generation: number;
+  } | null>(null);
+  const formRef = useRef(form);
+  formRef.current = form;
+  const headerPrefillRef = useRef(headerPrefill);
+  headerPrefillRef.current = headerPrefill;
+  const headerUserTouchedRef = useRef(headerUserTouched);
+  headerUserTouchedRef.current = headerUserTouched;
+  const line1PrefillRef = useRef(line1Prefill);
+  line1PrefillRef.current = line1Prefill;
+  const line1PrefillUidRef = useRef(line1PrefillUid);
+  line1PrefillUidRef.current = line1PrefillUid;
+  const linesRef = useRef(lines);
+  linesRef.current = lines;
+  const lookupsRef = useRef(lookups);
+  lookupsRef.current = lookups;
+  const lookupsLoadingRef = useRef(lookupsLoading);
+  lookupsLoadingRef.current = lookupsLoading;
   // Browser blob URL for rendering the selected PDF in an iframe pre-upload.
   // Built + revoked via useEffect below so we don't leak object URLs across
   // successive selections.
@@ -106,7 +209,7 @@ export default function BillCreate() {
   // null = idle. The button labels + disabled gates branch off this value
   // instead of three separate booleans.
   const [busyAction, setBusyAction] = useState<"save" | "submit" | "complete" | null>(null);
-  const busy = busyAction !== null;
+  const busy = busyAction !== null || readingAttachment;
   const [saveError, setSaveError] = useState("");
   /** User-selected project hint for coding suggest — not updated by pre-fill. */
   const [projectHintForSuggest, setProjectHintForSuggest] = useState<string | undefined>();
@@ -146,16 +249,54 @@ export default function BillCreate() {
     }
   }, [lookups.payment_terms, form.payment_term_public_id]);
 
-  const onChange = (name: string, value: string) =>
+  const onChange = (name: string, value: string) => {
+    if (
+      name === "vendor_public_id" ||
+      name === "bill_number" ||
+      name === "bill_date"
+    ) {
+      setHeaderUserTouched((prev) => ({ ...prev, [name]: true }));
+      setHeaderPrefill((prev) => markHeaderUserEdit(prev, name));
+    }
     setForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const acceptHeaderField = (field: HeaderPrefillField) => {
+    setHeaderPrefill((prev) => acceptHeaderPrefillField(prev, field));
+  };
+
+  const acceptLine1Field = (field: Line1PrefillField) => {
+    setLine1Prefill((prev) => acceptLine1PrefillField(prev, field));
+  };
+
+  const lineIndexForPrefillUid = (rows: LineItemDraft[]): number => {
+    const uid = line1PrefillUidRef.current;
+    if (uid) {
+      const idx = rows.findIndex((li) => li.uid === uid);
+      if (idx >= 0) return idx;
+    }
+    return 0;
+  };
 
   const updateLine = (index: number, key: keyof LineItemDraft, value: string | boolean) => {
+    const prefillIndex = lineIndexForPrefillUid(linesRef.current);
+    if (
+      index === prefillIndex &&
+      (key === "description" || key === "quantity" || key === "rate")
+    ) {
+      setLine1Prefill((prev) => markLine1PrefillUserEdit(prev, key));
+    }
     setLines((prev) =>
-      prev.map((li, i) =>
-        i === index
-          ? computeBillLine(applyUserLinePatch(li, { [key]: value } as Partial<LineItemDraft>))
-          : li,
-      ),
+      prev.map((li, i) => {
+        if (i !== index) return li;
+        let row = li;
+        if (key === "description") row = { ...row, file_description_touched: true };
+        if (key === "quantity") row = { ...row, file_quantity_touched: true };
+        if (key === "rate") row = { ...row, file_rate_touched: true };
+        return computeBillLine(
+          applyUserLinePatch(row, { [key]: value } as Partial<LineItemDraft>),
+        );
+      }),
     );
   };
 
@@ -164,6 +305,8 @@ export default function BillCreate() {
   };
 
   const acceptAllSuggestions = () => {
+    setHeaderPrefill((prev) => acceptAllHeaderPrefill(prev));
+    setLine1Prefill((prev) => acceptAllLine1Prefill(prev));
     setLines((prev) => prev.map(acceptPrefilled));
   };
 
@@ -179,12 +322,26 @@ export default function BillCreate() {
     setLines,
   });
 
-  const hasPrefilledSuggestions = linesHaveUnreviewedPrefill(lines);
+  const hasHeaderPrefill = headersHaveUnreviewedPrefill(headerPrefill);
+  const hasLine1ScalarPrefill = line1HasUnreviewedPrefill(line1Prefill);
+  // One flag drives the Accept-all button and every save gate, so they cannot drift apart.
+  const hasPrefilledSuggestions =
+    hasHeaderPrefill || hasLine1ScalarPrefill || linesHaveUnreviewedPrefill(lines);
+  const saveBlockedTitle = hasPrefilledSuggestions ? UNREVIEWED_PREFILL_MSG : undefined;
 
   const addLine = () => setLines((prev) => [...prev, newLine()]);
 
-  const removeLine = (index: number) =>
-    setLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
+  const removeLine = (index: number) => {
+    setLines((prev) => {
+      if (prev.length <= 1) return prev;
+      const removed = prev[index];
+      if (removed && removed.uid === line1PrefillUidRef.current) {
+        setLine1Prefill(createEmptyLine1Prefill());
+        setLine1PrefillUid(null);
+      }
+      return prev.filter((_, i) => i !== index);
+    });
+  };
 
   // A line "has user data" iff the user entered anything in one of the
   // action-relevant fields. Defaults (quantity="1", is_billable=true) don't
@@ -209,24 +366,201 @@ export default function BillCreate() {
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      queueMicrotask(() => {
+        if (!mountedRef.current) {
+          readAbortRef.current?.abort();
+        }
+      });
+    };
+  }, []);
+
+  const abortReadAttachment = () => {
+    readAbortRef.current?.abort();
+    readAbortRef.current = null;
+  };
+
+  const applyPendingReadResult = (generation: number) => {
+    const pending = pendingReadApplyRef.current;
+    if (
+      !pending ||
+      pending.generation !== generation ||
+      generation !== readGenerationRef.current ||
+      pending.result == null
+    ) {
+      return false;
+    }
+    const vendors = lookupsRef.current.vendors ?? [];
+    const sccCatalog = lookupsRef.current.sub_cost_codes ?? [];
+    const needsLookups =
+      pending.result.status === "ok" || pending.result.status === "partial";
+    if (
+      needsLookups &&
+      lookupsLoadingRef.current &&
+      vendors.length === 0 &&
+      sccCatalog.length === 0
+    ) {
+      return false;
+    }
+    pendingReadApplyRef.current = null;
+    const outcome = applyReadAttachmentResult({
+      result: pending.result,
+      form: formRef.current,
+      headerPrefill: headerPrefillRef.current,
+      headerUserTouched: headerUserTouchedRef.current,
+      line1Prefill: line1PrefillRef.current,
+      lines: linesRef.current,
+      vendors,
+      sccCatalog,
+    });
+    setForm(outcome.form as typeof form);
+    setHeaderPrefill(outcome.headerPrefill);
+    setLine1Prefill(outcome.line1Prefill);
+    setLines(outcome.lines);
+    if (outcome.lines.length > 0) {
+      setLine1PrefillUid(outcome.lines[0].uid);
+    }
+    if (outcome.inlineMessage) setReadInlineMessage(outcome.inlineMessage);
+    // A result held back for lookups lands here after the read's finally already ran:
+    // this is where the read ends, so clear "Reading invoice…" and the save lock.
+    setReadingAttachment(false);
+    return true;
+  };
+
+  useEffect(() => {
+    const pending = pendingReadApplyRef.current;
+    if (!pending) return;
+    if (pending.generation !== readGenerationRef.current) {
+      pendingReadApplyRef.current = null;
+      return;
+    }
+    applyPendingReadResult(pending.generation);
+  }, [lookups, lookupsLoading]);
+
+  const revertFilePrefillState = () => {
+    const line1MetaSnapshot = line1PrefillRef.current;
+    const reverted = revertUnacceptedHeaderPrefill(
+      headerPrefillRef.current,
+      formRef.current,
+    );
+    setHeaderPrefill(reverted.meta);
+    setForm(reverted.form as typeof form);
+    const rows = linesRef.current;
+    const targetIndex = lineIndexForPrefillUid(rows);
+    const targetLine = rows[targetIndex] ?? rows[0];
+    setLine1Prefill(
+      targetLine
+        ? revertUnacceptedLine1Prefill(line1MetaSnapshot, targetLine).meta
+        : createEmptyLine1Prefill(),
+    );
+    const revertedRow = targetLine
+      ? revertUnacceptedCodingPrefill(revertUnacceptedLine1Scalars(targetLine, line1MetaSnapshot))
+      : targetLine;
+    setLines((prev) => {
+      if (prev.length === 0) return prev;
+      const idx = lineIndexForPrefillUid(prev);
+      return prev.map((li, i) => {
+        if (i === idx && revertedRow) return revertedRow;
+        return revertUnacceptedCodingPrefill(li);
+      });
+    });
+  };
+
+  const beginPdfAttachment = (f: File) => {
+    const hadPriorAttachment = file !== null || attachmentPublicId !== null;
+    pendingReadApplyRef.current = null;
+    abortReadAttachment();
+    if (hadPriorAttachment) {
+      revertFilePrefillState();
+    }
+    setAttachmentPublicId(null);
+    setReadInlineMessage(null);
+    setSaveError("");
+    setFile(f);
+
+    const ac = new AbortController();
+    readAbortRef.current = ac;
+    const readGeneration = ++readGenerationRef.current;
+
+    void (async () => {
+      setReadingAttachment(true);
+      try {
+        const attachment = await uploadFile<AttachmentResponse>(
+          "/api/v1/upload/attachment",
+          f,
+        );
+        if (ac.signal.aborted) return;
+        setAttachmentPublicId(attachment.public_id);
+
+        const projectHint = projectHintFromLines(linesRef.current);
+        const result = await readBillAttachment(
+          attachment.public_id,
+          projectHint || null,
+          ac.signal,
+        );
+        if (ac.signal.aborted || readGenerationRef.current !== readGeneration) return;
+
+        if (result == null) {
+          setReadInlineMessage(GENERIC_READ_ERROR);
+          return;
+        }
+
+        pendingReadApplyRef.current = { result, generation: readGeneration };
+        applyPendingReadResult(readGeneration);
+      } catch (err: unknown) {
+        if (!ac.signal.aborted) {
+          setReadInlineMessage(UPLOAD_PDF_ERROR);
+        }
+      } finally {
+        if (readAbortRef.current === ac) readAbortRef.current = null;
+        if (readGenerationRef.current === readGeneration) {
+          const stillDeferred =
+            pendingReadApplyRef.current?.generation === readGeneration;
+          setReadingAttachment(stillDeferred);
+        }
+      }
+    })();
+  };
+
   const acceptFile = (f: File | null): boolean => {
     if (!f) return false;
     if (f.type !== "application/pdf") {
       setSaveError("Only PDF files are allowed.");
       return false;
     }
-    setSaveError("");
-    setFile(f);
+    beginPdfAttachment(f);
     return true;
+  };
+
+  const clearPdfAttachment = () => {
+    pendingReadApplyRef.current = null;
+    abortReadAttachment();
+    revertFilePrefillState();
+    setFile(null);
+    setAttachmentPublicId(null);
+    setReadInlineMessage(null);
+    setReadingAttachment(false);
   };
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null;
-    if (!acceptFile(f)) {
-      setFile(null);
+    if (!f || !acceptFile(f)) {
+      clearPdfAttachment();
       e.target.value = "";
     }
   };
+
+  useEffect(() => {
+    const incoming = pullBillPdfFromLocationState(location.state);
+    if (!incoming) return;
+    navigate(location.pathname, { replace: true, state: {} });
+    if (navPdfStartedRef.current) return;
+    navPdfStartedRef.current = true;
+    acceptFile(incoming);
+  }, [location.pathname, location.state, navigate]);
 
   const handleDragOver = (e: DragEvent) => {
     e.preventDefault();
@@ -338,18 +672,30 @@ export default function BillCreate() {
       setSaveError("A PDF attachment is required.");
       return;
     }
+    if (readingAttachment) {
+      setSaveError("Wait for the invoice read to finish.");
+      return;
+    }
+    if (hasPrefilledSuggestions) {
+      setSaveError(UNREVIEWED_PREFILL_MSG);
+      return;
+    }
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     setBusyAction(action);
     setSaveError("");
     try {
-      const attachment = await uploadFile<AttachmentResponse>(
-        "/api/v1/upload/attachment",
-        file,
-      );
+      let attId = attachmentPublicId;
+      if (!attId) {
+        const attachment = await uploadFile<AttachmentResponse>(
+          "/api/v1/upload/attachment",
+          file,
+        );
+        attId = attachment.public_id;
+      }
       const created = await post<Bill>("/api/v1/create/bill", {
         ...buildBody(),
-        attachment_public_id: attachment.public_id,
+        attachment_public_id: attId,
       });
 
       // Additional populated lines beyond the inline summary. Each one is
@@ -546,9 +892,24 @@ export default function BillCreate() {
             onChange={onChange}
             options={(lookups.vendors ?? []).map((v) => ({ value: v.public_id, label: v.name }))}
             required
+            adornment={prefillAdornment(headerPrefill, "vendor_public_id", "", acceptHeaderField, busy)}
           />
-          <FormField label="Bill Number" name="bill_number" value={form.bill_number} onChange={onChange} required />
-          <DateField label="Bill Date" name="bill_date" value={form.bill_date} onChange={onChange} required />
+          <FormField
+            label="Bill Number"
+            name="bill_number"
+            value={form.bill_number}
+            onChange={onChange}
+            required
+            adornment={prefillAdornment(headerPrefill, "bill_number", "", acceptHeaderField, busy)}
+          />
+          <DateField
+            label="Bill Date"
+            name="bill_date"
+            value={form.bill_date}
+            onChange={onChange}
+            required
+            adornment={prefillAdornment(headerPrefill, "bill_date", "", acceptHeaderField, busy)}
+          />
           {/* Read-only: dbo.CreateBill / dbo.UpdateBillById persist DueDate = BillDate and
               ignore @DueDate, so an editable due date here would mislead the user. Payment
               Term (PaymentTermId) is what actually drives when payment is owed. */}
@@ -608,11 +969,15 @@ export default function BillCreate() {
               {lines.map((li, index) => (
                 <tr key={li.uid}>
                   <td>
-                    <input
-                      className="inline-li-input"
-                      value={li.description}
-                      onChange={(e) => updateLine(index, "description", e.target.value)}
-                    />
+                    <div className="coding-suggestion-cell">
+                      <input
+                        className="inline-li-input"
+                        value={li.description}
+                        onChange={(e) => updateLine(index, "description", e.target.value)}
+                      />
+                      {li.uid === line1PrefillUid &&
+                        prefillAdornment(line1Prefill, "description", "line 1 ", acceptLine1Field, busy)}
+                    </div>
                   </td>
                   <td>
                     <div className="coding-suggestion-cell">
@@ -689,13 +1054,17 @@ export default function BillCreate() {
                     />
                   </td>
                   <td style={{ textAlign: "right" }}>
-                    <input
-                      className="inline-li-input"
-                      type="number"
-                      step="any"
-                      value={li.rate}
-                      onChange={(e) => updateLine(index, "rate", e.target.value)}
-                    />
+                    <div className="coding-suggestion-cell">
+                      <input
+                        className="inline-li-input"
+                        type="number"
+                        step="any"
+                        value={li.rate}
+                        onChange={(e) => updateLine(index, "rate", e.target.value)}
+                      />
+                      {li.uid === line1PrefillUid &&
+                        prefillAdornment(line1Prefill, "rate", "line 1 ", acceptLine1Field, busy)}
+                    </div>
                   </td>
                   <td style={{ textAlign: "right" }} className="inline-li-computed">
                     {fmtMoney(li.amount)}
@@ -759,16 +1128,16 @@ export default function BillCreate() {
             type="button"
             className="btn btn-secondary"
             onClick={() => navigate("/bill/list")}
-            disabled={busy}
+            disabled={busyAction !== null}
           >
             Cancel
           </button>
           <button
             type="submit"
             className="btn btn-primary"
-            disabled={busy || !file}
+            disabled={busy || !file || hasPrefilledSuggestions}
             onClick={() => { pendingActionRef.current = "save"; }}
-            title="Save the bill as a draft and continue editing on the next page."
+            title={saveBlockedTitle ?? "Save the bill as a draft and continue editing on the next page."}
           >
             {busyAction === "save" ? "Saving..." : "Save For Later"}
           </button>
@@ -807,6 +1176,16 @@ export default function BillCreate() {
           <h3 className="line-items-heading">
             Attachment <span style={{ color: "#c00" }}>*</span>
           </h3>
+          {readingAttachment && (
+            <p className="bill-read-status text-muted" role="status">
+              Reading invoice…
+            </p>
+          )}
+          {readInlineMessage && !readingAttachment && (
+            <p className="bill-read-status bill-read-status-warn" role="status">
+              {readInlineMessage}
+            </p>
+          )}
           {previewUrl ? (
             <>
               <iframe
@@ -819,8 +1198,8 @@ export default function BillCreate() {
                 <button
                   type="button"
                   className="drop-zone-browse"
-                  onClick={() => setFile(null)}
-                  disabled={busy}
+                  onClick={() => clearPdfAttachment()}
+                  disabled={busyAction !== null}
                 >
                   Change file
                 </button>

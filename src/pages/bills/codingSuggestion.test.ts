@@ -264,7 +264,7 @@ describe("applySuggestionToLines", () => {
       sub_cost_code_id: "42",
       coding_suggested_sub_cost_code_id: "42",
       coding_prefill_state: "prefilled",
-      coding_suggestion_source: "vendor_history",
+      coding_suggestion_source: "llm",
     };
     const llmCatalog = [...catalog, { id: 99, public_id: "scc-llm" }];
     const out = applySuggestionToLines(
@@ -275,6 +275,41 @@ describe("applySuggestionToLines", () => {
     expect(out[0].sub_cost_code_id).toBe("99");
     expect(out[0].coding_prefill_state).toBe("prefilled");
     expect(out[0].coding_suggestion_source).toBe("llm");
+  });
+
+  it("onlyEmpty skips cells that already hold a suggestion value (read path)", () => {
+    const withHistory: DraftLine = {
+      ...emptyLine("a"),
+      sub_cost_code_id: "99",
+      coding_suggested_sub_cost_code_id: "99",
+      coding_prefill_state: "prefilled",
+      coding_suggestion_source: "vendor_history",
+    };
+    const out = applySuggestionToLines(
+      [withHistory],
+      sampleSuggestion({ source: "llm", sub_cost_code_public_id: "scc-pub" }),
+      catalog,
+      { onlyEmpty: true, prefillOrigin: "file" },
+    );
+    expect(out[0].sub_cost_code_id).toBe("99");
+  });
+
+  it("web-r3 an llm result never replaces a file-origin prefilled SCC", () => {
+    const prefilled: DraftLine = {
+      ...emptyLine("a"),
+      sub_cost_code_id: "42",
+      coding_suggested_sub_cost_code_id: "42",
+      coding_prefill_state: "prefilled",
+      coding_suggestion_source: "llm",
+      coding_prefill_origin: "file",
+    };
+    const llmCatalog = [...catalog, { id: 99, public_id: "scc-llm" }];
+    const out = applySuggestionToLines(
+      [prefilled],
+      sampleSuggestion({ source: "llm", sub_cost_code_public_id: "scc-llm" }),
+      llmCatalog,
+    );
+    expect(out).toEqual([prefilled]);
   });
 
   it("web-r4 an llm refresh that moves the project also refreshes its SCC", () => {

@@ -1677,6 +1677,19 @@ button[type="submit"]:disabled {
   background: var(--color-info-bg);
 }
 
+.header-prefill-adornment {
+  margin-top: 4px;
+}
+
+.bill-read-status {
+  font-size: 13px;
+  margin: 4px 0 8px;
+}
+
+.bill-read-status-warn {
+  color: var(--color-warning-fg, #856404);
+}
+
 .status-badge.coding-flagged {
   background: var(--color-danger-bg, #fde8e8);
   color: var(--color-danger-fg, #9b1c1c);

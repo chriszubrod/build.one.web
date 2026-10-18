@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 interface FormFieldProps {
   label: string;
   name: string;
@@ -7,6 +9,8 @@ interface FormFieldProps {
   required?: boolean;
   error?: string;
   placeholder?: string;
+  /** Optional row below the input (e.g. file-read acceptance badge). */
+  adornment?: ReactNode;
 }
 
 export default function FormField({
@@ -18,6 +22,7 @@ export default function FormField({
   required = false,
   error,
   placeholder,
+  adornment,
 }: FormFieldProps) {
   return (
     <div className={`form-group${error ? " has-error" : ""}`}>
@@ -34,6 +39,7 @@ export default function FormField({
         placeholder={placeholder}
         required={required}
       />
+      {adornment}
       {error && <span className="field-error">{error}</span>}
     </div>
   );

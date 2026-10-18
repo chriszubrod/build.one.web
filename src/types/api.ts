@@ -836,6 +836,39 @@ export interface BillCodingSuggestResponse {
   text_status?: "ready" | "pending" | "none";
 }
 
+export type ReadAttachmentStatus =
+  | "ok"
+  | "partial"
+  | "unreadable"
+  | "timeout"
+  | "ai_unavailable"
+  | "disabled";
+
+export interface ReadAttachmentFieldVendor {
+  value: { public_id: string; name: string } | null;
+  extracted_name: string | null;
+  confidence: string | null;
+}
+
+export interface ReadAttachmentScalarField {
+  value: string | null;
+  confidence: string | null;
+}
+
+export interface ReadAttachmentResult {
+  status: ReadAttachmentStatus;
+  message: string | null;
+  fields: {
+    vendor: ReadAttachmentFieldVendor;
+    bill_number: ReadAttachmentScalarField;
+    bill_date: ReadAttachmentScalarField;
+    total_amount: ReadAttachmentScalarField;
+    description: ReadAttachmentScalarField;
+  };
+  coding: BillCodingSuggestResponse | null;
+  model: string | null;
+}
+
 export interface Expense {
   id: number;
   public_id: string;

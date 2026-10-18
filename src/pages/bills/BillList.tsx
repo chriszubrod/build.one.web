@@ -2,7 +2,6 @@ import { useState, useCallback, useEffect, useRef, type DragEvent } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
-import { uploadFile } from "../../api/client";
 import Pagination from "../../components/Pagination";
 import PageHeader from "../../components/PageHeader";
 import SegmentedControl from "../../components/ui/SegmentedControl";
@@ -163,28 +162,11 @@ export default function BillList() {
 
   const clearAllFiles = () => setPendingFiles([]);
 
-  const createBillFromFile = async (index: number) => {
+  const createBillFromFile = (index: number) => {
     const entry = pendingFiles[index];
     if (!entry || entry.uploading) return;
-
-    setPendingFiles((prev) =>
-      prev.map((p, i) => (i === index ? { ...p, uploading: true, error: "" } : p)),
-    );
-
-    try {
-      const result = await uploadFile<{ token: string }>(
-        "/api/v1/temp/pending-bill-file",
-        entry.file,
-      );
-      setPendingFiles((prev) => prev.filter((_, i) => i !== index));
-      navigate(`/bill/create?pendingFileToken=${encodeURIComponent(result.token)}`);
-    } catch (err: any) {
-      setPendingFiles((prev) =>
-        prev.map((p, i) =>
-          i === index ? { ...p, uploading: false, error: err.message } : p,
-        ),
-      );
-    }
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+    navigate("/bill/create", { state: { billPdfFile: entry.file } });
   };
 
   const handleDragOver = (e: DragEvent) => {

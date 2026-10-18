@@ -33,8 +33,14 @@ export interface LineCodingFields {
   /** User edited this cell (including clear) — prefill must not touch it. */
   coding_scc_touched?: boolean;
   coding_project_touched?: boolean;
+  /** PDF read prefill — user edits block re-fill on change file. */
+  file_description_touched?: boolean;
+  file_quantity_touched?: boolean;
+  file_rate_touched?: boolean;
   /** Source of the live line suggestion (drives badge label, e.g. AI vs Suggested). */
   coding_suggestion_source?: BillCodingSuggestionSource | null;
+  /** When set to `file`, a later history/LLM hook must not replace untouched prefills. */
+  coding_prefill_origin?: "file";
 }
 
 let activeSuggestAbort: AbortController | null = null;
@@ -409,6 +415,15 @@ export function suggestedSccOptionIdFromResponse(
   return mapSccPublicIdToOptionId(suggestion.sub_cost_code_public_id, catalog);
 }
 
+export interface ApplySuggestionToLinesOptions {
+  /** When set, only this row index is eligible for fills (e.g. PDF read → line 1 only). */
+  onlyLineIndex?: number;
+  /** Marks prefills from a PDF read — blocks later LLM refresh of untouched cells. */
+  prefillOrigin?: "file";
+  /** PDF read path: fill only empty cells — never refresh an existing suggestion value. */
+  onlyEmpty?: boolean;
+}
+
 export function applySuggestionToLines<
   T extends LineCodingFields & { amount?: string | null },
 >(
@@ -416,6 +431,7 @@ export function applySuggestionToLines<
   /** null (no response) is applied like an empty suggestion — fills nothing. */
   suggestion: BillCodingSuggestion | null,
   sccCatalog: SccCatalogEntry[],
+  options?: ApplySuggestionToLinesOptions,
 ): T[] {
   const empty = suggestionIsEmpty(suggestion);
   const sccId = empty
@@ -431,6 +447,9 @@ export function applySuggestionToLines<
    */
   const holdsSuggested = (line: T, field: "sub_cost_code_id" | "project_public_id"): boolean => {
     if (line.coding_prefill_state === "accepted" || line.coding_prefill_state === "changed") {
+      return false;
+    }
+    if (line.coding_prefill_origin === "file" && line.coding_prefill_state === "prefilled") {
       return false;
     }
     const suggested =
@@ -449,21 +468,31 @@ export function applySuggestionToLines<
       sccId !== "" &&
       lineEligibleForSuggestionScc(fillsProject ? { project_public_id: projectId } : line, projectId) &&
       (line.sub_cost_code_id === "" ||
-        (llmSource && !line.coding_project_touched && holdsSuggested(line, "sub_cost_code_id")))
+        (!options?.onlyEmpty &&
+          llmSource &&
+          !line.coding_project_touched &&
+          holdsSuggested(line, "sub_cost_code_id")))
     );
   };
 
   const canFillProjectOnLine = (line: T): boolean => {
     if (empty || !llmSource || line.unresolved_project_id != null) return false;
+    if (line.coding_prefill_origin === "file" && line.coding_prefill_state === "prefilled") {
+      return false;
+    }
     return (
       !line.coding_project_touched &&
       projectId !== "" &&
-      (line.project_public_id === "" || holdsSuggested(line, "project_public_id"))
+      (line.project_public_id === "" ||
+        (!options?.onlyEmpty && holdsSuggested(line, "project_public_id")))
     );
   };
 
   let changed = false;
-  const mapped = lines.map((line) => {
+  const mapped = lines.map((line, index) => {
+    if (options?.onlyLineIndex !== undefined && index !== options.onlyLineIndex) {
+      return line;
+    }
     let canFillProject = canFillProjectOnLine(line);
     const canFillScc = canFillSccOnLine(line, canFillProject);
     // Never move a suggested project out from under the SCC predicted with it.
@@ -494,6 +523,9 @@ export function applySuggestionToLines<
       next.coding_suggestion_reason = suggestion!.reason;
       next.coding_suggestion_confidence = conf;
       next.coding_suggestion_source = suggestion!.source;
+      // The origin tags the cost-code prefill it travels with; a project-only fill
+      // must not claim a cost code another source suggested (Change file would wipe it).
+      if (options?.prefillOrigin === "file") next.coding_prefill_origin = "file";
     }
     return next;
   });
@@ -522,7 +554,7 @@ export function nextPrefillState(
  * `prefilled`; the pages disable those buttons with this message.
  */
 export const UNREVIEWED_PREFILL_MSG =
-  "Accept or change each suggested cost code before submitting or completing.";
+  "Accept or change each value from the file and each suggested cost code before submitting or completing.";
 
 export function linesHaveUnreviewedPrefill(lines: readonly LineCodingFields[]): boolean {
   return lines.some((li) => li.coding_prefill_state === "prefilled");

@@ -3,6 +3,8 @@ interface Option {
   label: string;
 }
 
+import type { ReactNode } from "react";
+
 interface SelectFieldProps {
   label: string;
   name: string;
@@ -12,6 +14,7 @@ interface SelectFieldProps {
   required?: boolean;
   error?: string;
   placeholder?: string;
+  adornment?: ReactNode;
 }
 
 export default function SelectField({
@@ -23,6 +26,7 @@ export default function SelectField({
   required = false,
   error,
   placeholder = "Select...",
+  adornment,
 }: SelectFieldProps) {
   return (
     <div className={`form-group${error ? " has-error" : ""}`}>
@@ -44,6 +48,7 @@ export default function SelectField({
           </option>
         ))}
       </select>
+      {adornment}
       {error && <span className="field-error">{error}</span>}
     </div>
   );
