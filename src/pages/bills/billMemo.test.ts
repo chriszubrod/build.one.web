@@ -1,97 +1,107 @@
 import { describe, it, expect } from "vitest";
-import { composeBillMemo, type BillMemoLineSlice } from "./billMemo";
-
-const line = (partial: Partial<BillMemoLineSlice> = {}): BillMemoLineSlice => ({
-  project_public_id: "p-1",
-  sub_cost_code_id: "10",
-  description: "Biweekly Mowing",
-  ...partial,
-});
+import { composeBillMemo, type BillMemoEntryMethod } from "./billMemo";
 
 describe("composeBillMemo", () => {
   it.each([
     {
-      name: "full memo",
+      name: "full format",
       params: {
         enteredBy: "Chris Z",
-        populatedLines: [line()],
-        projectLabelForLine: () => "P1",
-        costCodeNumberForLine: () => "01-100",
+        method: "PDF upload" as BillMemoEntryMethod,
         longDescription: "Biweekly mowing service, Oct 1-15",
         reference: "PO 1123",
+        readBillNumber: "INV-42",
+        currentBillNumber: "INV-42",
       },
       want:
-        "Chris Z - P1 - 01-100 - Biweekly Mowing | Biweekly mowing service, Oct 1-15 | Ref: PO 1123",
+        "Chris Z via PDF upload | Biweekly mowing service, Oct 1-15 | Ref: PO 1123",
     },
     {
-      name: "omits empty segments and separators",
+      name: "omits empty tail segments and separators",
       params: {
         enteredBy: "Chris Z",
-        populatedLines: [line({ description: "" })],
-        projectLabelForLine: () => null,
-        costCodeNumberForLine: () => null,
+        method: "PDF drop" as BillMemoEntryMethod,
         longDescription: null,
         reference: null,
+        readBillNumber: null,
+        currentBillNumber: "",
       },
-      want: "Chris Z",
+      want: "Chris Z via PDF drop",
     },
     {
-      name: "long description only in tail",
+      name: "enteredBy empty uses method alone",
       params: {
         enteredBy: "",
-        populatedLines: [line({ project_public_id: "", sub_cost_code_id: "" })],
-        projectLabelForLine: () => null,
-        costCodeNumberForLine: () => null,
+        method: "Manual" as BillMemoEntryMethod,
         longDescription: "Summary only",
         reference: null,
+        readBillNumber: null,
+        currentBillNumber: "",
       },
-      want: "Biweekly Mowing | Summary only",
+      want: "Manual | Summary only",
     },
     {
       name: "reference without long description",
       params: {
         enteredBy: "U",
-        populatedLines: [line()],
-        projectLabelForLine: () => "Proj",
-        costCodeNumberForLine: () => "99",
+        method: "PDF upload" as BillMemoEntryMethod,
         longDescription: null,
         reference: "Job 2026-044",
+        readBillNumber: "A",
+        currentBillNumber: "A",
       },
-      want: "U - Proj - 99 - Biweekly Mowing | Ref: Job 2026-044",
+      want: "U via PDF upload | Ref: Job 2026-044",
     },
     {
-      name: "multiple projects",
+      name: "DOC# when read number differs from form",
       params: {
         enteredBy: "U",
-        populatedLines: [
-          line({ project_public_id: "p-1" }),
-          line({ project_public_id: "p-2", description: "Line two" }),
-        ],
-        projectLabelForLine: (l: BillMemoLineSlice) =>
-          l.project_public_id === "p-1" ? "A" : "B",
-        costCodeNumberForLine: () => "01",
+        method: "PDF drop" as BillMemoEntryMethod,
         longDescription: null,
         reference: null,
+        readBillNumber: "INV-ORIG",
+        currentBillNumber: "EDITED",
       },
-      want: "U - Multiple - 01 - Biweekly Mowing",
+      want: "U via PDF drop | DOC#: INV-ORIG",
     },
     {
-      name: "multiple cost codes",
+      name: "no DOC# when read matches form",
       params: {
         enteredBy: "U",
-        populatedLines: [
-          line({ sub_cost_code_id: "1" }),
-          line({ sub_cost_code_id: "2", description: "x" }),
-        ],
-        projectLabelForLine: () => "P1",
-        costCodeNumberForLine: (l: BillMemoLineSlice) =>
-          l.sub_cost_code_id === "1" ? "01" : "02",
+        method: "PDF upload" as BillMemoEntryMethod,
+        longDescription: "x",
+        reference: null,
+        readBillNumber: "INV-42",
+        currentBillNumber: " INV-42 ",
+      },
+      want: "U via PDF upload | x",
+    },
+    {
+      name: "method strings PDF drop and PDF upload",
+      params: {
+        enteredBy: "A",
+        method: "PDF drop" as BillMemoEntryMethod,
         longDescription: null,
         reference: null,
+        readBillNumber: null,
+        currentBillNumber: "",
       },
-      want: "U - P1 - Multiple - Biweekly Mowing",
+      want: "A via PDF drop",
     },
   ])("$name", ({ params, want }) => {
     expect(composeBillMemo(params)).toBe(want);
+  });
+
+  it("never includes project, cost code, or short description", () => {
+    const memo = composeBillMemo({
+      enteredBy: "Chris Z",
+      method: "PDF upload",
+      longDescription: "Long only",
+      reference: "R1",
+      readBillNumber: "N1",
+      currentBillNumber: "N2",
+    });
+    expect(memo).not.toMatch(/\bP1\b|01-100|Biweekly|Multiple/i);
+    expect(memo).toBe("Chris Z via PDF upload | Long only | Ref: R1 | DOC#: N1");
   });
 });

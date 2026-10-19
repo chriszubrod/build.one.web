@@ -57,7 +57,7 @@ import {
   revertUnacceptedCodingPrefill,
   revertUnacceptedLine1Scalars,
 } from "./readAttachment";
-import { composeBillMemo } from "./billMemo";
+import { composeBillMemo, type BillMemoEntryMethod } from "./billMemo";
 
 interface AttachmentResponse {
   public_id: string;
@@ -273,7 +273,11 @@ export default function BillCreate() {
   const memoSourceRef = useRef<{
     longDescription: string | null;
     reference: string | null;
+    readBillNumber: string | null;
   } | null>(null);
+  const memoEntryMethodRef = useRef<BillMemoEntryMethod>("Manual");
+  const [memoEntryMethod, setMemoEntryMethod] = useState<BillMemoEntryMethod>("Manual");
+  memoEntryMethodRef.current = memoEntryMethod;
   /** User-selected project hint for coding suggest — not updated by pre-fill. */
   const [projectHintForSuggest, setProjectHintForSuggest] = useState<string | undefined>();
   const memoForSuggest =
@@ -321,34 +325,17 @@ export default function BillCreate() {
     li.description !== "" ||
     li.rate !== "";
 
-  const syncAutoMemoFromLines = () => {
+  const syncAutoMemo = () => {
     if (!memoAutoActiveRef.current || memoUserEditedRef.current) return;
     const source = memoSourceRef.current;
     if (!source) return;
-    const projects = lookupsRef.current.projects ?? [];
-    const sccRows = lookupsRef.current.sub_cost_codes ?? [];
-    const populated = linesRef.current.filter(isLinePopulated);
     const memo = composeBillMemo({
       enteredBy: enteredByDisplayName(meRef.current),
-      populatedLines: populated.map((li) => ({
-        project_public_id: li.project_public_id,
-        sub_cost_code_id: li.sub_cost_code_id,
-        description: li.description,
-      })),
-      projectLabelForLine: (slice) => {
-        const row = projects.find((p) => p.public_id === slice.project_public_id);
-        if (!row) return null;
-        const abbr = (row.abbreviation ?? "").trim();
-        return abbr !== "" ? abbr : row.name;
-      },
-      costCodeNumberForLine: (slice) => {
-        const id = Number(slice.sub_cost_code_id);
-        if (!Number.isFinite(id)) return null;
-        const row = sccRows.find((s) => s.id === id);
-        return row?.number?.trim() ? row.number.trim() : null;
-      },
+      method: memoEntryMethodRef.current,
       longDescription: source.longDescription,
       reference: source.reference,
+      readBillNumber: source.readBillNumber,
+      currentBillNumber: formRef.current.bill_number,
     });
     setForm((prev) => (prev.memo === memo ? prev : { ...prev, memo }));
   };
@@ -437,8 +424,8 @@ export default function BillCreate() {
   });
 
   useEffect(() => {
-    syncAutoMemoFromLines();
-  }, [lines, memoUserEdited, me, lookups.projects, lookups.sub_cost_codes]);
+    syncAutoMemo();
+  }, [form.bill_number, memoEntryMethod, memoUserEdited, me]);
 
   const hasHeaderPrefill = headersHaveUnreviewedPrefill(headerPrefill);
   const hasLine1ScalarPrefill = line1HasUnreviewedPrefill(line1Prefill);
@@ -533,11 +520,16 @@ export default function BillCreate() {
     }
     if (outcome.inlineMessage) setReadInlineMessage(outcome.inlineMessage);
     if (outcome.memoSource) {
-      memoSourceRef.current = outcome.memoSource;
+      const rawBillNum = pending.result.fields.bill_number?.value;
+      const readBillNumber =
+        typeof rawBillNum === "string" && rawBillNum.trim() !== ""
+          ? rawBillNum.trim()
+          : null;
+      memoSourceRef.current = { ...outcome.memoSource, readBillNumber };
       if (!memoUserEditedRef.current && formRef.current.memo.trim() === "") {
         memoAutoActiveRef.current = true;
         linesRef.current = outcome.lines;
-        syncAutoMemoFromLines();
+        syncAutoMemo();
       }
     }
     // A result held back for lookups lands here after the read's finally already ran:
@@ -593,7 +585,9 @@ export default function BillCreate() {
     });
   };
 
-  const beginPdfAttachment = (f: File) => {
+  const beginPdfAttachment = (f: File, entryMethod: "PDF drop" | "PDF upload") => {
+    memoEntryMethodRef.current = entryMethod;
+    setMemoEntryMethod(entryMethod);
     const hadPriorAttachment = file !== null || attachmentPublicId !== null;
     pendingReadApplyRef.current = null;
     abortReadAttachment();
@@ -649,13 +643,16 @@ export default function BillCreate() {
     })();
   };
 
-  const acceptFile = (f: File | null): boolean => {
+  const acceptFile = (
+    f: File | null,
+    entryMethod: "PDF drop" | "PDF upload",
+  ): boolean => {
     if (!f) return false;
     if (f.type !== "application/pdf") {
       setSaveError("Only PDF files are allowed.");
       return false;
     }
-    beginPdfAttachment(f);
+    beginPdfAttachment(f, entryMethod);
     return true;
   };
 
@@ -663,6 +660,8 @@ export default function BillCreate() {
     pendingReadApplyRef.current = null;
     abortReadAttachment();
     revertFilePrefillState();
+    memoEntryMethodRef.current = "Manual";
+    setMemoEntryMethod("Manual");
     setFile(null);
     setAttachmentPublicId(null);
     setReadInlineMessage(null);
@@ -671,7 +670,7 @@ export default function BillCreate() {
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null;
-    if (!f || !acceptFile(f)) {
+    if (!f || !acceptFile(f, "PDF upload")) {
       clearPdfAttachment();
       e.target.value = "";
     }
@@ -683,7 +682,7 @@ export default function BillCreate() {
     navigate(location.pathname, { replace: true, state: {} });
     if (navPdfStartedRef.current) return;
     navPdfStartedRef.current = true;
-    acceptFile(incoming);
+    acceptFile(incoming, "PDF drop");
   }, [location.pathname, location.state, navigate]);
 
   const handleDragOver = (e: DragEvent) => {
@@ -698,7 +697,7 @@ export default function BillCreate() {
     e.preventDefault();
     setDragOver(false);
     const dropped = e.dataTransfer.files?.[0];
-    if (dropped) acceptFile(dropped);
+    if (dropped) acceptFile(dropped, "PDF drop");
   };
 
   // Drop empty rows (per the (a) call). Everything downstream — buildBody,

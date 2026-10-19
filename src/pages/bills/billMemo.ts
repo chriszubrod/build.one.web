@@ -1,18 +1,15 @@
-/** Ramp-style bill memo composed from live line values + PDF read fields. */
+/** Ramp-style bill memo composed from PDF read fields + entry context (QBO private note). */
 
-export interface BillMemoLineSlice {
-  project_public_id: string;
-  sub_cost_code_id: string;
-  description: string;
-}
+export type BillMemoEntryMethod = "PDF drop" | "PDF upload" | "Manual";
 
 export interface ComposeBillMemoParams {
   enteredBy: string;
-  populatedLines: BillMemoLineSlice[];
-  projectLabelForLine: (line: BillMemoLineSlice) => string | null;
-  costCodeNumberForLine: (line: BillMemoLineSlice) => string | null;
+  method: BillMemoEntryMethod;
   longDescription: string | null;
   reference: string | null;
+  /** Bill number extracted from the invoice; DOC# segment uses this when it differs from the form. */
+  readBillNumber: string | null;
+  currentBillNumber: string | null;
 }
 
 function nonEmpty(s: string | null | undefined): string | null {
@@ -20,52 +17,34 @@ function nonEmpty(s: string | null | undefined): string | null {
   return t === "" ? null : t;
 }
 
-function projectSegment(
-  populatedLines: BillMemoLineSlice[],
-  projectLabelForLine: (line: BillMemoLineSlice) => string | null,
-): string | null {
-  if (populatedLines.length === 0) return null;
-  const ids = populatedLines
-    .map((l) => l.project_public_id)
-    .filter((id) => id !== "");
-  if (populatedLines.length > 1 && ids.length > 1 && new Set(ids).size > 1) {
-    return "Multiple";
-  }
-  return projectLabelForLine(populatedLines[0]);
+function memoHead(enteredBy: string | null, method: BillMemoEntryMethod): string {
+  if (enteredBy) return `${enteredBy} via ${method}`;
+  return method;
 }
 
-function costCodeSegment(
-  populatedLines: BillMemoLineSlice[],
-  costCodeNumberForLine: (line: BillMemoLineSlice) => string | null,
+function docNumberSegment(
+  readBillNumber: string | null,
+  currentBillNumber: string | null,
 ): string | null {
-  if (populatedLines.length === 0) return null;
-  const ids = populatedLines
-    .map((l) => l.sub_cost_code_id)
-    .filter((id) => id !== "");
-  if (populatedLines.length > 1 && ids.length > 1 && new Set(ids).size > 1) {
-    return "Multiple";
-  }
-  return costCodeNumberForLine(populatedLines[0]);
+  const read = nonEmpty(readBillNumber);
+  const current = nonEmpty(currentBillNumber);
+  if (!read) return null;
+  if (read === current) return null;
+  return `DOC#: ${read}`;
 }
 
 export function composeBillMemo(params: ComposeBillMemoParams): string {
   const enteredBy = nonEmpty(params.enteredBy);
-  const shortDescription = nonEmpty(params.populatedLines[0]?.description ?? "");
-  const project = nonEmpty(
-    projectSegment(params.populatedLines, params.projectLabelForLine) ?? "",
-  );
-  const costCode = nonEmpty(
-    costCodeSegment(params.populatedLines, params.costCodeNumberForLine) ?? "",
-  );
   const longDescription = nonEmpty(params.longDescription);
   const reference = nonEmpty(params.reference);
+  const docNumber = docNumberSegment(params.readBillNumber, params.currentBillNumber);
 
-  const head = [enteredBy, project, costCode, shortDescription].filter(Boolean).join(" - ");
-  const tail: string[] = [];
-  if (longDescription) tail.push(longDescription);
-  if (reference) tail.push(`Ref: ${reference}`);
+  const segments: string[] = [];
+  const head = memoHead(enteredBy, params.method);
+  if (head !== "") segments.push(head);
+  if (longDescription) segments.push(longDescription);
+  if (reference) segments.push(`Ref: ${reference}`);
+  if (docNumber) segments.push(docNumber);
 
-  if (tail.length === 0) return head;
-  if (head === "") return tail.join(" | ");
-  return `${head} | ${tail.join(" | ")}`;
+  return segments.join(" | ");
 }

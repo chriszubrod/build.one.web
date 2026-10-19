@@ -146,12 +146,14 @@ function stubPost(overrides: Record<string, () => Promise<unknown>> = {}) {
   });
 }
 
-function renderPage() {
+function renderPage(initialEntries: { pathname: string; state?: unknown }[] = [
+  { pathname: "/bill/create" },
+]) {
   act(() => {
     root.render(
       createElement(
         MemoryRouter,
-        { initialEntries: ["/bill/create"] },
+        { initialEntries },
         createElement(
           QueryClientProvider,
           { client: queryClient },
@@ -244,6 +246,24 @@ function disabledReadResult() {
   };
 }
 
+function pdfFile() {
+  return new File(["x"], "bill.pdf", { type: "application/pdf" });
+}
+
+async function attachPdfViaDrop() {
+  await flushUntil(() => container.querySelector(".drop-zone") !== null);
+  const zone = container.querySelector(".drop-zone") as HTMLElement;
+  const file = pdfFile();
+  await act(async () => {
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", {
+      value: { files: [file] },
+      configurable: true,
+    });
+    zone.dispatchEvent(drop);
+  });
+}
+
 async function attachPdf() {
   if (container.querySelector('iframe[title="Bill PDF preview"]')) {
     await act(async () => {
@@ -253,7 +273,7 @@ async function attachPdf() {
   await flushUntil(() => container.querySelector('input[type="file"]') !== null);
   const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
   expect(fileInput).toBeTruthy();
-  const file = new File(["x"], "bill.pdf", { type: "application/pdf" });
+  const file = pdfFile();
   Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
   await act(async () => {
     fileInput.dispatchEvent(new Event("change", { bubbles: true }));
@@ -2556,23 +2576,65 @@ describe("BillCreate PDF read attachment", () => {
     expect((container.querySelector("#bill_number") as HTMLInputElement).value).toBe("");
   });
 
-  it("auto-fills memo from PDF read and live-updates with line project", async () => {
+  const expectedAutoMemo =
+    "A D via PDF upload | Full mowing summary | Ref: PO 999";
+
+  it("file picker auto memo starts with via PDF upload", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
     renderPage();
     await flushUntil(() => container.querySelector('textarea[name="memo"]') !== null);
     await attachPdf();
     await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
     const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
-    await flushUntil(() => memo.value.includes("From PDF"));
+    await flushUntil(() => memo.value.includes("via PDF upload"));
+    expect(memo.value).toBe(expectedAutoMemo);
+    expect(memo.value).not.toContain("From PDF");
+    expect(memo.value).not.toMatch(/\bP1\b|01-100/);
+  });
+
+  it("drop auto memo starts with via PDF drop", async () => {
+    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
+    renderPage();
+    await flushUntil(() => container.querySelector(".drop-zone") !== null);
+    await attachPdfViaDrop();
+    await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await flushUntil(() => memo.value.includes("via PDF drop"));
     expect(memo.value).toBe(
-      "A D - P1 - 01-100 - From PDF | Full mowing summary | Ref: PO 999",
+      "A D via PDF drop | Full mowing summary | Ref: PO 999",
     );
+  });
+
+  it("nav-state PDF handoff auto memo uses via PDF drop", async () => {
+    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
+    renderPage([{ pathname: "/bill/create", state: { billPdfFile: pdfFile() } }]);
+    await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await flushUntil(() => memo.value.includes("via PDF drop"));
+    expect(memo.value).toBe(
+      "A D via PDF drop | Full mowing summary | Ref: PO 999",
+    );
+  });
+
+  it("editing bill number to differ adds DOC# from read; matching again removes it", async () => {
+    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
+    renderPage();
+    await flushUntil(() => container.querySelector('textarea[name="memo"]') !== null);
+    await attachPdf();
+    await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await flushUntil(() => memo.value === expectedAutoMemo);
+    const billNum = container.querySelector("#bill_number") as HTMLInputElement;
     await act(async () => {
-      selectChange(projectSelectAt(0), "p-2");
+      setInputValue(billNum, "USER-EDIT");
     });
-    await flushUntil(() => memo.value.includes("P2"));
-    expect(memo.value).toContain("P2");
-    expect(memo.value).not.toContain("From file");
+    await flushUntil(() => memo.value.includes("DOC#: INV-42"));
+    expect(memo.value).toBe(`${expectedAutoMemo} | DOC#: INV-42`);
+    await act(async () => {
+      setInputValue(billNum, "INV-42");
+    });
+    await flushUntil(() => !memo.value.includes("DOC#:"));
+    expect(memo.value).toBe(expectedAutoMemo);
   });
 
   it("stops auto memo updates after the user edits Memo", async () => {
@@ -2582,12 +2644,13 @@ describe("BillCreate PDF read attachment", () => {
     await attachPdf();
     await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
     const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
-    await flushUntil(() => memo.value.includes("From PDF"));
+    await flushUntil(() => memo.value.includes("via PDF upload"));
     await act(async () => {
       setTextareaValue(memo, "My memo");
     });
+    const billNum = container.querySelector("#bill_number") as HTMLInputElement;
     await act(async () => {
-      selectChange(projectSelectAt(0), "p-2");
+      setInputValue(billNum, "OTHER");
     });
     expect(memo.value).toBe("My memo");
   });
@@ -2717,7 +2780,12 @@ describe("BillCreate PDF read attachment", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
     });
-    expect(memo.value).toContain("Extra");
+    expect(memo.value).toBe(expectedAutoMemo);
+    const billNum = container.querySelector("#bill_number") as HTMLInputElement;
+    await act(async () => {
+      setInputValue(billNum, "CHANGED");
+    });
+    await flushUntil(() => memo.value.includes("DOC#:"));
     expect(mockSuggestCoding.mock.calls.length).toBe(callsAfterRead);
   });
 
@@ -2814,8 +2882,3 @@ describe("BillCreate PDF read attachment", () => {
     expect(billEditSource).not.toContain("bill-create-line-chip");
   });
 });
-
-function projectSelectAt(index: number): HTMLSelectElement {
-  const row = container.querySelectorAll("tbody tr")[index];
-  return row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
-}
