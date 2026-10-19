@@ -41,6 +41,8 @@ export interface LineCodingFields {
   coding_suggestion_source?: BillCodingSuggestionSource | null;
   /** When set to `file`, a later history/LLM hook must not replace untouched prefills. */
   coding_prefill_origin?: "file";
+  /** Where the live project suggestion came from (drives project chip label — independent of SCC origin). */
+  coding_project_prefill_origin?: "file" | "llm";
 }
 
 let activeSuggestAbort: AbortController | null = null;
@@ -93,11 +95,11 @@ export function formatBillCreateCodingBadgeLabel(
   return formatSuggestionBadgeLabel(conf, source);
 }
 
-/** Bill Create line-row project marker label (BillEdit keeps plain "AI"). */
+/** Bill Create line-row project marker label (BillEdit uses the same helper). */
 export function formatBillCreateProjectBadgeLabel(
-  prefillOrigin?: LineCodingFields["coding_prefill_origin"],
+  projectOrigin?: LineCodingFields["coding_project_prefill_origin"],
 ): string {
-  return prefillOrigin === "file" ? "From file" : "AI";
+  return projectOrigin === "file" ? "From file" : "AI";
 }
 
 /** Raw confidence on a 0–100 scale (unrounded). */
@@ -447,6 +449,7 @@ export function revertUnacceptedCodingPrefill<T extends LineCodingFields>(
   delete next.coding_suggestion_confidence;
   delete next.coding_suggestion_source;
   delete next.coding_prefill_origin;
+  delete next.coding_project_prefill_origin;
   return next;
 }
 
@@ -544,7 +547,10 @@ export function applySuggestionToLines<
 
   const canFillProjectOnLine = (line: T): boolean => {
     if (empty || !llmSource || line.unresolved_project_id != null) return false;
-    if (line.coding_prefill_origin === "file" && line.coding_prefill_state === "prefilled") {
+    if (
+      line.coding_project_prefill_origin === "file" &&
+      line.coding_prefill_state === "prefilled"
+    ) {
       return false;
     }
     return (
@@ -584,6 +590,7 @@ export function applySuggestionToLines<
     if (canFillProject) {
       next.project_public_id = projectId;
       next.coding_suggested_project_public_id = projectId;
+      next.coding_project_prefill_origin = "llm";
     }
     // The badge state describes the SCC suggestion; a project-only fill leaves it alone.
     if (canFillScc) {
@@ -619,15 +626,16 @@ export function nextPrefillState(
 }
 
 /**
- * U-674: an untouched pre-filled cost code is not a reviewed one. The API refuses
- * Submit for Review and Complete (422 `unreviewed_prefill`) while any line is still
- * `prefilled`; the pages disable those buttons with this message.
+ * Wire `coding_prefill_state` for API payloads. Draft saves keep `prefilled` so
+ * badges return on reopen; submit/complete record reviewer acceptance as `accepted`.
  */
-export const UNREVIEWED_PREFILL_MSG =
-  "Accept or change each value from the file and each suggested cost code before submitting or completing.";
-
-export function linesHaveUnreviewedPrefill(lines: readonly LineCodingFields[]): boolean {
-  return lines.some((li) => li.coding_prefill_state === "prefilled");
+export function codingPrefillStateForApi(
+  state: CodingPrefillState | undefined,
+  intent: "draft" | "submit",
+): CodingPrefillState | undefined {
+  if (state === undefined) return undefined;
+  if (intent === "submit" && state === "prefilled") return "accepted";
+  return state;
 }
 
 export function lineShowsSuggestionBadge(line: LineCodingFields): boolean {

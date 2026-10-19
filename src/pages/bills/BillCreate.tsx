@@ -14,15 +14,13 @@ import Breadcrumb, { entityCrumbs } from "../../components/Breadcrumb";
 import type { Bill } from "../../types/api";
 import { hasBillPermission } from "./billPermissions";
 import {
-  acceptPrefilled,
   applyUserLinePatch,
+  codingPrefillStateForApi,
   codingSuggestAmountFromLines,
   BILL_CREATE_LINE_CHIP_CLASS,
   formatBillCreateCodingBadgeLabel,
   formatBillCreateProjectBadgeLabel,
-  UNREVIEWED_PREFILL_MSG,
   lineShowsProjectSuggestionMarker,
-  linesHaveUnreviewedPrefill,
   lineShowsSuggestionBadgeFor,
   projectHintFromLines,
   suggestionBadgeClassName,
@@ -30,23 +28,15 @@ import {
 } from "./codingSuggestion";
 import { useBillCodingSuggestion } from "./useBillCodingSuggestion";
 import {
-  acceptAllHeaderPrefill,
-  acceptAllLine1Prefill,
-  acceptHeaderPrefillField,
-  acceptLine1PrefillField,
   createEmptyHeaderPrefill,
   createEmptyLine1Prefill,
   HEADER_PREFILL_BADGE_LABEL,
-  headersHaveUnreviewedPrefill,
-  line1HasUnreviewedPrefill,
   markHeaderUserEdit,
   markLine1PrefillUserEdit,
   revertUnacceptedHeaderPrefill,
   revertUnacceptedLine1Prefill,
-  type HeaderPrefillField,
   type HeaderPrefillMeta,
   type HeaderUserTouched,
-  type Line1PrefillField,
   type Line1PrefillMeta,
 } from "./headerPrefill";
 import {
@@ -106,55 +96,31 @@ function fmtMoney(v: string): string {
 
 const UPLOAD_PDF_ERROR = "Could not upload this PDF";
 
-function filePrefillAdornment(
-  ariaLabel: string,
-  onAccept: () => void,
-  busy: boolean,
-  opts?: { compact?: boolean; lineRow?: boolean },
-): ReactNode {
-  const lineRow = opts?.lineRow === true;
-  const compact = lineRow || opts?.compact === true;
-  const badgeClass = lineRow
-    ? `status-badge coding-suggested ${BILL_CREATE_LINE_CHIP_CLASS}`
-    : `status-badge coding-suggested${compact ? " status-badge-compact" : ""}`;
-  const acceptClass = lineRow
-    ? `btn-coding-accept ${BILL_CREATE_LINE_CHIP_CLASS}`
-    : "btn-coding-accept";
+function headerFilePrefillLabel(): ReactNode {
   return (
-    <div
-      className={`coding-suggestion-actions header-prefill-adornment${compact ? " coding-suggestion-actions-compact" : ""}`}
-    >
-      <span className={badgeClass}>{HEADER_PREFILL_BADGE_LABEL}</span>
-      <button
-        type="button"
-        className={acceptClass}
-        title="Accept value from file"
-        aria-label={ariaLabel}
-        disabled={busy}
-        onClick={onAccept}
-      >
-        ✓
-      </button>
+    <div className="coding-suggestion-actions header-prefill-adornment">
+      <span className="status-badge coding-suggested">{HEADER_PREFILL_BADGE_LABEL}</span>
     </div>
   );
 }
 
-/** "From file" badge + ✓ for a header or line-1 field still awaiting acceptance. */
-function prefillAdornment<F extends string>(
+function lineRowFilePrefillLabel(): ReactNode {
+  return (
+    <div className="coding-suggestion-actions coding-suggestion-actions-compact">
+      <span className={`status-badge coding-suggested ${BILL_CREATE_LINE_CHIP_CLASS}`}>
+        {HEADER_PREFILL_BADGE_LABEL}
+      </span>
+    </div>
+  );
+}
+
+function filePrefillLabel<F extends string>(
   meta: { [K in F]?: { state?: string } },
   field: F,
-  labelPrefix: string,
-  onAccept: (field: F) => void,
-  busy: boolean,
-  opts?: { compact?: boolean; lineRow?: boolean },
+  lineRow: boolean,
 ): ReactNode {
   if (meta[field]?.state !== "prefilled") return null;
-  return filePrefillAdornment(
-    `Accept ${labelPrefix}${field} from file`,
-    () => onAccept(field),
-    busy,
-    opts,
-  );
+  return lineRow ? lineRowFilePrefillLabel() : headerFilePrefillLabel();
 }
 
 function lineItemBadgeSlot(content: ReactNode): ReactNode {
@@ -357,14 +323,6 @@ export default function BillCreate() {
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  const acceptHeaderField = (field: HeaderPrefillField) => {
-    setHeaderPrefill((prev) => acceptHeaderPrefillField(prev, field));
-  };
-
-  const acceptLine1Field = (field: Line1PrefillField) => {
-    setLine1Prefill((prev) => acceptLine1PrefillField(prev, field));
-  };
-
   const lineIndexForPrefillUid = (rows: LineItemDraft[]): number => {
     const uid = line1PrefillUidRef.current;
     if (uid) {
@@ -396,16 +354,6 @@ export default function BillCreate() {
     );
   };
 
-  const acceptLineSuggestion = (index: number) => {
-    setLines((prev) => prev.map((li, i) => (i === index ? acceptPrefilled(li) : li)));
-  };
-
-  const acceptAllSuggestions = () => {
-    setHeaderPrefill((prev) => acceptAllHeaderPrefill(prev));
-    setLine1Prefill((prev) => acceptAllLine1Prefill(prev));
-    setLines((prev) => prev.map(acceptPrefilled));
-  };
-
   const pdfAttached = file !== null || attachmentPublicId !== null;
   pdfAttachedRef.current = pdfAttached;
 
@@ -426,13 +374,6 @@ export default function BillCreate() {
   useEffect(() => {
     syncAutoMemo();
   }, [form.bill_number, memoEntryMethod, memoUserEdited, me]);
-
-  const hasHeaderPrefill = headersHaveUnreviewedPrefill(headerPrefill);
-  const hasLine1ScalarPrefill = line1HasUnreviewedPrefill(line1Prefill);
-  // One flag drives the Accept-all button and every save gate, so they cannot drift apart.
-  const hasPrefilledSuggestions =
-    hasHeaderPrefill || hasLine1ScalarPrefill || linesHaveUnreviewedPrefill(lines);
-  const saveBlockedTitle = hasPrefilledSuggestions ? UNREVIEWED_PREFILL_MSG : undefined;
 
   const addLine = () => setLines((prev) => [...prev, newLine()]);
 
@@ -718,14 +659,12 @@ export default function BillCreate() {
   const hasUpdatePerm = hasBillPermission(me, "can_update");
   const hasSubmitPerms = hasCreatePerm && hasUpdatePerm;
   const hasProjectOnLine = populatedLines.some((li) => !!li.project_public_id);
-  const canSubmitForReview = hasSubmitPerms && hasProjectOnLine && !hasPrefilledSuggestions;
+  const canSubmitForReview = hasSubmitPerms && hasProjectOnLine;
   const submitForReviewTitle = !hasSubmitPerms
     ? "Bills create and update permissions are required — Submit for Review creates the bill and calls the review submit endpoint."
     : !hasProjectOnLine
       ? "Set Project on at least one line item to enable Submit for Review."
-      : hasPrefilledSuggestions
-        ? UNREVIEWED_PREFILL_MSG
-        : "Save the bill AND queue the reviewer notification email.";
+      : "Save the bill AND queue the reviewer notification email.";
 
   // Complete needs EVERY populated line to have both project AND SCC —
   // completion enqueues one SharePoint upload per project and one Excel row
@@ -733,7 +672,6 @@ export default function BillCreate() {
   // one populated line so there's anything to complete.
   const canCompleteFromHere =
     hasLineData &&
-    !hasPrefilledSuggestions &&
     populatedLines.every((li) => !!li.project_public_id && !!li.sub_cost_code_id);
 
   // Bill.TotalAmount = sum of all populated lines' amounts. Server writes
@@ -741,7 +679,11 @@ export default function BillCreate() {
   // rows contribute nothing (they're already filtered out).
   const totalAmount = sumLineAmounts(populatedLines);
 
-  const buildBody = () => {
+  const prefillWireIntent = (action: "save" | "submit" | "complete"): "draft" | "submit" =>
+    action === "save" ? "draft" : "submit";
+
+  const buildBody = (action: "save" | "submit" | "complete") => {
+    const wireIntent = prefillWireIntent(action);
     // First populated line becomes the inline `line_*` summary — the
     // API's create endpoint takes ONE summary and auto-creates the
     // corresponding BillLineItem (the one the attachment links to).
@@ -778,16 +720,21 @@ export default function BillCreate() {
       body.line_sub_cost_code_id =
         first.sub_cost_code_id !== "" ? Number(first.sub_cost_code_id) : null;
       body.line_project_public_id = first.project_public_id || null;
-      if (first.coding_prefill_state !== undefined) {
-        body.line_coding_prefill_state = first.coding_prefill_state;
+      const wired = codingPrefillStateForApi(first.coding_prefill_state, wireIntent);
+      if (wired !== undefined) {
+        body.line_coding_prefill_state = wired;
       }
     }
     return body;
   };
 
-  const lineItemBodyExtras = (li: LineItemDraft): Record<string, unknown> => {
-    if (li.coding_prefill_state === undefined) return {};
-    return { coding_prefill_state: li.coding_prefill_state };
+  const lineItemBodyExtras = (
+    li: LineItemDraft,
+    action: "save" | "submit" | "complete",
+  ): Record<string, unknown> => {
+    const wired = codingPrefillStateForApi(li.coding_prefill_state, prefillWireIntent(action));
+    if (wired === undefined) return {};
+    return { coding_prefill_state: wired };
   };
 
   const handleSubmit = async (action: "save" | "submit" | "complete") => {
@@ -797,10 +744,6 @@ export default function BillCreate() {
     }
     if (readingAttachment) {
       setSaveError("Wait for the invoice read to finish.");
-      return;
-    }
-    if (hasPrefilledSuggestions) {
-      setSaveError(UNREVIEWED_PREFILL_MSG);
       return;
     }
     if (inFlightRef.current) return;
@@ -817,7 +760,7 @@ export default function BillCreate() {
         attId = attachment.public_id;
       }
       const created = await post<Bill>("/api/v1/create/bill", {
-        ...buildBody(),
+        ...buildBody(action),
         attachment_public_id: attId,
       });
 
@@ -849,7 +792,7 @@ export default function BillCreate() {
             is_billable: li.is_billable,
             markup: li.markup !== "" ? Number(li.markup) : null,
             price: li.price !== "" ? Number(li.price) : null,
-            ...lineItemBodyExtras(li),
+            ...lineItemBodyExtras(li, action),
           });
           persistedLines.push(li);
         } catch {
@@ -1015,7 +958,7 @@ export default function BillCreate() {
             onChange={onChange}
             options={(lookups.vendors ?? []).map((v) => ({ value: v.public_id, label: v.name }))}
             required
-            adornment={prefillAdornment(headerPrefill, "vendor_public_id", "", acceptHeaderField, busy)}
+            adornment={filePrefillLabel(headerPrefill, "vendor_public_id", false)}
           />
           <FormField
             label="Bill Number"
@@ -1023,7 +966,7 @@ export default function BillCreate() {
             value={form.bill_number}
             onChange={onChange}
             required
-            adornment={prefillAdornment(headerPrefill, "bill_number", "", acceptHeaderField, busy)}
+            adornment={filePrefillLabel(headerPrefill, "bill_number", false)}
           />
           <DateField
             label="Bill Date"
@@ -1031,7 +974,7 @@ export default function BillCreate() {
             value={form.bill_date}
             onChange={onChange}
             required
-            adornment={prefillAdornment(headerPrefill, "bill_date", "", acceptHeaderField, busy)}
+            adornment={filePrefillLabel(headerPrefill, "bill_date", false)}
           />
           {/* Read-only: dbo.CreateBill / dbo.UpdateBillById persist DueDate = BillDate and
               ignore @DueDate, so an editable due date here would mislead the user. Payment
@@ -1060,16 +1003,6 @@ export default function BillCreate() {
             <div className="inline-li-header-actions">
               {budgetChip && (
                 <span className={budgetChip.className}>{budgetChip.label}</span>
-              )}
-              {hasPrefilledSuggestions && (
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={acceptAllSuggestions}
-                  disabled={busy}
-                >
-                  Accept all suggestions
-                </button>
               )}
             </div>
           </div>
@@ -1115,17 +1048,6 @@ export default function BillCreate() {
                           li.coding_prefill_origin,
                         )}
                       </span>
-                      {li.coding_prefill_state === "prefilled" && (
-                        <button
-                          type="button"
-                          className={`btn-coding-accept ${BILL_CREATE_LINE_CHIP_CLASS}`}
-                          title="Accept suggestion"
-                          aria-label={`Accept sub cost code suggestion for line ${index + 1}`}
-                          onClick={() => acceptLineSuggestion(index)}
-                        >
-                          ✓
-                        </button>
-                      )}
                     </div>
                   ) : null;
                 const projectBadge = lineShowsProjectSuggestionMarker(li) ? (
@@ -1134,7 +1056,7 @@ export default function BillCreate() {
                       className={`status-badge coding-suggested ${BILL_CREATE_LINE_CHIP_CLASS}`}
                       title="Project predicted from the bill's attachment text"
                     >
-                      {formatBillCreateProjectBadgeLabel(li.coding_prefill_origin)}
+                      {formatBillCreateProjectBadgeLabel(li.coding_project_prefill_origin)}
                     </span>
                   </div>
                 ) : null;
@@ -1147,14 +1069,7 @@ export default function BillCreate() {
                         onChange={(e) => updateLine(index, "description", e.target.value)}
                       />,
                       li.uid === line1PrefillUid
-                        ? prefillAdornment(
-                            line1Prefill,
-                            "description",
-                            "line 1 ",
-                            acceptLine1Field,
-                            busy,
-                            { lineRow: true },
-                          )
+                        ? filePrefillLabel(line1Prefill, "description", true)
                         : null,
                     )}
                     {lineItemCell(
@@ -1210,14 +1125,7 @@ export default function BillCreate() {
                         onChange={(e) => updateLine(index, "rate", e.target.value)}
                       />,
                       li.uid === line1PrefillUid
-                        ? prefillAdornment(
-                            line1Prefill,
-                            "rate",
-                            "line 1 ",
-                            acceptLine1Field,
-                            busy,
-                            { lineRow: true },
-                          )
+                        ? filePrefillLabel(line1Prefill, "rate", true)
                         : null,
                       { align: "right" },
                     )}
@@ -1301,9 +1209,9 @@ export default function BillCreate() {
           <button
             type="submit"
             className="btn btn-primary"
-            disabled={busy || !file || hasPrefilledSuggestions}
+            disabled={busy || !file}
             onClick={() => { pendingActionRef.current = "save"; }}
-            title={saveBlockedTitle ?? "Save the bill as a draft and continue editing on the next page."}
+            title="Save the bill as a draft and continue editing on the next page."
           >
             {busyAction === "save" ? "Saving..." : "Save For Later"}
           </button>
@@ -1325,9 +1233,7 @@ export default function BillCreate() {
               title={
                 canCompleteFromHere
                   ? "Save the bill AND finalize it directly — bypasses review, kicks off SharePoint / Excel / QBO push."
-                  : hasPrefilledSuggestions
-                    ? UNREVIEWED_PREFILL_MSG
-                    : "Set both Project and Sub Cost Code on the line item to enable Complete."
+                  : "Set both Project and Sub Cost Code on the line item to enable Complete."
               }
             >
               {busyAction === "complete" ? "Completing..." : "Complete Bill"}

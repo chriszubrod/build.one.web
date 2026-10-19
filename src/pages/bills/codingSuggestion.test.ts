@@ -7,6 +7,7 @@ import {
   budgetChip,
   buildCodingSuggestInputKey,
   centsToDecimal,
+  codingPrefillStateForApi,
   codingSuggestAmountFromLines,
   coveredLinesMatchSuggestedScc,
   decimalToCents,
@@ -166,6 +167,7 @@ describe("applySuggestionToLines", () => {
     );
     expect(out[0].project_public_id).toBe("p-llm");
     expect(out[0].coding_suggested_project_public_id).toBe("p-llm");
+    expect(out[0].coding_project_prefill_origin).toBe("llm");
     expect(out[0].coding_prefill_state).toBe("prefilled");
     expect(out[1].project_public_id).toBe("user-proj");
     expect(out[2].project_public_id).toBe("");
@@ -308,7 +310,12 @@ describe("applySuggestionToLines", () => {
     const llmCatalog = [...catalog, { id: 99, public_id: "scc-llm" }];
     const out = applySuggestionToLines(
       [prefilled],
-      sampleSuggestion({ source: "llm", sub_cost_code_public_id: "scc-llm" }),
+      sampleSuggestion({
+        source: "llm",
+        sub_cost_code_public_id: "scc-llm",
+        project_public_id: null,
+        project_name: null,
+      }),
       llmCatalog,
     );
     expect(out).toEqual([prefilled]);
@@ -697,6 +704,32 @@ describe("confidence helpers", () => {
     expect(formatBillCreateCodingBadgeLabel(0.72, "vendor_history")).toBe("Suggested 72%");
     expect(formatBillCreateCodingBadgeLabel(0.72, "llm")).toBe("AI 72%");
     expect(formatBillCreateProjectBadgeLabel(undefined)).toBe("AI");
+    expect(formatBillCreateProjectBadgeLabel("llm")).toBe("AI");
+  });
+
+  it("U-676k llm project fill tags coding_project_prefill_origin separately from file SCC", () => {
+    const fromFile: DraftLine = {
+      ...emptyLine("a"),
+      sub_cost_code_id: "10",
+      coding_prefill_state: "prefilled",
+      coding_prefill_origin: "file",
+      coding_suggested_sub_cost_code_id: "10",
+    };
+    const out = applySuggestionToLines(
+      [fromFile],
+      sampleSuggestion({ source: "llm", project_public_id: "p-llm", sub_cost_code_public_id: "" }),
+      catalog,
+    );
+    expect(out[0].coding_prefill_origin).toBe("file");
+    expect(out[0].coding_project_prefill_origin).toBe("llm");
+    expect(formatBillCreateProjectBadgeLabel(out[0].coding_project_prefill_origin)).toBe("AI");
+  });
+
+  it("U-676k codingPrefillStateForApi keeps prefilled on draft saves and accepts on submit", () => {
+    expect(codingPrefillStateForApi("prefilled", "draft")).toBe("prefilled");
+    expect(codingPrefillStateForApi("prefilled", "submit")).toBe("accepted");
+    expect(codingPrefillStateForApi("changed", "submit")).toBe("changed");
+    expect(codingPrefillStateForApi(undefined, "submit")).toBeUndefined();
   });
 
   it("r1-5 classifies low confidence from unrounded ratio (28/47 ≈ 59.57%)", () => {

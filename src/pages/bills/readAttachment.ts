@@ -188,6 +188,7 @@ function applyFileReadCodingPair<T extends LineCodingFields>(
   if (hasFileProject) {
     next.project_public_id = projectId;
     next.coding_suggested_project_public_id = projectId;
+    next.coding_project_prefill_origin = "file";
   } else {
     // A cost-code-only read fills the cost code alone: the line keeps the project it had.
     next.project_public_id = line.project_public_id;

@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import BillCreate from "./BillCreate";
-import { UNREVIEWED_PREFILL_MSG } from "./codingSuggestion";
+import indexCss from "../../index.css?raw";
 import { flushUntil } from "../../__testutils__/flush";
 import { setInputValue, setSelectValue, setTextareaValue } from "../../__testutils__/domEvents";
 import { Modules } from "../../shared/modules";
@@ -1030,7 +1030,7 @@ describe("BillCreate coding suggestions", () => {
     expect(projectSelect.value).toBe("");
   });
 
-  it("sends coding_prefill_state accepted after accept-all and save", async () => {
+  it("U-676k Save For Later sends coding_prefill_state prefilled while suggestions are untouched", async () => {
     mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
     renderPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
@@ -1043,20 +1043,15 @@ describe("BillCreate coding suggestions", () => {
       await attachPdf();
     });
 
-    await flushUntil(() => findButton("Accept all suggestions") !== undefined);
-    await act(async () => {
-      findButton("Accept all suggestions").click();
-    });
-
     await act(async () => {
       findButton("Save For Later").click();
     });
 
     await flushUntil(() => mockPost.mock.calls.some((c) => c[0] === "/api/v1/create/bill"));
-    expect(createBillBody().line_coding_prefill_state).toBe("accepted");
+    expect(createBillBody().line_coding_prefill_state).toBe("prefilled");
   });
 
-  it("U-674 Submit For Review and Complete stay disabled until the pre-filled code is accepted", async () => {
+  it("U-676k Submit For Review and Complete stay enabled with unreviewed suggestions", async () => {
     mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
     renderPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
@@ -1071,17 +1066,30 @@ describe("BillCreate coding suggestions", () => {
     });
 
     expect(sccSelectAt(0).value).toBe("10");
-    expect(submitForReviewButton().disabled).toBe(true);
-    expect(submitForReviewButton().title).toBe(UNREVIEWED_PREFILL_MSG);
-    expect(completeBillButton().disabled).toBe(true);
-
-    await act(async () => {
-      findButton("Accept all suggestions").click();
-    });
-
-    await flushUntil(() => !submitForReviewButton().disabled);
     expect(submitForReviewButton().disabled).toBe(false);
     expect(completeBillButton().disabled).toBe(false);
+  });
+
+  it("U-676k Submit For Review sends accepted for prefilled lines", async () => {
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
+    renderPage();
+    await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+
+    await act(async () => {
+      fillLineRow(0, "Line one", "p-1");
+      fillHeader();
+    });
+    await flushUntil(() => sccSelectAt(0).value === "10");
+    await act(async () => {
+      await attachPdf();
+    });
+
+    await act(async () => {
+      submitForReviewButton().click();
+    });
+
+    await flushUntil(() => mockPost.mock.calls.some((c) => c[0] === "/api/v1/create/bill"));
+    expect(createBillBody().line_coding_prefill_state).toBe("accepted");
   });
 
   it("r4-2 project change on prefilled line keeps prefilled state on save", async () => {
@@ -1105,15 +1113,11 @@ describe("BillCreate coding suggestions", () => {
     });
 
     await act(async () => {
-      findButton("Accept all suggestions").click();
-    });
-
-    await act(async () => {
       findButton("Save For Later").click();
     });
 
     await flushUntil(() => mockPost.mock.calls.some((c) => c[0] === "/api/v1/create/bill"));
-    expect(createBillBody().line_coding_prefill_state).toBe("accepted");
+    expect(createBillBody().line_coding_prefill_state).toBe("prefilled");
     expect(createBillBody().line_project_public_id).toBe("p-2");
   });
 
@@ -1798,10 +1802,6 @@ describe("BillCreate PDF read attachment", () => {
     await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
 
     await act(async () => {
-      findButton("Accept all suggestions").click();
-    });
-
-    await act(async () => {
       findButton("Save For Later").click();
     });
     await flushUntil(() => mockPost.mock.calls.some((c) => c[0] === "/api/v1/create/bill"));
@@ -1831,7 +1831,7 @@ describe("BillCreate PDF read attachment", () => {
     expect(rateInputAt(0).value).toBe("99");
   });
 
-  it("blocks Save while reading and blocks submit until header prefills accepted", async () => {
+  it("blocks Save while reading; submit stays gated on project not file labels", async () => {
     let resolveRead!: (v: ReturnType<typeof okReadFromFile>) => void;
     mockReadBillAttachment.mockImplementationOnce(
       () =>
@@ -1854,14 +1854,23 @@ describe("BillCreate PDF read attachment", () => {
     expect(findButton("Save For Later").disabled).toBe(true);
 
     await act(async () => {
-      resolveRead(okReadFromFile());
+      resolveRead(
+        okReadFromFile({
+          coding: {
+            ...okReadFromFile().coding,
+            project_public_id: null,
+            project_name: null,
+          },
+        }),
+      );
       await Promise.resolve();
     });
     await flushUntil(() => container.textContent?.includes("From file"));
 
+    expect(findButton("Save For Later").disabled).toBe(false);
     expect(submitForReviewButton().disabled).toBe(true);
     await act(async () => {
-      findButton("Accept all suggestions").click();
+      fillLineRow(0, "Line one", "p-1");
     });
     await flushUntil(() => !submitForReviewButton().disabled);
   });
@@ -1951,15 +1960,12 @@ describe("BillCreate PDF read attachment", () => {
     expect(sccSelectAt(0).value).toBe("10");
   });
 
-  it("Save after accept-all sends line_amount and total from file rate (drop only)", async () => {
+  it("Save sends line_amount and total from file rate without accept controls", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
     renderPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("From file"));
-    await act(async () => {
-      findButton("Accept all suggestions").click();
-    });
     await act(async () => {
       findButton("Save For Later").click();
     });
@@ -1970,40 +1976,33 @@ describe("BillCreate PDF read attachment", () => {
     expect(body.line_rate).toBe(500);
   });
 
-  it("blocks Save For Later until file-filled header and line-1 values are accepted", async () => {
+  it("U-676k Save For Later stays enabled with file-filled header and line-1 labels", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
     renderPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("From file"));
-    expect(findButton("Save For Later").disabled).toBe(true);
+    expect(findButton("Save For Later").disabled).toBe(false);
     await act(async () => {
       findButton("Save For Later").click();
     });
-    expect(mockPost.mock.calls.some((c) => c[0] === "/api/v1/create/bill")).toBe(false);
+    await flushUntil(() => mockPost.mock.calls.some((c) => c[0] === "/api/v1/create/bill"));
+    expect(mockPost.mock.calls.some((c) => c[0] === "/api/v1/create/bill")).toBe(true);
   });
 
-  it("blocks Submit For Review and Complete Bill until all file prefills accepted", async () => {
+  it("U-676k does not render accept controls on Bill Create", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    mockUseCurrentUser.mockReturnValue({
-      data: {
-        ...adminUser(),
-        modules: [
-          makeModule(Modules.BILLS, {
-            can_create: true,
-            can_update: true,
-            can_complete: true,
-          }),
-        ],
-      },
-      isLoading: false,
-    });
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
     renderPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
+    await act(async () => {
+      fillHeader();
+      fillLineRow(0, "Line one", "p-1");
+    });
     await attachPdf();
-    await flushUntil(() => container.textContent?.includes("From file"));
-    expect(submitForReviewButton().disabled).toBe(true);
-    expect(completeBillButton().disabled).toBe(true);
+    await flushUntil(() => container.textContent?.includes("Suggested"));
+    expect(findButton("Accept all suggestions")).toBeUndefined();
+    expect(container.querySelector(".btn-coding-accept")).toBeNull();
   });
 
   it("does not overwrite fields the user edited while the read is in flight", async () => {
@@ -2054,16 +2053,15 @@ describe("BillCreate PDF read attachment", () => {
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("From file"));
     await act(async () => {
-      (
-        container.querySelector(
-          'button[aria-label="Accept bill_number from file"]',
-        ) as HTMLButtonElement
-      ).click();
+      setInputValue(
+        container.querySelector("#bill_number") as HTMLInputElement,
+        "INV-43",
+      );
     });
     await act(async () => {
       findButton("Change file").click();
     });
-    expect((container.querySelector("#bill_number") as HTMLInputElement).value).toBe("INV-42");
+    expect((container.querySelector("#bill_number") as HTMLInputElement).value).toBe("INV-43");
     expect(descriptionInputAt(0).value).toBe("");
     expect(rateInputAt(0).value).toBe("");
 
@@ -2217,16 +2215,14 @@ describe("BillCreate PDF read attachment", () => {
     }
   }
 
-  it("enables Save after accepting each visible file check (quantity is not a hidden gate)", async () => {
+  it("enables Save once file labels appear (quantity is not a hidden gate)", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
     renderPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("From file"));
-    expect(findButton("Save For Later").disabled).toBe(true);
-    await acceptEachVisibleFileCheck();
-    await flushUntil(() => !findButton("Save For Later").disabled);
     expect(findButton("Save For Later").disabled).toBe(false);
+    expect(container.querySelector("button[aria-label^='Accept']")).toBeNull();
   });
 
   it("enables Save after editing every file-filled field (edits count as accept)", async () => {
@@ -2341,12 +2337,11 @@ describe("BillCreate PDF read attachment", () => {
     await act(async () => {
       setTextareaValue(container.querySelector("textarea") as HTMLTextAreaElement, "m");
     });
-    expect(findButton("Save For Later").disabled).toBe(true);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(20);
     });
     await flushUntil(() => container.textContent?.includes("From file"));
-    expect(findButton("Save For Later").disabled).toBe(true);
+    expect(findButton("Save For Later").disabled).toBe(false);
   });
 
   it("clears Reading invoice and unlocks Save once a lookups-deferred read is applied", async () => {
@@ -2370,9 +2365,6 @@ describe("BillCreate PDF read attachment", () => {
     await flushUntil(() => container.textContent?.includes("From file"));
     // Precondition: the deferred result really was applied (vendor from the file).
     expect((container.querySelector("#vendor_public_id") as HTMLSelectElement).value).toBe("v-1");
-    await act(async () => {
-      findButton("Accept all suggestions").click();
-    });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(20);
     });
@@ -2666,11 +2658,7 @@ describe("BillCreate PDF read attachment", () => {
     const memoGroup = memo.closest(".form-group");
     expect(memoGroup?.textContent?.includes("From file")).toBe(false);
     expect(memoGroup?.querySelector(".btn-coding-accept")).toBeNull();
-    expect(findButton("Save For Later").disabled).toBe(true);
-    await act(async () => {
-      findButton("Accept all suggestions").click();
-    });
-    await flushUntil(() => !findButton("Save For Later").disabled);
+    expect(findButton("Save For Later").disabled).toBe(false);
     expect(memo.value.length).toBeGreaterThan(0);
   });
 
@@ -2834,6 +2822,13 @@ describe("BillCreate PDF read attachment", () => {
     expect(table?.querySelector("colgroup col.bill-create-col-markup")).toBeTruthy();
   });
 
+  it("U-676k bill-create-lines colgroup has no min-width floors", () => {
+    const block = indexCss.slice(indexCss.indexOf(".bill-create-lines col.bill-create-col-desc"));
+    const end = block.indexOf(".bill-create-lines td {");
+    const colRules = block.slice(0, end);
+    expect(colRules).not.toMatch(/min-width\s*:/);
+  });
+
   it("U-676i file read labels cost code and project as From file", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
     renderPage();
@@ -2871,9 +2866,7 @@ describe("BillCreate PDF read attachment", () => {
     row!.querySelectorAll(".line-item-badge-slot .status-badge").forEach((badge) => {
       expect(badge.classList.contains("bill-create-line-chip")).toBe(true);
     });
-    row!.querySelectorAll(".line-item-badge-slot .btn-coding-accept").forEach((btn) => {
-      expect(btn.classList.contains("bill-create-line-chip")).toBe(true);
-    });
+    expect(row!.querySelectorAll(".line-item-badge-slot .btn-coding-accept").length).toBe(0);
   });
 
   it("BillEdit line table does not use BillCreate-only layout class", () => {

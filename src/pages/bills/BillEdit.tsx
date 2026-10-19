@@ -30,9 +30,8 @@ import type { ReviewActionKind } from "../../components/ReviewTimeline";
 import {
   codingSuggestAmountFromLines,
   formatSuggestionBadgeLabel,
-  linesHaveUnreviewedPrefill,
-  UNREVIEWED_PREFILL_MSG,
-  acceptPrefilled,
+  codingPrefillStateForApi,
+  formatBillCreateProjectBadgeLabel,
   applyUserLinePatch,
   lineShowsProjectSuggestionMarker,
   lineShowsSuggestionBadgeFor,
@@ -476,7 +475,8 @@ export default function BillEdit() {
     setForm((prev: any) => ({ ...prev, [name]: value }));
   };
 
-  const saveAll = async (): Promise<boolean> => {
+  const saveAll = async (opts?: { recordReviewedPrefill?: boolean }): Promise<boolean> => {
+    const wireIntent = opts?.recordReviewedPrefill ? ("submit" as const) : ("draft" as const);
     if (saveAllInFlightRef.current) {
       return saveAllInFlightRef.current;
     }
@@ -568,9 +568,10 @@ export default function BillEdit() {
           ...(li.unresolved_project_id == null
             ? { project_public_id: li.project_public_id || null }
             : {}),
-          ...(li.coding_prefill_state !== undefined
-            ? { coding_prefill_state: li.coding_prefill_state }
-            : {}),
+          ...(() => {
+            const wired = codingPrefillStateForApi(li.coding_prefill_state, wireIntent);
+            return wired !== undefined ? { coding_prefill_state: wired } : {};
+          })(),
         };
 
         if (li.public_id) {
@@ -642,7 +643,7 @@ export default function BillEdit() {
 
   const handleComplete = async () => {
     if (!confirm("Complete this bill? This finalizes it and syncs to SharePoint, Excel, and QBO.")) return;
-    const saved = await saveAll();
+    const saved = await saveAll({ recordReviewedPrefill: true });
     if (!saved) return;
     setCompleting(true);
     cancelAutoSave();
@@ -660,7 +661,7 @@ export default function BillEdit() {
     // Flush pending edits before submitting — otherwise the notification
     // would resolve recipients against stale line items. Same discipline
     // the Complete handler follows.
-    const saved = await saveAll();
+    const saved = await saveAll({ recordReviewedPrefill: true });
     if (!saved) return;
     setSubmitting(true);
     setSaveError("");
@@ -693,13 +694,8 @@ export default function BillEdit() {
       toast(SUBMIT_REQUIRES_PROJECT_MSG);
       return false;
     }
-    // U-674: moving a bill forward on an untouched suggested code would record a review
-    // nobody gave. Decline stays open — it sends the bill back.
-    if ((action === "submit" || action === "advance") && linesHaveUnreviewedPrefill(lineItems)) {
-      toast(UNREVIEWED_PREFILL_MSG);
-      return false;
-    }
-    return saveAll();
+    const recordReviewedPrefill = action === "submit" || action === "advance";
+    return saveAll(recordReviewedPrefill ? { recordReviewedPrefill: true } : undefined);
   };
 
   // Hoisted out of the line-item map: these depend on neither the row nor its
@@ -708,12 +704,6 @@ export default function BillEdit() {
   // Same shape BillCreate computes once in its component body.
   const sccOptions = fullSubCostCodes.map((s) => ({ value: String(s.id), label: s.number ? `${s.number} — ${s.name}` : s.name }));
   const projectOptions = fullProjects.map((p) => ({ value: p.public_id, label: p.name }));
-
-  const hasPrefilledSuggestions = linesHaveUnreviewedPrefill(lineItems);
-
-  const acceptAllSuggestions = () => {
-    setLineItems((prev) => prev.map(acceptPrefilled));
-  };
 
   return (
     <div className="page form-page-wide">
@@ -783,19 +773,6 @@ export default function BillEdit() {
               {form.is_draft && budgetChip && (
                 <span className={budgetChip.className}>{budgetChip.label}</span>
               )}
-              {form.is_draft && hasPrefilledSuggestions && (
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={acceptAllSuggestions}
-                  disabled={saving || completing || submitting}
-                >
-                  Accept all suggestions
-                </button>
-              )}
-              {form.is_draft && hasPrefilledSuggestions && (
-                <span className="text-muted" style={{ fontSize: 12 }}>{UNREVIEWED_PREFILL_MSG}</span>
-              )}
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => setLineItems([...lineItems.map(computeLineItem), computeLineItem(newLineItem())])}>
                 + Add Row
               </button>
@@ -840,10 +817,6 @@ export default function BillEdit() {
                 };
                 const updateField = (key: string, value: any) =>
                   patchRow({ [key]: value } as Partial<LineItemRow>);
-                const acceptLineSuggestion = () => {
-                  if (li.coding_prefill_state !== "prefilled") return;
-                  patchRow({ coding_prefill_state: "accepted" });
-                };
                 const removeRow = () => setLineItems(lineItems.filter((_, i) => i !== idx));
                 const projectSelectValue =
                   li.project_public_id ||
@@ -880,17 +853,6 @@ export default function BillEdit() {
                                 li.coding_suggestion_source,
                               )}
                             </span>
-                            {li.coding_prefill_state === "prefilled" && (
-                              <button
-                                type="button"
-                                className="btn-coding-accept"
-                                title="Accept suggestion"
-                                aria-label={`Accept sub cost code suggestion for line ${idx + 1}`}
-                                onClick={acceptLineSuggestion}
-                              >
-                                ✓
-                              </button>
-                            )}
                           </div>
                         )}
                       </div>
@@ -916,7 +878,7 @@ export default function BillEdit() {
                               className="status-badge coding-suggested"
                               title="Project predicted from the bill's attachment text"
                             >
-                              AI
+                              {formatBillCreateProjectBadgeLabel(li.coding_project_prefill_origin)}
                             </span>
                           </div>
                         )}
@@ -994,13 +956,11 @@ export default function BillEdit() {
               type="button"
               className="btn btn-primary"
               onClick={handleSubmitForReview}
-              disabled={saving || completing || submitting || deleting || !lineItemsLoaded || !hasProjectOnLineItem || hasPrefilledSuggestions}
+              disabled={saving || completing || submitting || deleting || !lineItemsLoaded || !hasProjectOnLineItem}
               title={
                 !hasProjectOnLineItem
                   ? SUBMIT_REQUIRES_PROJECT_MSG
-                  : hasPrefilledSuggestions
-                    ? UNREVIEWED_PREFILL_MSG
-                    : "Submit for review — drafts an email to the project PMs and advances the bill state."
+                  : "Submit for review — drafts an email to the project PMs and advances the bill state."
               }
             >
               {submitting ? "Submitting..." : "Submit for Review"}
@@ -1011,8 +971,7 @@ export default function BillEdit() {
               type="button"
               className="btn btn-success"
               onClick={handleComplete}
-              disabled={saving || completing || submitting || deleting || !lineItemsLoaded || hasPrefilledSuggestions}
-              title={hasPrefilledSuggestions ? UNREVIEWED_PREFILL_MSG : undefined}
+              disabled={saving || completing || submitting || deleting || !lineItemsLoaded}
             >
               {completing ? "Completing..." : "Complete Bill"}
             </button>

@@ -599,6 +599,15 @@ describe("applyReadAttachmentResult — file pair vs hook suggestions (U-676h r2
     }).lines[0] as Record<string, unknown>;
   }
 
+  it("U-676k sets coding_project_prefill_origin file only when the file fills project", () => {
+    const sccOnly = apply({ ...baseLine() }, null);
+    expect(sccOnly.coding_prefill_origin).toBe("file");
+    expect(sccOnly.coding_project_prefill_origin).toBeUndefined();
+
+    const withProject = apply({ ...baseLine() }, "p-1");
+    expect(withProject.coding_project_prefill_origin).toBe("file");
+  });
+
   it("replaces a hook project-only fill with the file's DIFFERENT project + cost code (H)", () => {
     const out = apply(
       { ...baseLine(), project_public_id: "p-9", coding_suggested_project_public_id: "p-9" },

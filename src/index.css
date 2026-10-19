@@ -5453,25 +5453,16 @@ a.buildone-record-header-link:hover .buildone-record-name {
   line-height: 1.25;
 }
 
-.bill-create-lines .line-item-badge-slot .btn-coding-accept.bill-create-line-chip {
-  padding: 1px 5px;
-  font-size: 10px;
-  line-height: 1.25;
-}
-
 .bill-create-lines col.bill-create-col-desc {
-  width: 20%;
-  min-width: 12.5rem;
+  width: 17%;
 }
 
 .bill-create-lines col.bill-create-col-scc {
-  width: 18%;
-  min-width: 11.5rem;
+  width: 16%;
 }
 
 .bill-create-lines col.bill-create-col-project {
-  width: 17%;
-  min-width: 10.5rem;
+  width: 16%;
 }
 
 .bill-create-lines col.bill-create-col-qty {
@@ -5479,7 +5470,7 @@ a.buildone-record-header-link:hover .buildone-record-name {
 }
 
 .bill-create-lines col.bill-create-col-rate {
-  width: 5.5rem;
+  width: 6.25rem;
 }
 
 .bill-create-lines col.bill-create-col-amount {
