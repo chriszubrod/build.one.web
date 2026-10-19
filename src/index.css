@@ -5441,6 +5441,67 @@ a.buildone-record-header-link:hover .buildone-record-name {
 }
 
 /* BillCreate line table — alignment + badge row (BillEdit keeps origin/main table styling). */
+.bill-create-lines {
+  table-layout: fixed;
+}
+
+.bill-create-line-chip {
+  font-size: 10px;
+  padding: 1px 4px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  line-height: 1.25;
+}
+
+.bill-create-lines .line-item-badge-slot .btn-coding-accept.bill-create-line-chip {
+  padding: 1px 5px;
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.bill-create-lines col.bill-create-col-desc {
+  width: 20%;
+  min-width: 12.5rem;
+}
+
+.bill-create-lines col.bill-create-col-scc {
+  width: 18%;
+  min-width: 11.5rem;
+}
+
+.bill-create-lines col.bill-create-col-project {
+  width: 17%;
+  min-width: 10.5rem;
+}
+
+.bill-create-lines col.bill-create-col-qty {
+  width: 3.75rem;
+}
+
+.bill-create-lines col.bill-create-col-rate {
+  width: 5.5rem;
+}
+
+.bill-create-lines col.bill-create-col-amount {
+  width: 5.5rem;
+}
+
+.bill-create-lines col.bill-create-col-markup {
+  width: 3.75rem;
+}
+
+.bill-create-lines col.bill-create-col-price {
+  width: 5.5rem;
+}
+
+.bill-create-lines col.bill-create-col-billable {
+  width: 3.25rem;
+}
+
+.bill-create-lines col.bill-create-col-actions {
+  width: 2.25rem;
+}
+
 .bill-create-lines td {
   vertical-align: top;
 }
@@ -5490,10 +5551,6 @@ a.buildone-record-header-link:hover .buildone-record-name {
 
 .bill-create-lines .line-item-cell-align-center .line-item-control {
   justify-content: center;
-}
-
-.bill-create-lines td:nth-child(5) {
-  min-width: 7.5rem;
 }
 
 .bill-create-lines .coding-suggestion-actions {

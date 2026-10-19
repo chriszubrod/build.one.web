@@ -17,7 +17,9 @@ import {
   acceptPrefilled,
   applyUserLinePatch,
   codingSuggestAmountFromLines,
-  formatSuggestionBadgeLabel,
+  BILL_CREATE_LINE_CHIP_CLASS,
+  formatBillCreateCodingBadgeLabel,
+  formatBillCreateProjectBadgeLabel,
   UNREVIEWED_PREFILL_MSG,
   lineShowsProjectSuggestionMarker,
   linesHaveUnreviewedPrefill,
@@ -108,18 +110,24 @@ function filePrefillAdornment(
   ariaLabel: string,
   onAccept: () => void,
   busy: boolean,
-  compact = false,
+  opts?: { compact?: boolean; lineRow?: boolean },
 ): ReactNode {
+  const lineRow = opts?.lineRow === true;
+  const compact = lineRow || opts?.compact === true;
+  const badgeClass = lineRow
+    ? `status-badge coding-suggested ${BILL_CREATE_LINE_CHIP_CLASS}`
+    : `status-badge coding-suggested${compact ? " status-badge-compact" : ""}`;
+  const acceptClass = lineRow
+    ? `btn-coding-accept ${BILL_CREATE_LINE_CHIP_CLASS}`
+    : "btn-coding-accept";
   return (
     <div
       className={`coding-suggestion-actions header-prefill-adornment${compact ? " coding-suggestion-actions-compact" : ""}`}
     >
-      <span className={`status-badge coding-suggested${compact ? " status-badge-compact" : ""}`}>
-        {HEADER_PREFILL_BADGE_LABEL}
-      </span>
+      <span className={badgeClass}>{HEADER_PREFILL_BADGE_LABEL}</span>
       <button
         type="button"
-        className="btn-coding-accept"
+        className={acceptClass}
         title="Accept value from file"
         aria-label={ariaLabel}
         disabled={busy}
@@ -138,14 +146,14 @@ function prefillAdornment<F extends string>(
   labelPrefix: string,
   onAccept: (field: F) => void,
   busy: boolean,
-  compact = false,
+  opts?: { compact?: boolean; lineRow?: boolean },
 ): ReactNode {
   if (meta[field]?.state !== "prefilled") return null;
   return filePrefillAdornment(
     `Accept ${labelPrefix}${field} from file`,
     () => onAccept(field),
     busy,
-    compact,
+    opts,
   );
 }
 
@@ -1067,6 +1075,18 @@ export default function BillCreate() {
             </div>
           </div>
           <table className="data-table line-items-edit-table bill-create-lines">
+            <colgroup>
+              <col className="bill-create-col-desc" />
+              <col className="bill-create-col-scc" />
+              <col className="bill-create-col-project" />
+              <col className="bill-create-col-qty" />
+              <col className="bill-create-col-rate" />
+              <col className="bill-create-col-amount" />
+              <col className="bill-create-col-markup" />
+              <col className="bill-create-col-price" />
+              <col className="bill-create-col-billable" />
+              <col className="bill-create-col-actions" />
+            </colgroup>
             <thead>
               <tr>
                 <th>Description</th>
@@ -1087,18 +1107,19 @@ export default function BillCreate() {
                   lineShowsSuggestionBadgeFor(li) ? (
                     <div className="coding-suggestion-actions coding-suggestion-actions-compact">
                       <span
-                        className={suggestionBadgeClassName(li.coding_suggestion_confidence ?? null)}
+                        className={`${suggestionBadgeClassName(li.coding_suggestion_confidence ?? null)} ${BILL_CREATE_LINE_CHIP_CLASS}`}
                         title={li.coding_suggestion_reason ?? undefined}
                       >
-                        {formatSuggestionBadgeLabel(
+                        {formatBillCreateCodingBadgeLabel(
                           li.coding_suggestion_confidence ?? null,
                           li.coding_suggestion_source,
+                          li.coding_prefill_origin,
                         )}
                       </span>
                       {li.coding_prefill_state === "prefilled" && (
                         <button
                           type="button"
-                          className="btn-coding-accept"
+                          className={`btn-coding-accept ${BILL_CREATE_LINE_CHIP_CLASS}`}
                           title="Accept suggestion"
                           aria-label={`Accept sub cost code suggestion for line ${index + 1}`}
                           onClick={() => acceptLineSuggestion(index)}
@@ -1111,10 +1132,10 @@ export default function BillCreate() {
                 const projectBadge = lineShowsProjectSuggestionMarker(li) ? (
                   <div className="coding-suggestion-actions coding-suggestion-actions-compact">
                     <span
-                      className="status-badge coding-suggested status-badge-compact"
+                      className={`status-badge coding-suggested ${BILL_CREATE_LINE_CHIP_CLASS}`}
                       title="Project predicted from the bill's attachment text"
                     >
-                      AI
+                      {formatBillCreateProjectBadgeLabel(li.coding_prefill_origin)}
                     </span>
                   </div>
                 ) : null;
@@ -1133,6 +1154,7 @@ export default function BillCreate() {
                             "line 1 ",
                             acceptLine1Field,
                             busy,
+                            { lineRow: true },
                           )
                         : null,
                     )}
@@ -1195,7 +1217,7 @@ export default function BillCreate() {
                             "line 1 ",
                             acceptLine1Field,
                             busy,
-                            true,
+                            { lineRow: true },
                           )
                         : null,
                       { align: "right" },

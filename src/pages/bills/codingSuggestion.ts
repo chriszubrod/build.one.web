@@ -74,6 +74,32 @@ export function formatSuggestionBadgeLabel(
   return `${prefix} ${pct}%`;
 }
 
+/** Shared size/style class for every suggestion chip in a Bill Create line row. */
+export const BILL_CREATE_LINE_CHIP_CLASS = "bill-create-line-chip";
+
+/** Bill Create line-row cost-code badge label (BillEdit keeps formatSuggestionBadgeLabel). */
+export function formatBillCreateCodingBadgeLabel(
+  conf: number | null,
+  source?: BillCodingSuggestionSource | null,
+  prefillOrigin?: LineCodingFields["coding_prefill_origin"],
+): string {
+  if (prefillOrigin === "file") {
+    const pct = confidenceDisplayPct(conf);
+    if (source === "llm" && pct != null) {
+      return `From file · AI ${pct}%`;
+    }
+    return "From file";
+  }
+  return formatSuggestionBadgeLabel(conf, source);
+}
+
+/** Bill Create line-row project marker label (BillEdit keeps plain "AI"). */
+export function formatBillCreateProjectBadgeLabel(
+  prefillOrigin?: LineCodingFields["coding_prefill_origin"],
+): string {
+  return prefillOrigin === "file" ? "From file" : "AI";
+}
+
 /** Raw confidence on a 0–100 scale (unrounded). */
 export function confidenceRawPct(conf: number | null): number | null {
   if (conf == null) return null;

@@ -2758,9 +2758,60 @@ describe("BillCreate PDF read attachment", () => {
     }
   });
 
+  it("U-676i line table pins column colgroup for width contract", () => {
+    renderPage();
+    const table = container.querySelector(".bill-create-lines");
+    expect(table?.querySelector("colgroup col.bill-create-col-desc")).toBeTruthy();
+    expect(table?.querySelector("colgroup col.bill-create-col-qty")).toBeTruthy();
+    expect(table?.querySelector("colgroup col.bill-create-col-markup")).toBeTruthy();
+  });
+
+  it("U-676i file read labels cost code and project as From file", async () => {
+    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
+    renderPage();
+    await flushUntil(() => container.querySelector('input[type="file"]') !== null);
+    await attachPdf();
+    await flushUntil(() => container.textContent?.includes("From file · AI 77%"));
+    expect(container.textContent).toContain("From file · AI 77%");
+    const row = container.querySelectorAll(".bill-create-lines tbody tr")[0];
+    const projectSlot = row.querySelectorAll("td")[2].querySelector(".line-item-badge-slot");
+    expect(projectSlot?.textContent).toContain("From file");
+  });
+
+  it("U-676i vendor-history hook keeps Suggested label on line row", async () => {
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
+    renderPage();
+    await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+    await act(async () => {
+      fillHeader();
+    });
+    await flushUntil(() => container.textContent?.includes("Suggested 72%"));
+    expect(container.textContent).not.toContain("From file ·");
+  });
+
+  it("U-676i every line-row suggestion chip shares bill-create-line-chip", async () => {
+    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
+    renderPage();
+    await flushUntil(() => container.querySelector('input[type="file"]') !== null);
+    await attachPdf();
+    await flushUntil(() =>
+      container.querySelector(".bill-create-lines .bill-create-line-chip") !== null,
+    );
+    const row = container.querySelector(".bill-create-lines tbody tr");
+    const chips = row!.querySelectorAll(".line-item-badge-slot .bill-create-line-chip");
+    expect(chips.length).toBeGreaterThanOrEqual(3);
+    row!.querySelectorAll(".line-item-badge-slot .status-badge").forEach((badge) => {
+      expect(badge.classList.contains("bill-create-line-chip")).toBe(true);
+    });
+    row!.querySelectorAll(".line-item-badge-slot .btn-coding-accept").forEach((btn) => {
+      expect(btn.classList.contains("bill-create-line-chip")).toBe(true);
+    });
+  });
+
   it("BillEdit line table does not use BillCreate-only layout class", () => {
     expect(billEditSource).toContain('className="data-table line-items-edit-table"');
     expect(billEditSource).not.toContain("bill-create-lines");
+    expect(billEditSource).not.toContain("bill-create-line-chip");
   });
 });
 

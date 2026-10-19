@@ -13,6 +13,8 @@ import {
   nextPrefillState,
   parseConfidence,
   serializeCodingSuggestKey,
+  formatBillCreateCodingBadgeLabel,
+  formatBillCreateProjectBadgeLabel,
   formatSuggestionBadgeLabel,
   isLowConfidence,
   lineShowsProjectSuggestionMarker,
@@ -682,6 +684,19 @@ describe("confidence helpers", () => {
     expect(formatSuggestionBadgeLabel(72)).toBe("Suggested 72%");
     expect(isLowConfidence(0.55)).toBe(true);
     expect(isLowConfidence(0.72)).toBe(false);
+  });
+
+  it("U-676i Bill Create file-origin badges name the file source", () => {
+    expect(formatBillCreateCodingBadgeLabel(0.8, "llm", "file")).toBe("From file · AI 80%");
+    expect(formatBillCreateCodingBadgeLabel(null, "llm", "file")).toBe("From file");
+    expect(formatBillCreateCodingBadgeLabel(0.8, "vendor_history", "file")).toBe("From file");
+    expect(formatBillCreateProjectBadgeLabel("file")).toBe("From file");
+  });
+
+  it("U-676i Bill Create hook badges match BillEdit labels", () => {
+    expect(formatBillCreateCodingBadgeLabel(0.72, "vendor_history")).toBe("Suggested 72%");
+    expect(formatBillCreateCodingBadgeLabel(0.72, "llm")).toBe("AI 72%");
+    expect(formatBillCreateProjectBadgeLabel(undefined)).toBe("AI");
   });
 
   it("r1-5 classifies low confidence from unrounded ratio (28/47 ≈ 59.57%)", () => {
