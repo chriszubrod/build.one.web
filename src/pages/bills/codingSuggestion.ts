@@ -411,13 +411,6 @@ export function applyUserLinePatch<T extends LineCodingFields>(line: T, patch: P
   return row;
 }
 
-/** Accept a pre-filled line's suggestion; any other line is returned as-is. */
-export function acceptPrefilled<T extends LineCodingFields>(line: T): T {
-  return line.coding_prefill_state === "prefilled"
-    ? { ...line, coding_prefill_state: "accepted" }
-    : line;
-}
-
 export type CodingPrefillRevertOrigin = "file" | "hook";
 
 /** Undo an unaccepted coding prefill from the given origin (`hook` = history/LLM, `file` = PDF read). */

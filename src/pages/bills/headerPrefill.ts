@@ -47,32 +47,11 @@ export function markHeaderUserEdit(
   return meta;
 }
 
-export function acceptHeaderPrefillField(
-  meta: HeaderPrefillMeta,
-  field: HeaderPrefillField,
-): HeaderPrefillMeta {
-  const cell = meta[field];
-  if (cell?.state !== "prefilled") return meta;
-  return { ...meta, [field]: { ...cell, state: "accepted" } };
-}
-
-export function acceptAllHeaderPrefill(meta: HeaderPrefillMeta): HeaderPrefillMeta {
-  let next = meta;
-  for (const field of HEADER_PREFILL_FIELDS) {
-    next = acceptHeaderPrefillField(next, field);
-  }
-  return next;
-}
-
 export const HEADER_PREFILL_FIELDS: HeaderPrefillField[] = [
   "vendor_public_id",
   "bill_number",
   "bill_date",
 ];
-
-export function headersHaveUnreviewedPrefill(meta: HeaderPrefillMeta): boolean {
-  return HEADER_PREFILL_FIELDS.some((f) => meta[f]?.state === "prefilled");
-}
 
 /** Drop unaccepted file-filled header values; keep accepted/changed and user-typed fields. */
 export function revertUnacceptedHeaderPrefill(
@@ -111,10 +90,6 @@ export function createEmptyLine1Prefill(): Line1PrefillMeta {
   return {};
 }
 
-export function line1HasUnreviewedPrefill(meta: Line1PrefillMeta): boolean {
-  return LINE1_PREFILL_FIELDS.some((f) => meta[f]?.state === "prefilled");
-}
-
 export function applyLine1PrefillValue(
   meta: Line1PrefillMeta,
   field: Line1PrefillField,
@@ -140,23 +115,6 @@ export function markLine1PrefillUserEdit(
     return { ...meta, [field]: { ...cell, state: "changed" } };
   }
   return meta;
-}
-
-export function acceptLine1PrefillField(
-  meta: Line1PrefillMeta,
-  field: Line1PrefillField,
-): Line1PrefillMeta {
-  const cell = meta[field];
-  if (cell?.state !== "prefilled") return meta;
-  return { ...meta, [field]: { ...cell, state: "accepted" } };
-}
-
-export function acceptAllLine1Prefill(meta: Line1PrefillMeta): Line1PrefillMeta {
-  let next = meta;
-  for (const field of LINE1_PREFILL_FIELDS) {
-    next = acceptLine1PrefillField(next, field);
-  }
-  return next;
 }
 
 export function revertUnacceptedLine1Prefill<

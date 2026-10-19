@@ -216,7 +216,10 @@ export default function BillEdit() {
   // Counts confirmed header PUTs (auto-save and saveAll) so saveAll can tell whether its
   // own header write is still the newest one before seeding the item cache.
   const headerWriteSeqRef = useRef(0);
-  const saveAllInFlightRef = useRef<Promise<boolean> | null>(null);
+  const saveAllInFlightRef = useRef<{
+    promise: Promise<boolean>;
+    intent: "draft" | "submit";
+  } | null>(null);
   const [origLineItemPublicIds, setOrigLineItemPublicIds] = useState<string[]>([]);
   const [attachmentPublicId, setAttachmentPublicId] = useState<string | null>(null);
   const { objectUrl: attachmentBlobUrl, loading: attachmentLoading, loadError: attachmentLoadError } =
@@ -477,14 +480,20 @@ export default function BillEdit() {
 
   const saveAll = async (opts?: { recordReviewedPrefill?: boolean }): Promise<boolean> => {
     const wireIntent = opts?.recordReviewedPrefill ? ("submit" as const) : ("draft" as const);
-    if (saveAllInFlightRef.current) {
-      return saveAllInFlightRef.current;
+    const inFlight = saveAllInFlightRef.current;
+    if (inFlight) {
+      if (inFlight.intent === wireIntent) {
+        return inFlight.promise;
+      }
+      const priorOk = await inFlight.promise;
+      if (!priorOk) return false;
+      return saveAll(opts);
     }
     let releaseInFlight!: (result: boolean) => void;
     const inFlightGate = new Promise<boolean>((resolve) => {
       releaseInFlight = resolve;
     });
-    saveAllInFlightRef.current = inFlightGate;
+    saveAllInFlightRef.current = { promise: inFlightGate, intent: wireIntent };
 
     const run = async (): Promise<boolean> => {
     const latestForm = formRef.current;
@@ -628,7 +637,7 @@ export default function BillEdit() {
     try {
       return await inFlightGate;
     } finally {
-      if (saveAllInFlightRef.current === inFlightGate) {
+      if (saveAllInFlightRef.current?.promise === inFlightGate) {
         saveAllInFlightRef.current = null;
       }
     }

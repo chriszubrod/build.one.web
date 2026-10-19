@@ -1674,20 +1674,6 @@ button[type="submit"]:disabled {
   white-space: nowrap;
 }
 
-.btn-coding-accept {
-  padding: 2px 6px;
-  font-size: 12px;
-  line-height: 1.2;
-  border: 1px solid var(--color-border, #ccc);
-  border-radius: 4px;
-  background: var(--color-surface, #fff);
-  cursor: pointer;
-}
-
-.btn-coding-accept:hover {
-  background: var(--color-info-bg);
-}
-
 .header-prefill-adornment {
   margin-top: 4px;
 }
@@ -5454,19 +5440,19 @@ a.buildone-record-header-link:hover .buildone-record-name {
 }
 
 .bill-create-lines col.bill-create-col-desc {
-  width: 17%;
+  width: 22%;
 }
 
 .bill-create-lines col.bill-create-col-scc {
-  width: 16%;
+  width: 14%;
 }
 
 .bill-create-lines col.bill-create-col-project {
-  width: 16%;
+  width: 14%;
 }
 
 .bill-create-lines col.bill-create-col-qty {
-  width: 3.75rem;
+  width: 3.5rem;
 }
 
 .bill-create-lines col.bill-create-col-rate {
@@ -5478,7 +5464,7 @@ a.buildone-record-header-link:hover .buildone-record-name {
 }
 
 .bill-create-lines col.bill-create-col-markup {
-  width: 3.75rem;
+  width: 3.5rem;
 }
 
 .bill-create-lines col.bill-create-col-price {

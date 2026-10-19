@@ -5,7 +5,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import BillCreate from "./BillCreate";
-import indexCss from "../../index.css?raw";
 import { flushUntil } from "../../__testutils__/flush";
 import { setInputValue, setSelectValue, setTextareaValue } from "../../__testutils__/domEvents";
 import { Modules } from "../../shared/modules";
@@ -2822,11 +2821,19 @@ describe("BillCreate PDF read attachment", () => {
     expect(table?.querySelector("colgroup col.bill-create-col-markup")).toBeTruthy();
   });
 
-  it("U-676k bill-create-lines colgroup has no min-width floors", () => {
-    const block = indexCss.slice(indexCss.indexOf(".bill-create-lines col.bill-create-col-desc"));
-    const end = block.indexOf(".bill-create-lines td {");
-    const colRules = block.slice(0, end);
-    expect(colRules).not.toMatch(/min-width\s*:/);
+  it("U-676k bill-create-lines colgroup pins width contract (no col min-width floors)", () => {
+    renderPage();
+    const table = container.querySelector(".bill-create-lines");
+    const colContract = (cls: string) =>
+      table?.querySelector(`col.${cls}`)?.getAttribute("data-width-contract");
+    expect(colContract("bill-create-col-desc")).toBe("22%");
+    expect(colContract("bill-create-col-scc")).toBe("14%");
+    expect(colContract("bill-create-col-project")).toBe("14%");
+    expect(colContract("bill-create-col-qty")).toBe("3.5rem");
+    expect(colContract("bill-create-col-markup")).toBe("3.5rem");
+    for (const col of table!.querySelectorAll("colgroup col")) {
+      expect(col.getAttribute("style")).toBeNull();
+    }
   });
 
   it("U-676i file read labels cost code and project as From file", async () => {

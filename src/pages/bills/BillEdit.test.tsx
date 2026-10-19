@@ -1825,6 +1825,120 @@ describe("BillEdit ReviewTimeline onBeforeAction (U-530)", () => {
     expect(mockPost.mock.calls.some((c) => c[0] === "/api/v1/decline/review/bill/bill-1")).toBe(true);
   });
 
+  it("U-676k review decline saveAll keeps prefilled on line PUTs", async () => {
+    wireReviewMocks(
+      [
+        sampleLineItem({
+          public_id: "li-pre",
+          description: "pre-filled",
+          coding_prefill_state: "prefilled",
+          sub_cost_code_id: 10,
+          project_id: 1,
+        }),
+      ],
+      [activeReviewRow()],
+    );
+    mockPost.mockImplementation((path: string) => {
+      if (path === "/api/v1/decline/review/bill/bill-1") {
+        return Promise.resolve({});
+      }
+      return Promise.reject(new Error(`unexpected post: ${path}`));
+    });
+
+    renderBillEdit();
+    await flushUntil(() => lineItemRows().length === 1);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="review-decline-stub"]')!.click();
+    });
+    await flushUntil(() =>
+      mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/bill_line_item/li-pre"),
+    );
+    const linePut = mockPut.mock.calls.find(
+      (c) => c[0] === "/api/v1/update/bill_line_item/li-pre",
+    );
+    expect((linePut![1] as Record<string, unknown>).coding_prefill_state).toBe("prefilled");
+  });
+
+  it("U-676k submit-intent saveAll after in-flight draft Save sends accepted before review advance", async () => {
+    wireReviewMocks(
+      [
+        sampleLineItem({
+          public_id: "li-pre",
+          description: "pre-filled",
+          coding_prefill_state: "prefilled",
+          sub_cost_code_id: 10,
+          project_id: 1,
+        }),
+      ],
+      [activeReviewRow()],
+    );
+    const callOrder: string[] = [];
+    let releaseLinePut!: () => void;
+    const linePutGate = new Promise<void>((resolve) => {
+      releaseLinePut = resolve;
+    });
+    const priorPost = mockPost.getMockImplementation();
+    mockPut.mockImplementation((path: string, body?: unknown) => {
+      if (path === "/api/v1/update/bill/bill-1") {
+        return Promise.resolve(sampleBill({ row_version: "brv-2" }));
+      }
+      if (path === "/api/v1/update/bill_line_item/li-pre") {
+        callOrder.push(`line:${(body as { coding_prefill_state?: string })?.coding_prefill_state}`);
+        return linePutGate.then(() =>
+          Promise.resolve({ public_id: "li-pre", row_version: "lrv-2" }),
+        );
+      }
+      return Promise.reject(new Error(`unexpected put: ${path}`));
+    });
+    mockPost.mockImplementation((path: string, ...args: unknown[]) => {
+      if (path === REVIEW_ADVANCE_PATH) {
+        callOrder.push("advance");
+      }
+      return priorPost!(path, ...args);
+    });
+
+    renderBillEdit();
+    await flushUntil(() => lineItemRows().length === 1);
+
+    await act(async () => {
+      findSaveButton().click();
+    });
+    await flushUntil(
+      () =>
+        Array.from(container.querySelectorAll("button")).some(
+          (b) => b.textContent?.trim() === "Saving...",
+        ),
+    );
+    await flushUntil(() =>
+      mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/bill_line_item/li-pre"),
+    );
+    expect(
+      mockPut.mock.calls.filter((c) => c[0] === "/api/v1/update/bill_line_item/li-pre").length,
+    ).toBe(1);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="review-advance-stub"]')!.click();
+    });
+
+    await act(async () => {
+      releaseLinePut();
+    });
+    await flushUntilHard(
+      () =>
+        mockPut.mock.calls.filter((c) => c[0] === "/api/v1/update/bill_line_item/li-pre").length >=
+          2 && mockPost.mock.calls.some((c) => c[0] === REVIEW_ADVANCE_PATH),
+      "advance after submit-intent line save",
+    );
+
+    const linePuts = mockPut.mock.calls.filter(
+      (c) => c[0] === "/api/v1/update/bill_line_item/li-pre",
+    );
+    expect((linePuts[0]![1] as Record<string, unknown>).coding_prefill_state).toBe("prefilled");
+    expect((linePuts[1]![1] as Record<string, unknown>).coding_prefill_state).toBe("accepted");
+    expect(callOrder.indexOf("line:accepted")).toBeLessThan(callOrder.indexOf("advance"));
+  });
+
   it("U-676k Submit for Review and Complete Bill stay enabled with untouched pre-fill", async () => {
     wireReviewMocks([sampleLineItem({ public_id: "li-pre", description: "pre-filled", coding_prefill_state: "prefilled" })]);
 
@@ -2321,7 +2435,7 @@ describe("BillEdit coding suggestions", () => {
     expect(projectSelect(row).value).toBe("");
   });
 
-  it("U-676k autosave sends prefilled; Submit for Review sends accepted", async () => {
+  it("U-676k manual Save sends prefilled; Submit for Review sends accepted", async () => {
     mockSuggestCoding.mockResolvedValue(codingSuggestionPayloadEdit());
     setupMocks([
       sampleLineItem({
@@ -2369,6 +2483,93 @@ describe("BillEdit coding suggestions", () => {
       "submit flushed accepted prefill",
     );
     linePut = mockPut.mock.calls.find((c) => c[0] === "/api/v1/update/bill_line_item/li-empty");
+    expect((linePut![1] as Record<string, unknown>).coding_prefill_state).toBe("accepted");
+  });
+
+  it("U-676k header autosave issues no line PUT and keeps prefilled server-side", async () => {
+    vi.useFakeTimers();
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayloadEdit());
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-pre",
+        sub_cost_code_id: 10,
+        project_id: VISIBLE_PROJECT.id,
+        coding_prefill_state: "prefilled",
+      }),
+    ]);
+
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    mockPut.mockClear();
+
+    const memo = container.querySelector("textarea");
+    expect(memo).toBeTruthy();
+    await act(async () => {
+      setTextareaValue(memo!, "autosaved memo tweak");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(350);
+    });
+    await flushUntil(() =>
+      mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/bill/bill-1"),
+    );
+    expect(
+      mockPut.mock.calls.some((c) => String(c[0]).startsWith("/api/v1/update/bill_line_item/")),
+    ).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("U-676k Complete sends accepted on line PUTs before POST /complete/bill", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const callOrder: string[] = [];
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-pre",
+        description: "pre-filled",
+        coding_prefill_state: "prefilled",
+        sub_cost_code_id: 10,
+        project_id: 1,
+      }),
+    ]);
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/bill/bill-1") {
+        return Promise.resolve(sampleBill({ row_version: "brv-2" }));
+      }
+      if (path === "/api/v1/update/bill_line_item/li-pre") {
+        callOrder.push("line-put");
+        return Promise.resolve({ public_id: "li-pre", row_version: "lrv-2" });
+      }
+      return Promise.reject(new Error(`unexpected put: ${path}`));
+    });
+    mockPost.mockImplementation((path: string) => {
+      if (path === "/api/v1/complete/bill/bill-1") {
+        callOrder.push("complete");
+        return Promise.resolve({});
+      }
+      return Promise.reject(new Error(`unexpected post: ${path}`));
+    });
+
+    renderBillEdit();
+    await flushUntil(() => lineItemRows().length === 1);
+
+    const completeBtn = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+      (b) => b.textContent === "Complete Bill",
+    )!;
+    await act(async () => {
+      completeBtn.click();
+    });
+    await flushUntilHard(
+      () =>
+        callOrder.includes("line-put") && callOrder.includes("complete"),
+      "complete after accepted line save",
+    );
+    expect(callOrder.indexOf("line-put")).toBeLessThan(callOrder.indexOf("complete"));
+    const linePut = mockPut.mock.calls.find(
+      (c) => c[0] === "/api/v1/update/bill_line_item/li-pre",
+    );
     expect((linePut![1] as Record<string, unknown>).coding_prefill_state).toBe("accepted");
   });
 

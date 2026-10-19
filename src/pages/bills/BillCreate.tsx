@@ -1008,16 +1008,16 @@ export default function BillCreate() {
           </div>
           <table className="data-table line-items-edit-table bill-create-lines">
             <colgroup>
-              <col className="bill-create-col-desc" />
-              <col className="bill-create-col-scc" />
-              <col className="bill-create-col-project" />
-              <col className="bill-create-col-qty" />
-              <col className="bill-create-col-rate" />
-              <col className="bill-create-col-amount" />
-              <col className="bill-create-col-markup" />
-              <col className="bill-create-col-price" />
-              <col className="bill-create-col-billable" />
-              <col className="bill-create-col-actions" />
+              <col className="bill-create-col-desc" data-width-contract="22%" />
+              <col className="bill-create-col-scc" data-width-contract="14%" />
+              <col className="bill-create-col-project" data-width-contract="14%" />
+              <col className="bill-create-col-qty" data-width-contract="3.5rem" />
+              <col className="bill-create-col-rate" data-width-contract="6.25rem" />
+              <col className="bill-create-col-amount" data-width-contract="5.5rem" />
+              <col className="bill-create-col-markup" data-width-contract="3.5rem" />
+              <col className="bill-create-col-price" data-width-contract="5.5rem" />
+              <col className="bill-create-col-billable" data-width-contract="3.25rem" />
+              <col className="bill-create-col-actions" data-width-contract="2.25rem" />
             </colgroup>
             <thead>
               <tr>
