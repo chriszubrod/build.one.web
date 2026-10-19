@@ -390,6 +390,45 @@ export function acceptPrefilled<T extends LineCodingFields>(line: T): T {
     : line;
 }
 
+export type CodingPrefillRevertOrigin = "file" | "hook";
+
+/** Undo an unaccepted coding prefill from the given origin (`hook` = history/LLM, `file` = PDF read). */
+export function revertUnacceptedCodingPrefill<T extends LineCodingFields>(
+  line: T,
+  origin: CodingPrefillRevertOrigin,
+): T {
+  if (line.coding_prefill_state !== "prefilled") return line;
+  if (origin === "file" && line.coding_prefill_origin !== "file") return line;
+  if (origin === "hook" && line.coding_prefill_origin === "file") return line;
+  const next: T = { ...line };
+  if (
+    next.coding_suggested_sub_cost_code_id != null &&
+    next.coding_suggested_sub_cost_code_id === next.sub_cost_code_id
+  ) {
+    next.sub_cost_code_id = "";
+  }
+  if (
+    !next.coding_project_touched &&
+    next.coding_suggested_project_public_id != null &&
+    next.coding_suggested_project_public_id === next.project_public_id
+  ) {
+    next.project_public_id = "";
+  }
+  delete next.coding_prefill_state;
+  delete next.coding_suggested_sub_cost_code_id;
+  delete next.coding_suggested_project_public_id;
+  delete next.coding_suggestion_reason;
+  delete next.coding_suggestion_confidence;
+  delete next.coding_suggestion_source;
+  delete next.coding_prefill_origin;
+  return next;
+}
+
+/** Drop an unaccepted history/LLM coding prefill so a PDF read pair can replace it. */
+export function revertUnacceptedHookCodingPrefill<T extends LineCodingFields>(line: T): T {
+  return revertUnacceptedCodingPrefill(line, "hook");
+}
+
 function mapSccPublicIdToOptionId(
   publicId: string | null | undefined,
   catalog: SccCatalogEntry[],
@@ -418,6 +457,8 @@ export function suggestedSccOptionIdFromResponse(
 export interface ApplySuggestionToLinesOptions {
   /** When set, only this row index is eligible for fills (e.g. PDF read → line 1 only). */
   onlyLineIndex?: number;
+  /** Skip these row indices (e.g. line 1 while a PDF is attached). */
+  excludeLineIndexes?: number[];
   /** Marks prefills from a PDF read — blocks later LLM refresh of untouched cells. */
   prefillOrigin?: "file";
   /** PDF read path: fill only empty cells — never refresh an existing suggestion value. */
@@ -490,6 +531,9 @@ export function applySuggestionToLines<
 
   let changed = false;
   const mapped = lines.map((line, index) => {
+    if (options?.excludeLineIndexes?.includes(index)) {
+      return line;
+    }
     if (options?.onlyLineIndex !== undefined && index !== options.onlyLineIndex) {
       return line;
     }

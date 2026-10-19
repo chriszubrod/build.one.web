@@ -1663,6 +1663,17 @@ button[type="submit"]:disabled {
   flex-wrap: wrap;
 }
 
+.coding-suggestion-actions-compact {
+  gap: 4px;
+}
+
+.status-badge-compact {
+  font-size: 10px;
+  padding: 1px 4px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
 .btn-coding-accept {
   padding: 2px 6px;
   font-size: 12px;
@@ -1813,6 +1824,16 @@ button[type="submit"]:disabled {
 
 .inline-li-header .line-items-heading {
   margin-bottom: 0;
+}
+
+.inline-li-header-with-hint {
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-md);
+}
+
+.inline-li-header-hint {
+  flex: 1 1 auto;
+  min-width: 12rem;
 }
 
 .inline-li-header-actions {
@@ -5417,6 +5438,66 @@ a.buildone-record-header-link:hover .buildone-record-name {
 .line-items-edit-table td {
   padding: 6px var(--space-sm);
   vertical-align: middle;
+}
+
+/* BillCreate line table — alignment + badge row (BillEdit keeps origin/main table styling). */
+.bill-create-lines td {
+  vertical-align: top;
+}
+
+.bill-create-lines td.line-item-cell {
+  vertical-align: top;
+}
+
+.bill-create-lines .line-item-cell {
+  min-width: 0;
+}
+
+.bill-create-lines .line-item-control {
+  display: flex;
+  align-items: stretch;
+  min-height: 28px;
+}
+
+.bill-create-lines .line-item-control .inline-li-input,
+.bill-create-lines .line-item-control select,
+.bill-create-lines .line-item-control input[type="number"] {
+  flex: 1 1 auto;
+  min-height: 28px;
+}
+
+.bill-create-lines .line-item-readonly {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 6px;
+  box-sizing: border-box;
+}
+
+.bill-create-lines .line-item-badge-slot {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+  max-height: 28px;
+  margin-top: 4px;
+}
+
+.bill-create-lines .line-item-cell-align-right .line-item-control,
+.bill-create-lines .line-item-cell-align-right .line-item-readonly {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.bill-create-lines .line-item-cell-align-center .line-item-control {
+  justify-content: center;
+}
+
+.bill-create-lines td:nth-child(5) {
+  min-width: 7.5rem;
+}
+
+.bill-create-lines .coding-suggestion-actions {
+  flex-wrap: nowrap;
 }
 .line-items-edit-table th {
   padding: 8px var(--space-sm);

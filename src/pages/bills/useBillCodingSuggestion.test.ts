@@ -51,6 +51,7 @@ function Harness(props: {
   textSuggestionPoll?: boolean;
   lineUserEditEpoch?: number;
   bill_public_id?: string;
+  pdfAttached?: boolean;
 }) {
   const [lines, setLines] = useState(props.initialLines);
   const [memo, setMemo] = useState(props.memo ?? "memo");
@@ -74,6 +75,7 @@ function Harness(props: {
     textSuggestionPoll: props.textSuggestionPoll,
     lineUserEditEpoch: props.lineUserEditEpoch,
     bill_public_id: props.bill_public_id,
+    pdfAttached: props.pdfAttached,
   });
 
   return {
@@ -482,6 +484,60 @@ describe("useBillCodingSuggestion", () => {
 
       await tick(20_000);
       expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not fill line 1 while pdfAttached", async () => {
+      mockSuggestCoding.mockResolvedValue(resp());
+      const h = renderHarness({
+        initialLines: [
+          line({ uid: "a", project_public_id: "p-1", amount: "100.00" }),
+          line({ uid: "b", project_public_id: "p-1", amount: "50.00" }),
+        ],
+        debouncedAmount: "150.00",
+        pdfAttached: true,
+      });
+      await tick();
+      expect(h.result.current.lines[0].sub_cost_code_id).toBe("");
+      expect(h.result.current.lines[1].sub_cost_code_id).toBe("10");
+    });
+
+    it("does not fill line 1 when a PDF is attached before an in-flight suggest response lands", async () => {
+      let resolveSuggest!: (v: ReturnType<typeof resp>) => void;
+      mockSuggestCoding.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSuggest = resolve;
+          }),
+      );
+      const pdfRef = { current: false };
+      function RefHarness() {
+        const [lines, setLines] = useState([
+          line({ uid: "a", project_public_id: "p-1", amount: "100.00" }),
+        ]);
+        useBillCodingSuggestion({
+          enabled: true,
+          vendor_public_id: "v-1",
+          memo: "m",
+          debouncedMemo: "m",
+          debouncedAmount: "100.00",
+          projectHintForSuggest: undefined,
+          lines,
+          sccCatalog: catalog,
+          setLines,
+          pdfAttached: false,
+          pdfAttachedRef: pdfRef,
+        });
+        return { lines };
+      }
+      const h = renderHook(() => RefHarness());
+      await tick();
+      pdfRef.current = true;
+      await act(async () => {
+        resolveSuggest(resp());
+        await drain();
+      });
+      await tick();
+      expect(h.result.current.lines[0].sub_cost_code_id).toBe("");
     });
 
     it("stops polling on unmount", async () => {

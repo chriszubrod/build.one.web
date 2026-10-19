@@ -864,6 +864,8 @@ export interface ReadAttachmentResult {
     bill_date: ReadAttachmentScalarField;
     total_amount: ReadAttachmentScalarField;
     description: ReadAttachmentScalarField;
+    long_description: ReadAttachmentScalarField;
+    reference: ReadAttachmentScalarField;
   };
   coding: BillCodingSuggestResponse | null;
   model: string | null;

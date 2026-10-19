@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import billEditSource from "./BillEdit.tsx?raw";
 import { act, createElement, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -228,6 +229,8 @@ function emptyReadFields() {
     bill_date: { value: null, confidence: null },
     total_amount: { value: null, confidence: null },
     description: { value: null, confidence: null },
+    long_description: { value: null, confidence: null },
+    reference: { value: null, confidence: null },
   };
 }
 
@@ -1721,6 +1724,8 @@ function okReadFromFile(overrides: Record<string, unknown> = {}) {
       bill_date: { value: "2026-03-10", confidence: "0.9" },
       total_amount: { value: "500.00", confidence: "0.85" },
       description: { value: "From PDF", confidence: "0.8" },
+      long_description: { value: "Full mowing summary", confidence: "0.7" },
+      reference: { value: "PO 999", confidence: "0.6" },
     },
     coding: {
       project_public_id: "p-1",
@@ -2388,16 +2393,14 @@ describe("BillCreate PDF read attachment", () => {
     expect(sccSelectAt(0).value).toBe(hookScc);
   });
 
-  it("Change file keeps a hook cost code when the file only filled the project", async () => {
-    // The hook answers once; later calls return nothing, so a cost code still present
-    // after Change file was kept, not re-suggested.
-    mockSuggestCoding.mockResolvedValue(null);
+  it("file read replaces an unaccepted hook SCC with the file project+SCC pair", async () => {
     mockSuggestCoding.mockResolvedValueOnce({
       ...codingSuggestionPayload(),
       project_public_id: null,
       project_name: null,
       source: "vendor_history" as const,
     });
+    mockSuggestCoding.mockResolvedValue(null);
     let resolveRead!: (v: ReturnType<typeof okReadFromFile>) => void;
     mockReadBillAttachment.mockImplementationOnce(
       () =>
@@ -2414,8 +2417,6 @@ describe("BillCreate PDF read attachment", () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
     await flushUntil(() => sccSelectAt(0).value !== "");
-    const hookScc = sccSelectAt(0).value;
-    expect(hookScc).not.toBe("");
     expect(projectSelectValueAt(0)).toBe("");
     await attachPdf();
     await act(async () => {
@@ -2425,17 +2426,16 @@ describe("BillCreate PDF read attachment", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(20);
     });
-    // Precondition: the file filled the empty project and left the hook's cost code.
-    await flushUntil(() => projectSelectValueAt(0) !== "");
-    expect(projectSelectValueAt(0)).not.toBe("");
-    expect(sccSelectAt(0).value).toBe(hookScc);
+    await flushUntil(() => projectSelectValueAt(0) === "p-1");
+    expect(sccSelectAt(0).value).toBe("10");
     await act(async () => {
       findButton("Change file").click();
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(20);
     });
-    expect(sccSelectAt(0).value).toBe(hookScc);
+    expect(sccSelectAt(0).value).toBe("");
+    expect(projectSelectValueAt(0)).toBe("");
   });
 
   it("aborts an in-flight read on real unmount", async () => {
@@ -2451,7 +2451,7 @@ describe("BillCreate PDF read attachment", () => {
     root = createRoot(container);
   });
 
-  it("file LLM coding does not replace an earlier history hook prefill", async () => {
+  it("file read replaces an earlier history hook prefill with the file pair", async () => {
     mockSuggestCoding.mockResolvedValue({
       ...codingSuggestionPayload(),
       sub_cost_code_public_id: "scc-user",
@@ -2478,7 +2478,8 @@ describe("BillCreate PDF read attachment", () => {
       resolveRead(okReadFromFile());
       await vi.advanceTimersByTimeAsync(20);
     });
-    expect(sccSelectAt(0).value).toBe("99");
+    expect(sccSelectAt(0).value).toBe("10");
+    expect(projectSelectValueAt(0)).toBe("p-1");
   });
 
   it("removing the file-prefilled line clears badges from the new first row", async () => {
@@ -2555,4 +2556,215 @@ describe("BillCreate PDF read attachment", () => {
     expect((container.querySelector("#bill_number") as HTMLInputElement).value).toBe("");
   });
 
+  it("auto-fills memo from PDF read and live-updates with line project", async () => {
+    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
+    renderPage();
+    await flushUntil(() => container.querySelector('textarea[name="memo"]') !== null);
+    await attachPdf();
+    await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await flushUntil(() => memo.value.includes("From PDF"));
+    expect(memo.value).toBe(
+      "A D - P1 - 01-100 - From PDF | Full mowing summary | Ref: PO 999",
+    );
+    await act(async () => {
+      selectChange(projectSelectAt(0), "p-2");
+    });
+    await flushUntil(() => memo.value.includes("P2"));
+    expect(memo.value).toContain("P2");
+    expect(memo.value).not.toContain("From file");
+  });
+
+  it("stops auto memo updates after the user edits Memo", async () => {
+    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
+    renderPage();
+    await flushUntil(() => container.querySelector('textarea[name="memo"]') !== null);
+    await attachPdf();
+    await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await flushUntil(() => memo.value.includes("From PDF"));
+    await act(async () => {
+      setTextareaValue(memo, "My memo");
+    });
+    await act(async () => {
+      selectChange(projectSelectAt(0), "p-2");
+    });
+    expect(memo.value).toBe("My memo");
+  });
+
+  it("does not gate Save on auto memo text", async () => {
+    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
+    renderPage();
+    await flushUntil(() => container.querySelector('input[type="file"]') !== null);
+    await attachPdf();
+    await flushUntil(() => container.textContent?.includes("From file"));
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await flushUntil(() => memo.value.length > 0);
+    const memoGroup = memo.closest(".form-group");
+    expect(memoGroup?.textContent?.includes("From file")).toBe(false);
+    expect(memoGroup?.querySelector(".btn-coding-accept")).toBeNull();
+    expect(findButton("Save For Later").disabled).toBe(true);
+    await act(async () => {
+      findButton("Accept all suggestions").click();
+    });
+    await flushUntil(() => !findButton("Save For Later").disabled);
+    expect(memo.value.length).toBeGreaterThan(0);
+  });
+
+  it("Change file clears an untouched auto memo", async () => {
+    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
+    renderPage();
+    await flushUntil(() => container.querySelector('input[type="file"]') !== null);
+    await attachPdf();
+    await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await flushUntil(() => memo.value.length > 0);
+    await act(async () => {
+      findButton("Change file").click();
+    });
+    expect(memo.value).toBe("");
+  });
+
+  it("Change file keeps a user-edited memo", async () => {
+    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
+    renderPage();
+    await flushUntil(() => container.querySelector('textarea[name="memo"]') !== null);
+    await attachPdf();
+    await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await flushUntil(() => memo.value.length > 0);
+    await act(async () => {
+      setTextareaValue(memo, "Kept memo");
+    });
+    await act(async () => {
+      findButton("Change file").click();
+    });
+    expect(memo.value).toBe("Kept memo");
+  });
+
+  it("coding hook stands down on line 1 while a PDF is attached but still fills line 2", async () => {
+    mockReadBillAttachment.mockResolvedValue(
+      okReadFromFile({
+        coding: {
+          project_public_id: "p-1",
+          project_name: "Project One",
+          sub_cost_code_public_id: "scc-unmapped",
+          sub_cost_code_number: "XX",
+          sub_cost_code_name: "Missing",
+          source: "llm" as const,
+          reason: "invoice",
+          confidence: 0.5,
+          model_version: "v1",
+          budget_check: null,
+          budget_remaining: null,
+        },
+      }),
+    );
+    mockSuggestCoding.mockResolvedValue({
+      ...codingSuggestionPayload(),
+      sub_cost_code_public_id: "scc-user",
+      project_public_id: "p-1",
+    });
+    renderPage();
+    await flushUntil(() => container.querySelector('input[type="file"]') !== null);
+    await attachPdf();
+    await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
+    expect(sccSelectAt(0).value).toBe("");
+    await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+    await act(async () => {
+      selectChange(container.querySelector("#vendor_public_id") as HTMLSelectElement, "v-1");
+      findButton("+ Add Line").click();
+    });
+    await flushUntil(() => container.querySelectorAll("tbody tr").length === 2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(sccSelectAt(0).value).toBe("");
+    await act(async () => {
+      fillLineRow(1, "Second line", "p-1");
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    await flushUntil(() => sccSelectAt(1).value === "99");
+    expect(sccSelectAt(0).value).toBe("");
+    expect(sccSelectAt(1).value).toBe("99");
+  });
+
+  it("live auto memo updates do not re-call suggestCoding", async () => {
+    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
+    mockSuggestCoding.mockResolvedValue({
+      ...codingSuggestionPayload(),
+      sub_cost_code_public_id: "scc-user",
+      project_public_id: "p-1",
+    });
+    renderPage();
+    await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+    await act(async () => {
+      selectChange(container.querySelector("#vendor_public_id") as HTMLSelectElement, "v-1");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    await attachPdf();
+    await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await flushUntil(() => memo.value.length > 0);
+    const callsAfterRead = mockSuggestCoding.mock.calls.length;
+    const row = container.querySelectorAll("tbody tr")[0];
+    const descInput = row.querySelectorAll("td")[0].querySelector("input") as HTMLInputElement;
+    await act(async () => {
+      setInputValue(descInput, "Extra words");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(memo.value).toContain("Extra");
+    expect(mockSuggestCoding.mock.calls.length).toBe(callsAfterRead);
+  });
+
+  it("does not auto-fill memo after the user cleared Memo while the read was in flight", async () => {
+    let resolveRead!: (v: ReturnType<typeof okReadFromFile>) => void;
+    mockReadBillAttachment.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRead = resolve;
+        }),
+    );
+    renderPage();
+    await flushUntil(() => container.querySelector('textarea[name="memo"]') !== null);
+    await attachPdf();
+    await flushUntil(() => container.textContent?.includes("Reading invoice"));
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => {
+      setTextareaValue(memo, " ");
+      setTextareaValue(memo, "");
+    });
+    await act(async () => {
+      resolveRead(okReadFromFile());
+      await Promise.resolve();
+    });
+    await flushUntil(() => !container.textContent?.includes("Reading invoice"));
+    expect(memo.value).toBe("");
+  });
+
+  it("line item row cells pin the alignment DOM contract", () => {
+    renderPage();
+    const table = container.querySelector(".bill-create-lines");
+    expect(table).toBeTruthy();
+    const cells = container.querySelectorAll(".bill-create-lines tbody tr td");
+    expect(cells.length).toBeGreaterThan(0);
+    for (const td of cells) {
+      expect(td.classList.contains("line-item-cell")).toBe(true);
+      expect(td.querySelector(".line-item-badge-slot")).toBeTruthy();
+    }
+  });
+
+  it("BillEdit line table does not use BillCreate-only layout class", () => {
+    expect(billEditSource).toContain('className="data-table line-items-edit-table"');
+    expect(billEditSource).not.toContain("bill-create-lines");
+  });
 });
+
+function projectSelectAt(index: number): HTMLSelectElement {
+  const row = container.querySelectorAll("tbody tr")[index];
+  return row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
+}

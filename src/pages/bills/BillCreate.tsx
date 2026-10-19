@@ -55,6 +55,7 @@ import {
   revertUnacceptedCodingPrefill,
   revertUnacceptedLine1Scalars,
 } from "./readAttachment";
+import { composeBillMemo } from "./billMemo";
 
 interface AttachmentResponse {
   public_id: string;
@@ -107,10 +108,15 @@ function filePrefillAdornment(
   ariaLabel: string,
   onAccept: () => void,
   busy: boolean,
+  compact = false,
 ): ReactNode {
   return (
-    <div className="coding-suggestion-actions header-prefill-adornment">
-      <span className="status-badge coding-suggested">{HEADER_PREFILL_BADGE_LABEL}</span>
+    <div
+      className={`coding-suggestion-actions header-prefill-adornment${compact ? " coding-suggestion-actions-compact" : ""}`}
+    >
+      <span className={`status-badge coding-suggested${compact ? " status-badge-compact" : ""}`}>
+        {HEADER_PREFILL_BADGE_LABEL}
+      </span>
       <button
         type="button"
         className="btn-coding-accept"
@@ -132,9 +138,48 @@ function prefillAdornment<F extends string>(
   labelPrefix: string,
   onAccept: (field: F) => void,
   busy: boolean,
+  compact = false,
 ): ReactNode {
   if (meta[field]?.state !== "prefilled") return null;
-  return filePrefillAdornment(`Accept ${labelPrefix}${field} from file`, () => onAccept(field), busy);
+  return filePrefillAdornment(
+    `Accept ${labelPrefix}${field} from file`,
+    () => onAccept(field),
+    busy,
+    compact,
+  );
+}
+
+function lineItemBadgeSlot(content: ReactNode): ReactNode {
+  return <div className="line-item-badge-slot">{content}</div>;
+}
+
+function lineItemCell(
+  control: ReactNode,
+  badge: ReactNode,
+  opts?: { align?: "right" | "center"; computed?: boolean },
+): ReactNode {
+  const alignClass =
+    opts?.align === "right"
+      ? " line-item-cell-align-right"
+      : opts?.align === "center"
+        ? " line-item-cell-align-center"
+        : "";
+  const computedClass = opts?.computed ? " line-item-cell-computed" : "";
+  return (
+    <td className={`line-item-cell${alignClass}${computedClass}`}>
+      <div className="line-item-control">{control}</div>
+      {lineItemBadgeSlot(badge)}
+    </td>
+  );
+}
+
+function enteredByDisplayName(
+  me: ReturnType<typeof useCurrentUser>["data"],
+): string {
+  const u = me?.user;
+  const name = [u?.firstname ?? "", u?.lastname ?? ""].join(" ").trim();
+  if (name !== "") return name;
+  return me?.auth.username ?? "";
 }
 
 export default function BillCreate() {
@@ -144,6 +189,8 @@ export default function BillCreate() {
     "vendors,payment_terms,sub_cost_codes,projects",
   );
   const { data: me } = useCurrentUser();
+  const meRef = useRef(me);
+  meRef.current = me;
   const { toast } = useToast();
   // Complete bypasses Review entirely — straight to IsDraft=False + outbox
   // (SharePoint, Excel, QBO). The API gates it on Modules.BILLS.can_complete;
@@ -211,9 +258,20 @@ export default function BillCreate() {
   const [busyAction, setBusyAction] = useState<"save" | "submit" | "complete" | null>(null);
   const busy = busyAction !== null || readingAttachment;
   const [saveError, setSaveError] = useState("");
+  const [memoUserEdited, setMemoUserEdited] = useState(false);
+  const memoUserEditedRef = useRef(false);
+  memoUserEditedRef.current = memoUserEdited;
+  const memoAutoActiveRef = useRef(false);
+  const memoSourceRef = useRef<{
+    longDescription: string | null;
+    reference: string | null;
+  } | null>(null);
   /** User-selected project hint for coding suggest — not updated by pre-fill. */
   const [projectHintForSuggest, setProjectHintForSuggest] = useState<string | undefined>();
-  const debouncedMemo = useDebouncedValue(form.memo, 400);
+  const memoForSuggest =
+    memoAutoActiveRef.current && !memoUserEditedRef.current ? "" : form.memo;
+  const debouncedMemo = useDebouncedValue(memoForSuggest, 400);
+  const pdfAttachedRef = useRef(false);
   const codingProjectHint =
     projectHintForSuggest ?? projectHintFromLines(lines);
   const codingSuggestAmount = codingSuggestAmountFromLines(lines, codingProjectHint);
@@ -249,7 +307,50 @@ export default function BillCreate() {
     }
   }, [lookups.payment_terms, form.payment_term_public_id]);
 
+  const isLinePopulated = (li: LineItemDraft): boolean =>
+    li.project_public_id !== "" ||
+    li.sub_cost_code_id !== "" ||
+    li.description !== "" ||
+    li.rate !== "";
+
+  const syncAutoMemoFromLines = () => {
+    if (!memoAutoActiveRef.current || memoUserEditedRef.current) return;
+    const source = memoSourceRef.current;
+    if (!source) return;
+    const projects = lookupsRef.current.projects ?? [];
+    const sccRows = lookupsRef.current.sub_cost_codes ?? [];
+    const populated = linesRef.current.filter(isLinePopulated);
+    const memo = composeBillMemo({
+      enteredBy: enteredByDisplayName(meRef.current),
+      populatedLines: populated.map((li) => ({
+        project_public_id: li.project_public_id,
+        sub_cost_code_id: li.sub_cost_code_id,
+        description: li.description,
+      })),
+      projectLabelForLine: (slice) => {
+        const row = projects.find((p) => p.public_id === slice.project_public_id);
+        if (!row) return null;
+        const abbr = (row.abbreviation ?? "").trim();
+        return abbr !== "" ? abbr : row.name;
+      },
+      costCodeNumberForLine: (slice) => {
+        const id = Number(slice.sub_cost_code_id);
+        if (!Number.isFinite(id)) return null;
+        const row = sccRows.find((s) => s.id === id);
+        return row?.number?.trim() ? row.number.trim() : null;
+      },
+      longDescription: source.longDescription,
+      reference: source.reference,
+    });
+    setForm((prev) => (prev.memo === memo ? prev : { ...prev, memo }));
+  };
+
   const onChange = (name: string, value: string) => {
+    if (name === "memo") {
+      memoUserEditedRef.current = true;
+      setMemoUserEdited(true);
+      memoAutoActiveRef.current = false;
+    }
     if (
       name === "vendor_public_id" ||
       name === "bill_number" ||
@@ -310,17 +411,26 @@ export default function BillCreate() {
     setLines((prev) => prev.map(acceptPrefilled));
   };
 
+  const pdfAttached = file !== null || attachmentPublicId !== null;
+  pdfAttachedRef.current = pdfAttached;
+
   const { budgetChip } = useBillCodingSuggestion({
     enabled: !!form.vendor_public_id,
     vendor_public_id: form.vendor_public_id,
-    memo: form.memo,
+    memo: memoForSuggest,
     debouncedMemo,
     debouncedAmount: codingSuggestAmount == null ? undefined : debouncedCodingAmount,
     projectHintForSuggest,
     lines,
     sccCatalog: lookups.sub_cost_codes ?? [],
     setLines,
+    pdfAttached,
+    pdfAttachedRef,
   });
+
+  useEffect(() => {
+    syncAutoMemoFromLines();
+  }, [lines, memoUserEdited, me, lookups.projects, lookups.sub_cost_codes]);
 
   const hasHeaderPrefill = headersHaveUnreviewedPrefill(headerPrefill);
   const hasLine1ScalarPrefill = line1HasUnreviewedPrefill(line1Prefill);
@@ -342,16 +452,6 @@ export default function BillCreate() {
       return prev.filter((_, i) => i !== index);
     });
   };
-
-  // A line "has user data" iff the user entered anything in one of the
-  // action-relevant fields. Defaults (quantity="1", is_billable=true) don't
-  // count — otherwise every fresh row would look populated. Empty rows are
-  // silently dropped at submit time per the (a) call.
-  const isLinePopulated = (li: LineItemDraft): boolean =>
-    li.project_public_id !== "" ||
-    li.sub_cost_code_id !== "" ||
-    li.description !== "" ||
-    li.rate !== "";
 
   // Build (and revoke) a blob URL for the selected PDF so we can preview it
   // in an iframe before upload. Cleanup runs on file change / unmount, so a
@@ -424,6 +524,14 @@ export default function BillCreate() {
       setLine1PrefillUid(outcome.lines[0].uid);
     }
     if (outcome.inlineMessage) setReadInlineMessage(outcome.inlineMessage);
+    if (outcome.memoSource) {
+      memoSourceRef.current = outcome.memoSource;
+      if (!memoUserEditedRef.current && formRef.current.memo.trim() === "") {
+        memoAutoActiveRef.current = true;
+        linesRef.current = outcome.lines;
+        syncAutoMemoFromLines();
+      }
+    }
     // A result held back for lookups lands here after the read's finally already ran:
     // this is where the read ends, so clear "Reading invoice…" and the save lock.
     setReadingAttachment(false);
@@ -446,6 +554,11 @@ export default function BillCreate() {
       headerPrefillRef.current,
       formRef.current,
     );
+    if (!memoUserEditedRef.current) {
+      reverted.form = { ...reverted.form, memo: "" };
+      memoAutoActiveRef.current = false;
+      memoSourceRef.current = null;
+    }
     setHeaderPrefill(reverted.meta);
     setForm(reverted.form as typeof form);
     const rows = linesRef.current;
@@ -457,14 +570,17 @@ export default function BillCreate() {
         : createEmptyLine1Prefill(),
     );
     const revertedRow = targetLine
-      ? revertUnacceptedCodingPrefill(revertUnacceptedLine1Scalars(targetLine, line1MetaSnapshot))
+      ? revertUnacceptedCodingPrefill(
+          revertUnacceptedLine1Scalars(targetLine, line1MetaSnapshot),
+          "file",
+        )
       : targetLine;
     setLines((prev) => {
       if (prev.length === 0) return prev;
       const idx = lineIndexForPrefillUid(prev);
       return prev.map((li, i) => {
         if (i === idx && revertedRow) return revertedRow;
-        return revertUnacceptedCodingPrefill(li);
+        return revertUnacceptedCodingPrefill(li, "file");
       });
     });
   };
@@ -929,9 +1045,9 @@ export default function BillCreate() {
 
         {/* ─── Line Item Details (optional) ────────────────────────────── */}
         <div className="li-cards-section" style={{ marginTop: 16 }}>
-          <div className="inline-li-header">
+          <div className="inline-li-header inline-li-header-with-hint">
             <h3 className="line-items-heading">Line Item Details</h3>
-            <span className="text-muted" style={{ fontSize: 12 }}>
+            <span className="text-muted inline-li-header-hint" style={{ fontSize: 12 }}>
               Optional — fill in to enable Submit for Review.
             </span>
             <div className="inline-li-header-actions">
@@ -950,7 +1066,7 @@ export default function BillCreate() {
               )}
             </div>
           </div>
-          <table className="data-table line-items-edit-table">
+          <table className="data-table line-items-edit-table bill-create-lines">
             <thead>
               <tr>
                 <th>Description</th>
@@ -966,21 +1082,61 @@ export default function BillCreate() {
               </tr>
             </thead>
             <tbody>
-              {lines.map((li, index) => (
-                <tr key={li.uid}>
-                  <td>
-                    <div className="coding-suggestion-cell">
+              {lines.map((li, index) => {
+                const sccBadge =
+                  lineShowsSuggestionBadgeFor(li) ? (
+                    <div className="coding-suggestion-actions coding-suggestion-actions-compact">
+                      <span
+                        className={suggestionBadgeClassName(li.coding_suggestion_confidence ?? null)}
+                        title={li.coding_suggestion_reason ?? undefined}
+                      >
+                        {formatSuggestionBadgeLabel(
+                          li.coding_suggestion_confidence ?? null,
+                          li.coding_suggestion_source,
+                        )}
+                      </span>
+                      {li.coding_prefill_state === "prefilled" && (
+                        <button
+                          type="button"
+                          className="btn-coding-accept"
+                          title="Accept suggestion"
+                          aria-label={`Accept sub cost code suggestion for line ${index + 1}`}
+                          onClick={() => acceptLineSuggestion(index)}
+                        >
+                          ✓
+                        </button>
+                      )}
+                    </div>
+                  ) : null;
+                const projectBadge = lineShowsProjectSuggestionMarker(li) ? (
+                  <div className="coding-suggestion-actions coding-suggestion-actions-compact">
+                    <span
+                      className="status-badge coding-suggested status-badge-compact"
+                      title="Project predicted from the bill's attachment text"
+                    >
+                      AI
+                    </span>
+                  </div>
+                ) : null;
+                return (
+                  <tr key={li.uid}>
+                    {lineItemCell(
                       <input
                         className="inline-li-input"
                         value={li.description}
                         onChange={(e) => updateLine(index, "description", e.target.value)}
-                      />
-                      {li.uid === line1PrefillUid &&
-                        prefillAdornment(line1Prefill, "description", "line 1 ", acceptLine1Field, busy)}
-                    </div>
-                  </td>
-                  <td>
-                    <div className="coding-suggestion-cell">
+                      />,
+                      li.uid === line1PrefillUid
+                        ? prefillAdornment(
+                            line1Prefill,
+                            "description",
+                            "line 1 ",
+                            acceptLine1Field,
+                            busy,
+                          )
+                        : null,
+                    )}
+                    {lineItemCell(
                       <select
                         className="inline-li-input"
                         value={li.sub_cost_code_id}
@@ -988,37 +1144,14 @@ export default function BillCreate() {
                       >
                         <option value="">—</option>
                         {sccOptions.map((o) => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
                         ))}
-                      </select>
-                      {lineShowsSuggestionBadgeFor(li) && (
-                        <div className="coding-suggestion-actions">
-                          <span
-                            className={suggestionBadgeClassName(li.coding_suggestion_confidence ?? null)}
-                            title={li.coding_suggestion_reason ?? undefined}
-                          >
-                            {formatSuggestionBadgeLabel(
-                              li.coding_suggestion_confidence ?? null,
-                              li.coding_suggestion_source,
-                            )}
-                          </span>
-                          {li.coding_prefill_state === "prefilled" && (
-                            <button
-                              type="button"
-                              className="btn-coding-accept"
-                              title="Accept suggestion"
-                              aria-label={`Accept sub cost code suggestion for line ${index + 1}`}
-                              onClick={() => acceptLineSuggestion(index)}
-                            >
-                              ✓
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </td>
-                  <td>
-                    <div className="coding-suggestion-cell">
+                      </select>,
+                      sccBadge,
+                    )}
+                    {lineItemCell(
                       <select
                         className="inline-li-input"
                         value={li.project_public_id}
@@ -1029,81 +1162,93 @@ export default function BillCreate() {
                       >
                         <option value="">—</option>
                         {projectOptions.map((o) => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
                         ))}
-                      </select>
-                      {lineShowsProjectSuggestionMarker(li) && (
-                        <div className="coding-suggestion-actions">
-                          <span
-                            className="status-badge coding-suggested"
-                            title="Project predicted from the bill's attachment text"
-                          >
-                            AI
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </td>
-                  <td style={{ textAlign: "right" }}>
-                    <input
-                      className="inline-li-input"
-                      type="number"
-                      step="any"
-                      value={li.quantity}
-                      onChange={(e) => updateLine(index, "quantity", e.target.value)}
-                    />
-                  </td>
-                  <td style={{ textAlign: "right" }}>
-                    <div className="coding-suggestion-cell">
+                      </select>,
+                      projectBadge,
+                    )}
+                    {lineItemCell(
+                      <input
+                        className="inline-li-input"
+                        type="number"
+                        step="any"
+                        value={li.quantity}
+                        onChange={(e) => updateLine(index, "quantity", e.target.value)}
+                      />,
+                      null,
+                      { align: "right" },
+                    )}
+                    {lineItemCell(
                       <input
                         className="inline-li-input"
                         type="number"
                         step="any"
                         value={li.rate}
                         onChange={(e) => updateLine(index, "rate", e.target.value)}
-                      />
-                      {li.uid === line1PrefillUid &&
-                        prefillAdornment(line1Prefill, "rate", "line 1 ", acceptLine1Field, busy)}
-                    </div>
-                  </td>
-                  <td style={{ textAlign: "right" }} className="inline-li-computed">
-                    {fmtMoney(li.amount)}
-                  </td>
-                  <td style={{ textAlign: "right" }}>
-                    <input
-                      className="inline-li-input"
-                      type="number"
-                      step="any"
-                      placeholder="0.10"
-                      value={li.markup}
-                      onChange={(e) => updateLine(index, "markup", e.target.value)}
-                    />
-                  </td>
-                  <td style={{ textAlign: "right" }} className="inline-li-computed">
-                    {fmtMoney(li.price)}
-                  </td>
-                  <td style={{ textAlign: "center" }}>
-                    <input
-                      type="checkbox"
-                      checked={li.is_billable}
-                      onChange={(e) => updateLine(index, "is_billable", e.target.checked)}
-                    />
-                  </td>
-                  <td style={{ textAlign: "center" }}>
-                    {lines.length > 1 && (
-                      <button
-                        type="button"
-                        className="inline-li-remove"
-                        onClick={() => removeLine(index)}
-                        title="Remove this line"
-                        aria-label={`Remove line ${index + 1}`}
-                      >
-                        &times;
-                      </button>
+                      />,
+                      li.uid === line1PrefillUid
+                        ? prefillAdornment(
+                            line1Prefill,
+                            "rate",
+                            "line 1 ",
+                            acceptLine1Field,
+                            busy,
+                            true,
+                          )
+                        : null,
+                      { align: "right" },
                     )}
-                  </td>
-                </tr>
-              ))}
+                    {lineItemCell(
+                      <div className="line-item-readonly inline-li-computed">{fmtMoney(li.amount)}</div>,
+                      null,
+                      { align: "right", computed: true },
+                    )}
+                    {lineItemCell(
+                      <input
+                        className="inline-li-input"
+                        type="number"
+                        step="any"
+                        placeholder="0.10"
+                        value={li.markup}
+                        onChange={(e) => updateLine(index, "markup", e.target.value)}
+                      />,
+                      null,
+                      { align: "right" },
+                    )}
+                    {lineItemCell(
+                      <div className="line-item-readonly inline-li-computed">{fmtMoney(li.price)}</div>,
+                      null,
+                      { align: "right", computed: true },
+                    )}
+                    {lineItemCell(
+                      <input
+                        type="checkbox"
+                        checked={li.is_billable}
+                        onChange={(e) => updateLine(index, "is_billable", e.target.checked)}
+                      />,
+                      null,
+                      { align: "center" },
+                    )}
+                    {lineItemCell(
+                      lines.length > 1 ? (
+                        <button
+                          type="button"
+                          className="inline-li-remove"
+                          onClick={() => removeLine(index)}
+                          title="Remove this line"
+                          aria-label={`Remove line ${index + 1}`}
+                        >
+                          &times;
+                        </button>
+                      ) : null,
+                      null,
+                      { align: "center" },
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
 
