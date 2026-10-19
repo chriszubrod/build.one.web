@@ -156,6 +156,19 @@ function enteredByDisplayName(
   return me?.auth.username ?? "";
 }
 
+/** "HP2 — 4406 Harding" style label; a name that already starts with its abbreviation
+ *  ("HP2 - 4406 Harding") is shown as-is instead of "HP2 — HP2 - 4406 Harding". */
+export function projectOptionLabel(abbreviation: string | null | undefined, name: string): string {
+  const abbr = (abbreviation ?? "").trim();
+  if (!abbr) return name;
+  const trimmed = name.trim();
+  const next = trimmed.charAt(abbr.length);
+  const startsWithAbbr =
+    trimmed.toLowerCase().startsWith(abbr.toLowerCase()) &&
+    (next === "" || next === " " || next === "-" || next === "—" || next === ":");
+  return startsWithAbbr ? name : `${abbr} — ${name}`;
+}
+
 export default function BillCreate() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -915,7 +928,7 @@ export default function BillCreate() {
 
   const projectOptions = (lookups.projects ?? []).map((p) => ({
     value: p.public_id,
-    label: p.abbreviation ? `${p.abbreviation} — ${p.name}` : p.name,
+    label: projectOptionLabel(p.abbreviation, p.name),
   }));
   const sccOptions = (lookups.sub_cost_codes ?? []).map((s) => ({
     value: String(s.id),
@@ -1008,16 +1021,16 @@ export default function BillCreate() {
           </div>
           <table className="data-table line-items-edit-table bill-create-lines">
             <colgroup>
-              <col className="bill-create-col-desc" data-width-contract="22%" />
-              <col className="bill-create-col-scc" data-width-contract="14%" />
-              <col className="bill-create-col-project" data-width-contract="14%" />
-              <col className="bill-create-col-qty" data-width-contract="3.5rem" />
+              <col className="bill-create-col-desc" data-width-contract="24%" />
+              <col className="bill-create-col-scc" data-width-contract="23%" />
+              <col className="bill-create-col-project" data-width-contract="21%" />
+              <col className="bill-create-col-qty" data-width-contract="3.25rem" />
               <col className="bill-create-col-rate" data-width-contract="6.25rem" />
               <col className="bill-create-col-amount" data-width-contract="5.5rem" />
-              <col className="bill-create-col-markup" data-width-contract="3.5rem" />
+              <col className="bill-create-col-markup" data-width-contract="4.5rem" />
               <col className="bill-create-col-price" data-width-contract="5.5rem" />
-              <col className="bill-create-col-billable" data-width-contract="3.25rem" />
-              <col className="bill-create-col-actions" data-width-contract="2.25rem" />
+              <col className="bill-create-col-billable" data-width-contract="4.75rem" />
+              <col className="bill-create-col-actions" data-width-contract="2rem" />
             </colgroup>
             <thead>
               <tr>

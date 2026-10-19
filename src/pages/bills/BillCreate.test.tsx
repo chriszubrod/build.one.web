@@ -2826,11 +2826,13 @@ describe("BillCreate PDF read attachment", () => {
     const table = container.querySelector(".bill-create-lines");
     const colContract = (cls: string) =>
       table?.querySelector(`col.${cls}`)?.getAttribute("data-width-contract");
-    expect(colContract("bill-create-col-desc")).toBe("22%");
-    expect(colContract("bill-create-col-scc")).toBe("14%");
-    expect(colContract("bill-create-col-project")).toBe("14%");
-    expect(colContract("bill-create-col-qty")).toBe("3.5rem");
-    expect(colContract("bill-create-col-markup")).toBe("3.5rem");
+    // Measured in a browser (U-676k): at a 1440px window a 5-word description, "43.00 — Millwork &
+    // Trim" and "HP2 - 4406 Harding" fit; at 1280px nothing overflows the content area.
+    expect(colContract("bill-create-col-desc")).toBe("24%");
+    expect(colContract("bill-create-col-scc")).toBe("23%");
+    expect(colContract("bill-create-col-project")).toBe("21%");
+    expect(colContract("bill-create-col-qty")).toBe("3.25rem");
+    expect(colContract("bill-create-col-markup")).toBe("4.5rem");
     for (const col of table!.querySelectorAll("colgroup col")) {
       expect(col.getAttribute("style")).toBeNull();
     }
@@ -2880,5 +2882,18 @@ describe("BillCreate PDF read attachment", () => {
     expect(billEditSource).toContain('className="data-table line-items-edit-table"');
     expect(billEditSource).not.toContain("bill-create-lines");
     expect(billEditSource).not.toContain("bill-create-line-chip");
+  });
+});
+
+
+describe("projectOptionLabel (U-676k)", () => {
+  it("does not repeat an abbreviation the project name already starts with", async () => {
+    const { projectOptionLabel } = await import("./BillCreate");
+    expect(projectOptionLabel("HP2", "HP2 - 4406 Harding")).toBe("HP2 - 4406 Harding");
+    expect(projectOptionLabel("WR", "WR - 5224 Williamsburg")).toBe("WR - 5224 Williamsburg");
+    expect(projectOptionLabel("hp2", "HP2: Harding")).toBe("HP2: Harding");
+    expect(projectOptionLabel("HP2", "Harding Place")).toBe("HP2 — Harding Place");
+    expect(projectOptionLabel("HP", "HP2 - 4406 Harding")).toBe("HP — HP2 - 4406 Harding");
+    expect(projectOptionLabel(null, "Harding Place")).toBe("Harding Place");
   });
 });

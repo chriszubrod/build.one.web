@@ -5440,19 +5440,19 @@ a.buildone-record-header-link:hover .buildone-record-name {
 }
 
 .bill-create-lines col.bill-create-col-desc {
-  width: 22%;
+  width: 24%;
 }
 
 .bill-create-lines col.bill-create-col-scc {
-  width: 14%;
+  width: 23%;
 }
 
 .bill-create-lines col.bill-create-col-project {
-  width: 14%;
+  width: 21%;
 }
 
 .bill-create-lines col.bill-create-col-qty {
-  width: 3.5rem;
+  width: 3.25rem;
 }
 
 .bill-create-lines col.bill-create-col-rate {
@@ -5464,7 +5464,7 @@ a.buildone-record-header-link:hover .buildone-record-name {
 }
 
 .bill-create-lines col.bill-create-col-markup {
-  width: 3.5rem;
+  width: 4.5rem;
 }
 
 .bill-create-lines col.bill-create-col-price {
@@ -5472,11 +5472,11 @@ a.buildone-record-header-link:hover .buildone-record-name {
 }
 
 .bill-create-lines col.bill-create-col-billable {
-  width: 3.25rem;
+  width: 4.75rem;
 }
 
 .bill-create-lines col.bill-create-col-actions {
-  width: 2.25rem;
+  width: 2rem;
 }
 
 .bill-create-lines td {
@@ -5502,6 +5502,9 @@ a.buildone-record-header-link:hover .buildone-record-name {
 .bill-create-lines .line-item-control input[type="number"] {
   flex: 1 1 auto;
   min-height: 28px;
+  /* The shared table input min-width (60px) would floor Qty / Markup at ~76px and starve the
+     text columns; measured in a browser at 1280 / 1440 (U-676k). */
+  min-width: 0;
 }
 
 .bill-create-lines .line-item-readonly {
