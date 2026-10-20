@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEntityItem, deleteEntity, entityItemKey } from "../../hooks/useEntity";
 import { useAutoSave } from "../../hooks/useAutoSave";
 import { useSyncedToken } from "../../hooks/useSyncedToken";
@@ -25,7 +25,12 @@ import LineItemAttachment from "../../components/LineItemAttachment";
 import ReviewTimeline from "../../components/ReviewTimeline";
 import RecordChangedBanner from "../../components/RecordChangedBanner";
 import Breadcrumb from "../../components/Breadcrumb";
-import type { Bill, BillLineItem } from "../../types/api";
+import type { Bill, BillIntakePrediction, BillLineItem } from "../../types/api";
+import {
+  billEditFilePrefillAdornment,
+  billEditLine1FilePrefillAdornment,
+  type HeaderFormSlice,
+} from "./filePrefillLabels";
 import type { ReviewActionKind } from "../../components/ReviewTimeline";
 import {
   codingSuggestAmountFromLines,
@@ -40,6 +45,7 @@ import {
   type LineCodingFields,
 } from "./codingSuggestion";
 import { useBillCodingSuggestion } from "./useBillCodingSuggestion";
+import { documentStatus } from "../../shared/documentLifecycle";
 
 /** Debounced memo for coding suggest; syncs immediately once draft lines have loaded. */
 function useDebouncedMemoAfterBaseline(
@@ -324,15 +330,31 @@ export default function BillEdit() {
   // A separate seed literal and pick literal is how U-464/U-465 were
   // allowed to rebase a token under a body they had never compared.
   const seedFrom = (b: Bill) => ({
-    vendor_public_id: fullVendors.find((v) => v.id === b.vendor_id)?.public_id ?? "",
+    vendor_public_id:
+      b.vendor_id != null
+        ? (fullVendors.find((v) => v.id === b.vendor_id)?.public_id ?? "")
+        : "",
     payment_term_public_id: fullPaymentTerms.find((pt) => pt.id === b.payment_term_id)?.public_id ?? "",
-    bill_date: b.bill_date,
+    bill_date: b.bill_date ?? "",
     due_date: b.due_date,
-    bill_number: b.bill_number,
+    bill_number: b.bill_number ?? "",
     total_amount: b.total_amount ?? "",
     memo: b.memo ?? "",
     is_draft: b.is_draft,
     row_version: b.row_version,
+  });
+
+  const { data: intakePrediction } = useQuery({
+    queryKey: ["bill-intake-prediction", publicId],
+    queryFn: async (): Promise<BillIntakePrediction | null> => {
+      try {
+        return await getOne<BillIntakePrediction>(`/api/v1/bill/${publicId}/intake-prediction`);
+      } catch {
+        return null;
+      }
+    },
+    enabled: !!publicId && !!item,
+    retry: false,
   });
 
   // U-471: rebase the write token only when the freshly-arrived record
@@ -714,22 +736,68 @@ export default function BillEdit() {
   const sccOptions = fullSubCostCodes.map((s) => ({ value: String(s.id), label: s.number ? `${s.number} — ${s.name}` : s.name }));
   const projectOptions = fullProjects.map((p) => ({ value: p.public_id, label: p.name }));
 
+  const displayBillNumber = (item?.bill_number ?? "").trim();
+  const billCrumbLabel = displayBillNumber || "Draft";
+  const pageHeading = displayBillNumber ? `Edit Bill ${displayBillNumber}` : "Draft bill";
+  const showHeaderDiscard = !!item && documentStatus(item) === "draft" && actions.canDelete;
+  const formForPrefill: HeaderFormSlice | null = form
+    ? {
+        is_draft: form.is_draft,
+        vendor_public_id: form.vendor_public_id,
+        bill_number: form.bill_number,
+        bill_date: form.bill_date,
+      }
+    : null;
+
+  const deleteBill = async (opts: { confirmText: string; successToast: string }) => {
+    if (!window.confirm(opts.confirmText)) return;
+    cancelAutoSave();
+    setDeleting(true);
+    try {
+      await deleteEntity(`/api/v1/delete/bill/${publicId}`);
+      queryClient.removeQueries({ queryKey: entityItemKey(billItemPath) });
+      queryClient.removeQueries({ queryKey: ["bill-intake-prediction", publicId] });
+      toast(opts.successToast);
+      navigate("/bill/list");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Could not delete bill.";
+      toast(message, "error");
+      setDeleting(false);
+    }
+  };
+
+  const handleDiscardDraft = () =>
+    void deleteBill({
+      confirmText: "Discard this draft bill? This cannot be undone.",
+      successToast: "Draft discarded.",
+    });
+
   return (
     <div className="page form-page-wide">
       <Breadcrumb
         crumbs={[
           { label: "Bills", path: "/bill/list" },
-          { label: item?.bill_number || "…", path: `/bill/${publicId}` },
+          { label: billCrumbLabel, path: `/bill/${publicId}` },
           { label: "Edit" },
         ]}
       />
       <div className="page-header">
-        <h1>Edit Bill {item?.bill_number}</h1>
+        <h1>{pageHeading}</h1>
         <div className="page-header-spacer" />
         {form && (
           <span className={`status-badge ${form.is_draft ? "draft" : "finalized"}`}>
             {form.is_draft ? "Draft" : "Finalized"}
           </span>
+        )}
+        {showHeaderDiscard && (
+          <button
+            type="button"
+            className="btn btn-danger"
+            disabled={saving || completing || submitting || deleting}
+            onClick={() => void handleDiscardDraft()}
+          >
+            {deleting ? "Discarding…" : "Discard draft"}
+          </button>
         )}
       </div>
       <form className="detail-card" onSubmit={handleSubmit}>
@@ -745,15 +813,30 @@ export default function BillEdit() {
         )}
 
         <div className="detail-fields-form">
-          <FormField label="Bill Number" name="bill_number" value={form.bill_number} onChange={onChange} required />
+          <FormField
+            label="Bill Number"
+            name="bill_number"
+            value={form.bill_number}
+            onChange={onChange}
+            required={!form.is_draft}
+            adornment={billEditFilePrefillAdornment(intakePrediction, formForPrefill, "bill_number")}
+          />
           <SelectField
             label="Vendor"
             name="vendor_public_id"
             value={form.vendor_public_id}
             onChange={onChange}
             options={(lookups.vendors ?? []).map((v) => ({ value: v.public_id, label: v.name }))}
+            adornment={billEditFilePrefillAdornment(intakePrediction, formForPrefill, "vendor_public_id")}
           />
-          <DateField label="Bill Date" name="bill_date" value={form.bill_date} onChange={onChange} required />
+          <DateField
+            label="Bill Date"
+            name="bill_date"
+            value={form.bill_date}
+            onChange={onChange}
+            required={!form.is_draft}
+            adornment={billEditFilePrefillAdornment(intakePrediction, formForPrefill, "bill_date")}
+          />
           <DateField label="Due Date" name="due_date" value={form.due_date} onChange={onChange} required />
           <SelectField
             label="Payment Term"
@@ -842,7 +925,11 @@ export default function BillEdit() {
                 return (
                   <tr key={li.uid}>
                     <td>
-                      <input className="inline-li-input" value={li.description} onChange={(e) => updateField("description", e.target.value)} />
+                      <div className="coding-suggestion-cell">
+                        <input className="inline-li-input" value={li.description} onChange={(e) => updateField("description", e.target.value)} />
+                        {idx === 0 &&
+                          billEditLine1FilePrefillAdornment(intakePrediction, formForPrefill, li, "description")}
+                      </div>
                     </td>
                     <td>
                       <div className="coding-suggestion-cell">
@@ -897,10 +984,18 @@ export default function BillEdit() {
                       <input className="inline-li-input" type="number" step="any" value={li.quantity} onChange={(e) => updateField("quantity", e.target.value)} />
                     </td>
                     <td style={{ textAlign: "right" }}>
-                      <input className="inline-li-input" type="number" step="any" value={li.rate} onChange={(e) => updateField("rate", e.target.value)} />
+                      <div className="coding-suggestion-cell">
+                        <input className="inline-li-input" type="number" step="any" value={li.rate} onChange={(e) => updateField("rate", e.target.value)} />
+                        {idx === 0 &&
+                          billEditLine1FilePrefillAdornment(intakePrediction, formForPrefill, li, "rate")}
+                      </div>
                     </td>
                     <td style={{ textAlign: "right" }} className="inline-li-computed">
-                      {fmtMoney(li.amount)}
+                      <div className="coding-suggestion-cell">
+                        {fmtMoney(li.amount)}
+                        {idx === 0 &&
+                          billEditLine1FilePrefillAdornment(intakePrediction, formForPrefill, li, "amount")}
+                      </div>
                     </td>
                     <td style={{ textAlign: "right" }}>
                       <input className="inline-li-input" type="number" step="any" placeholder="0.10" value={li.markup} onChange={(e) => updateField("markup", e.target.value)} />
@@ -929,28 +1024,17 @@ export default function BillEdit() {
         </div>
 
         <div className="form-actions">
-          {actions.canDelete && (
+          {actions.canDelete && !showHeaderDiscard && (
             <button
               type="button"
               className="btn btn-danger"
               disabled={saving || completing || submitting || deleting}
-              onClick={async () => {
-                if (!confirm("Delete this bill? This cannot be undone.")) return;
-                // confirm blocks the event loop, so no timer can fire while open.
-                // An already-in-flight header PUT racing the DELETE is harmless —
-                // matches 0 rows post-delete, silently caught.
-                cancelAutoSave();
-                setDeleting(true);
-                try {
-                  await deleteEntity(`/api/v1/delete/bill/${publicId}`);
-                  queryClient.removeQueries({ queryKey: entityItemKey(billItemPath) });
-                  toast("Bill deleted.");
-                  navigate("/bill/list");
-                } catch (err: any) {
-                  toast(err.message, "error");
-                  setDeleting(false);
-                }
-              }}
+              onClick={() =>
+                void deleteBill({
+                  confirmText: "Delete this bill? This cannot be undone.",
+                  successToast: "Bill deleted.",
+                })
+              }
             >
               {deleting ? "Deleting..." : "Delete"}
             </button>

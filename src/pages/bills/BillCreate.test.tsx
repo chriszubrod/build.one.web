@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import billEditSource from "./BillEdit.tsx?raw";
-import { act, createElement, StrictMode } from "react";
+import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -2069,42 +2069,6 @@ describe("BillCreate PDF read attachment", () => {
     expect(rateInputAt(0).value).toBe("120.00");
   });
 
-  it("consumes navigation state File exactly once under StrictMode", async () => {
-    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    const navFile = new File(["x"], "nav.pdf", { type: "application/pdf" });
-    act(() => {
-      root.render(
-        createElement(
-          StrictMode,
-          null,
-          createElement(
-            MemoryRouter,
-            { initialEntries: [{ pathname: "/bill/create", state: { billPdfFile: navFile } }] },
-            createElement(
-              QueryClientProvider,
-              { client: queryClient },
-              createElement(
-                Routes,
-                null,
-                createElement(Route, {
-                  path: "/bill/create",
-                  element: createElement(BillCreate),
-                }),
-              ),
-            ),
-          ),
-        ),
-      );
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(50);
-    });
-    await flushUntil(() => mockUploadFile.mock.calls.length >= 1);
-    expect(mockUploadFile).toHaveBeenCalledTimes(1);
-    expect(mockReadBillAttachment).toHaveBeenCalledTimes(1);
-    await flushUntil(() => (container.querySelector("#bill_number") as HTMLInputElement)?.value === "INV-42");
-  });
-
   it("applies vendor and SCC when lookups load before the read resolves", async () => {
     (globalThis as { __billCreateEmptyLookups?: boolean }).__billCreateEmptyLookups = true;
     let resolveRead!: (v: ReturnType<typeof okReadFromFile>) => void;
@@ -2114,24 +2078,9 @@ describe("BillCreate PDF read attachment", () => {
           resolveRead = resolve;
         }),
     );
-    const navFile = new File(["x"], "nav.pdf", { type: "application/pdf" });
-    act(() => {
-      root.render(
-        createElement(
-          MemoryRouter,
-          { initialEntries: [{ pathname: "/bill/create", state: { billPdfFile: navFile } }] },
-          createElement(
-            QueryClientProvider,
-            { client: queryClient },
-            createElement(
-              Routes,
-              null,
-              createElement(Route, { path: "/bill/create", element: createElement(BillCreate) }),
-            ),
-          ),
-        ),
-      );
-    });
+    renderPage();
+    await flushUntil(() => container.querySelector('input[type="file"]') !== null);
+    await attachPdf();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10);
     });
@@ -2596,17 +2545,6 @@ describe("BillCreate PDF read attachment", () => {
     );
   });
 
-  it("nav-state PDF handoff auto memo uses via PDF drop", async () => {
-    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage([{ pathname: "/bill/create", state: { billPdfFile: pdfFile() } }]);
-    await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
-    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
-    await flushUntil(() => memo.value.includes("via PDF drop"));
-    expect(memo.value).toBe(
-      "A D via PDF drop | Full mowing summary | Ref: PO 999",
-    );
-  });
-
   it("editing bill number to differ adds DOC# from read; matching again removes it", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
     renderPage();
@@ -2885,6 +2823,41 @@ describe("BillCreate PDF read attachment", () => {
   });
 });
 
+
+describe("BillCreate intake_source on create", () => {
+  it("includes pdf_upload when the PDF came from the file picker", async () => {
+    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
+    renderPage();
+    await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+    await act(async () => {
+      fillLineRow(0, "Line one", "p-1");
+      await attachPdf();
+    });
+    await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
+    await act(async () => {
+      findButton("Save For Later").click();
+    });
+    await flushUntil(() => mockPost.mock.calls.some((c) => c[0] === "/api/v1/create/bill"));
+    expect(createBillBody().intake_source).toBe("pdf_upload");
+  });
+
+  it("includes pdf_drop when the PDF was dropped on the page", async () => {
+    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
+    renderPage();
+    await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+    await act(async () => {
+      fillLineRow(0, "Line one", "p-1");
+      await attachPdfViaDrop();
+    });
+    await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
+    await act(async () => {
+      findButton("Save For Later").click();
+    });
+    await flushUntil(() => mockPost.mock.calls.some((c) => c[0] === "/api/v1/create/bill"));
+    expect(createBillBody().intake_source).toBe("pdf_drop");
+  });
+
+});
 
 describe("projectOptionLabel (U-676k)", () => {
   it("does not repeat an abbreviation the project name already starts with", async () => {

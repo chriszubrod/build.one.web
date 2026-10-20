@@ -180,6 +180,9 @@ function setupMocks(lineItems: BillLineItem[]) {
     if (path === BILL_GET_PATH) {
       return Promise.resolve(sampleBill());
     }
+    if (path === "/api/v1/bill/bill-1/intake-prediction") {
+      return Promise.reject(new ApiError(404, "Not found"));
+    }
     if (path.startsWith("/api/v1/get/bill-line-item-attachment/by-bill-line-item/")) {
       return Promise.reject(new ApiError(404, "Not found"));
     }
@@ -1030,13 +1033,16 @@ describe("BillEdit item cache reconciliation (U-174)", () => {
       if (path === BILL_GET_PATH) {
         return Promise.reject(new ApiError(404, "Not found"));
       }
+      if (path === "/api/v1/bill/bill-1/intake-prediction") {
+        return Promise.reject(new ApiError(404, "Not found"));
+      }
       if (path.startsWith("/api/v1/get/bill-line-item-attachment/by-bill-line-item/")) {
         return Promise.reject(new ApiError(404, "Not found"));
       }
       return Promise.reject(new Error(`unexpected getOne: ${path}`));
     });
 
-    const deleteBtn = buttonWithText("Delete");
+    const deleteBtn = buttonWithText("Discard draft") ?? buttonWithText("Delete");
     expect(deleteBtn).toBeDefined();
 
     await act(async () => {
@@ -2876,6 +2882,269 @@ describe("BillEdit coding suggestions", () => {
     expect(mockSuggestCoding.mock.calls.at(-1)?.[0]).toEqual(
       expect.objectContaining({ memo: "abcde" }),
     );
+  });
+
+  describe("intake prediction file labels", () => {
+    const prediction = {
+      status: "ok",
+      intake_source: "list_drop",
+      vendor: { public_id: "v-1", name: "V" },
+      bill_number: "B-100",
+      bill_date: "2026-01-15",
+      total_amount: "100.00",
+      description: "existing",
+      sub_cost_code: null,
+      project: null,
+      header_confidence: null,
+      coding_confidence: null,
+    };
+
+    function setupWithPrediction(lineItems: BillLineItem[]) {
+      setupMocks(lineItems);
+      mockGetOne.mockImplementation((path: string) => {
+        if (path === BILL_GET_PATH) return Promise.resolve(sampleBill());
+        if (path === "/api/v1/bill/bill-1/intake-prediction") return Promise.resolve(prediction);
+        if (path.startsWith("/api/v1/get/bill-line-item-attachment/by-bill-line-item/")) {
+          return Promise.reject(new ApiError(404, "Not found"));
+        }
+        return Promise.reject(new Error(`unexpected getOne: ${path}`));
+      });
+    }
+
+    function formGroupForField(name: string): Element | null {
+      const el = container.querySelector(`[name="${name}"]`);
+      return el?.closest(".form-group") ?? null;
+    }
+
+    function headerFieldShowsFromFile(name: string): boolean {
+      return formGroupForField(name)?.textContent?.includes("From file") ?? false;
+    }
+
+    function line1CellShowsFromFile(cellIndex: number): boolean {
+      const row = lineItemRows()[0];
+      if (!row) return false;
+      return row.querySelectorAll("td")[cellIndex]?.textContent?.includes("From file") ?? false;
+    }
+
+    function matchingLineItem() {
+      return sampleLineItem({
+        description: "existing",
+        rate: "100.00",
+        quantity: 1,
+        amount: "100.00",
+      });
+    }
+
+    async function mountMatchingDraft() {
+      setupWithPrediction([matchingLineItem()]);
+      renderBillEdit();
+      await waitForReady();
+      await flushUntilHard(
+        () => headerFieldShowsFromFile("bill_number"),
+        "bill number From file label",
+      );
+    }
+
+    it("404 prediction → waits for fetch, then no From file labels", async () => {
+      setupMocks([sampleLineItem()]);
+      renderBillEdit();
+      await flushUntilHard(
+        () => mockGetOne.mock.calls.some((c) => String(c[0]).includes("intake-prediction")),
+        "intake-prediction fetch",
+      );
+      await flushUntilHard(
+        () => container.querySelector('input[name="bill_number"]') !== null,
+        "bill form ready",
+      );
+      expect(headerFieldShowsFromFile("bill_number")).toBe(false);
+      expect(headerFieldShowsFromFile("vendor_public_id")).toBe(false);
+    });
+
+    it("vendor From file label shown while matching and hidden after vendor edit", async () => {
+      await mountMatchingDraft();
+      expect(headerFieldShowsFromFile("vendor_public_id")).toBe(true);
+      const vendor = container.querySelector('select[name="vendor_public_id"]') as HTMLSelectElement;
+      await act(async () => {
+        setSelectValue(vendor, "v-2");
+      });
+      await flushUntilHard(
+        () => !headerFieldShowsFromFile("vendor_public_id"),
+        "vendor label cleared after edit",
+      );
+    });
+
+    it("bill number From file label shown while matching and hidden after edit", async () => {
+      await mountMatchingDraft();
+      expect(headerFieldShowsFromFile("bill_number")).toBe(true);
+      const billNumber = container.querySelector('input[name="bill_number"]') as HTMLInputElement;
+      await act(async () => {
+        setInputValue(billNumber, "B-999");
+      });
+      await flushUntilHard(
+        () => !headerFieldShowsFromFile("bill_number"),
+        "bill number label cleared after edit",
+      );
+    });
+
+    it("bill date From file label shown while matching and hidden after edit", async () => {
+      await mountMatchingDraft();
+      expect(headerFieldShowsFromFile("bill_date")).toBe(true);
+      const billDate = container.querySelector('input[name="bill_date"]') as HTMLInputElement;
+      await act(async () => {
+        setInputValue(billDate, "2026-02-01");
+      });
+      await flushUntilHard(
+        () => !headerFieldShowsFromFile("bill_date"),
+        "bill date label cleared after edit",
+      );
+    });
+
+    it("line-1 description From file label shown while matching and hidden after edit", async () => {
+      await mountMatchingDraft();
+      expect(line1CellShowsFromFile(0)).toBe(true);
+      const row = lineItemRows()[0];
+      await act(async () => {
+        setInputValue(descriptionInput(row), "changed desc");
+      });
+      await flushUntilHard(
+        () => !line1CellShowsFromFile(0),
+        "line-1 description label cleared after edit",
+      );
+    });
+
+    it("line-1 amount From file label shown while matching and hidden after edit", async () => {
+      await mountMatchingDraft();
+      expect(line1CellShowsFromFile(5)).toBe(true);
+      const row = lineItemRows()[0];
+      await act(async () => {
+        setInputValue(rateInput(row), "50");
+      });
+      await flushUntilHard(() => !line1CellShowsFromFile(5), "line-1 amount label cleared after edit");
+    });
+
+    it("line-1 rate From file label with quantity 1 shown while matching and hidden after rate edit", async () => {
+      await mountMatchingDraft();
+      expect(line1CellShowsFromFile(4)).toBe(true);
+      const row = lineItemRows()[0];
+      await act(async () => {
+        setInputValue(rateInput(row), "99");
+      });
+      await flushUntilHard(() => !line1CellShowsFromFile(4), "line-1 rate label cleared after edit");
+    });
+
+    it("does not show From file labels on non-draft bill", async () => {
+      setupWithPrediction([sampleLineItem({ is_draft: false })]);
+      mockGetOne.mockImplementation((path: string) => {
+        if (path === BILL_GET_PATH) {
+          return Promise.resolve(sampleBill({ is_draft: false, status: "completed" }));
+        }
+        if (path === "/api/v1/bill/bill-1/intake-prediction") return Promise.resolve(prediction);
+        if (path.startsWith("/api/v1/get/bill-line-item-attachment/by-bill-line-item/")) {
+          return Promise.reject(new ApiError(404, "Not found"));
+        }
+        return Promise.reject(new Error(`unexpected getOne: ${path}`));
+      });
+      renderBillEdit();
+      await flushUntilHard(
+        () => mockGetOne.mock.calls.some((c) => String(c[0]).includes("intake-prediction")),
+        "intake-prediction fetch",
+      );
+      await flushUntilHard(
+        () => container.querySelector('input[name="bill_number"]') !== null,
+        "bill form ready",
+      );
+      expect(headerFieldShowsFromFile("bill_number")).toBe(false);
+      expect(headerFieldShowsFromFile("vendor_public_id")).toBe(false);
+      expect(line1CellShowsFromFile(0)).toBe(false);
+    });
+  });
+
+  describe("draft discard and null header", () => {
+    it("renders draft without bill number; Bill Number not required", async () => {
+      mockGetOne.mockImplementation((path: string) => {
+        if (path === BILL_GET_PATH) {
+          return Promise.resolve(
+            sampleBill({ bill_number: null, vendor_id: null, status: "draft" }),
+          );
+        }
+        if (path === "/api/v1/bill/bill-1/intake-prediction") {
+          return Promise.reject(new ApiError(404, "Not found"));
+        }
+        if (path.startsWith("/api/v1/get/bill-line-item-attachment/by-bill-line-item/")) {
+          return Promise.reject(new ApiError(404, "Not found"));
+        }
+        return Promise.reject(new Error(`unexpected getOne: ${path}`));
+      });
+      setupMocks([sampleLineItem()]);
+      renderBillEdit();
+      await flushUntil(
+        () => container.querySelector("h1")?.textContent?.includes("Draft bill") === true,
+      );
+      const billNumber = container.querySelector('input[name="bill_number"]') as HTMLInputElement;
+      expect(billNumber.required).toBe(false);
+    });
+
+    it("Discard draft confirms delete and navigates to list", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+      setupMocks([sampleLineItem()]);
+      renderBillEdit();
+      await flushUntil(() =>
+        Array.from(container.querySelectorAll("button")).some((b) => b.textContent?.includes("Discard draft")),
+      );
+      const discardBtn = Array.from(container.querySelectorAll("button")).find((b) =>
+        b.textContent?.includes("Discard draft"),
+      )!;
+      await act(async () => {
+        discardBtn.click();
+      });
+      await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill/list"));
+      expect(mockDel).toHaveBeenCalledWith("/api/v1/delete/bill/bill-1");
+      expect(mockToast).toHaveBeenCalledWith("Draft discarded.");
+      confirmSpy.mockRestore();
+    });
+
+    it("Discard draft removes bill-intake-prediction query cache", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+      setupMocks([sampleLineItem()]);
+      queryClient.setQueryData(["bill-intake-prediction", "bill-1"], { status: "ok" });
+      renderBillEdit();
+      await flushUntil(() =>
+        Array.from(container.querySelectorAll("button")).some((b) => b.textContent?.includes("Discard draft")),
+      );
+      const discardBtn = Array.from(container.querySelectorAll("button")).find((b) =>
+        b.textContent?.includes("Discard draft"),
+      )!;
+      await act(async () => {
+        discardBtn.click();
+      });
+      await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill/list"));
+      expect(queryClient.getQueryData(["bill-intake-prediction", "bill-1"])).toBeUndefined();
+      confirmSpy.mockRestore();
+    });
+
+    it("non-draft keeps bottom Delete, not header Discard", async () => {
+      setupMocks([sampleLineItem({ is_draft: false })]);
+      mockGetOne.mockImplementation((path: string) => {
+        if (path === BILL_GET_PATH) {
+          return Promise.resolve(sampleBill({ is_draft: false, status: "completed" }));
+        }
+        if (path === "/api/v1/bill/bill-1/intake-prediction") {
+          return Promise.reject(new ApiError(404, "Not found"));
+        }
+        if (path.startsWith("/api/v1/get/bill-line-item-attachment/by-bill-line-item/")) {
+          return Promise.reject(new ApiError(404, "Not found"));
+        }
+        return Promise.reject(new Error(`unexpected getOne: ${path}`));
+      });
+      renderBillEdit();
+      await flushUntil(() => container.querySelector('input[name="bill_number"]') !== null);
+      expect(
+        Array.from(container.querySelectorAll("button")).some((b) => b.textContent?.includes("Discard draft")),
+      ).toBe(false);
+      expect(
+        Array.from(container.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Delete"),
+      ).toBe(true);
+    });
   });
 
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { ReadAttachmentResult } from "../../types/api";
-import { applyReadAttachmentResult, pullBillPdfFromLocationState } from "./readAttachment";
+import { applyReadAttachmentResult } from "./readAttachment";
 import { createEmptyHeaderPrefill, createEmptyLine1Prefill } from "./headerPrefill";
 
 const vendors = [{ public_id: "v-1", name: "Acme" }];
@@ -32,15 +32,6 @@ function baseLine() {
     is_billable: true,
   };
 }
-
-describe("pullBillPdfFromLocationState", () => {
-  it("returns a PDF File once from router state", () => {
-    const file = new File(["x"], "a.pdf", { type: "application/pdf" });
-    expect(pullBillPdfFromLocationState({ billPdfFile: file })).toBe(file);
-    expect(pullBillPdfFromLocationState(null)).toBeNull();
-    expect(pullBillPdfFromLocationState({ billPdfFile: new File(["x"], "b", { type: "text/plain" }) })).toBeNull();
-  });
-});
 
 describe("applyReadAttachmentResult", () => {
   it("ok fills vendor, header, line amount, and coding", () => {

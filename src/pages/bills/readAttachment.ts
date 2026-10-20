@@ -23,13 +23,6 @@ import {
 
 export type { ReadAttachmentResult };
 
-/** Location state from BillList → /bill/create (in-memory File, consumed once). */
-export function pullBillPdfFromLocationState(state: unknown): File | null {
-  const incoming = (state as { billPdfFile?: File } | null | undefined)?.billPdfFile;
-  if (!incoming || incoming.type !== "application/pdf") return null;
-  return incoming;
-}
-
 export async function readBillAttachment(
   attachmentPublicId: string,
   projectPublicId: string | null,

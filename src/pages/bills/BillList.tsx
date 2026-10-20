@@ -1,11 +1,14 @@
 import { useState, useCallback, useEffect, useRef, type DragEvent } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
 import Pagination from "../../components/Pagination";
 import PageHeader from "../../components/PageHeader";
 import SegmentedControl from "../../components/ui/SegmentedControl";
 import EntryCard from "../../components/ui/EntryCard";
+import { useToast } from "../../components/Toast";
+import { uploadFile, post, ApiError, OfflineError } from "../../api/client";
+import type { BillDraftFromAttachmentResponse } from "../../types/api";
 import {
   DEFAULT_STATUS_TAB,
   STATUS_TABS,
@@ -51,27 +54,89 @@ function fmtSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+type PendingRowStatus = "pending" | "uploading" | "reading" | "done" | "error";
+
 interface PendingFile {
+  id: string;
   file: File;
-  uploading: boolean;
-  error: string;
+  status: PendingRowStatus;
+  /** True when exactly one PDF was accepted in this row's drop/select batch. */
+  soloBatch: boolean;
+  /** Enqueue generation — solo navigation only when this still matches the latest enqueue. */
+  enqueueSeq: number;
+  bill_public_id?: string;
+  existing?: boolean;
+  existing_reason?: BillDraftFromAttachmentResponse["existing_reason"];
+  error?: string;
 }
 
-const ACCEPTED_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp"];
+const NON_PDF_MESSAGE = "Only PDF files can become draft bills here.";
+
+const ROW_STATUS_LABELS: Record<PendingRowStatus, string> = {
+  pending: "Queued",
+  uploading: "Uploading…",
+  reading: "Reading…",
+  done: "Done",
+  error: "Error",
+};
+
+function isPdfFile(file: File): boolean {
+  return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+}
+
+/** User-facing copy for draft-from-attachment failures (never raw server detail). */
+export function draftAttachmentErrorMessage(err: unknown): string {
+  if (err instanceof OfflineError) {
+    return "You're offline — try again when connected.";
+  }
+  if (err instanceof ApiError) {
+    if (err.status === 404) return "This file can't be read here.";
+    if (err.status === 409) return "This bill already exists.";
+    if (err.status === 413) return "This file is too large.";
+    if (err.status >= 500) return "Couldn't create a draft from this file.";
+    return "Couldn't create a draft from this file.";
+  }
+  return "Couldn't create a draft from this file.";
+}
+
+let pendingRowIdCounter = 0;
+function allocPendingRowId(): string {
+  pendingRowIdCounter += 1;
+  return `bill-list-pending-${pendingRowIdCounter}`;
+}
 
 export default function BillList() {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
-  // In the URL, like LaborList — so a tab is linkable, survives a refresh, and
-  // the back button steps through tabs rather than leaving the page.
+  const pendingFilesRef = useRef(pendingFiles);
+  const processingRef = useRef(false);
+  const mountedRef = useRef(true);
+  const enqueueSeqRef = useRef(0);
+  const startedRowIdsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const patchRow = useCallback((id: string, patch: Partial<Omit<PendingFile, "id" | "file">>) => {
+    const next = pendingFilesRef.current.map((e) => (e.id === id ? { ...e, ...patch } : e));
+    pendingFilesRef.current = next;
+    setPendingFiles(next);
+  }, []);
+
+  const [nonPdfMessage, setNonPdfMessage] = useState("");
+  const [duplicateNotes, setDuplicateNotes] = useState<string[]>([]);
   const [searchParams, setSearchParams] = useSearchParams();
   const statusParam = searchParams.get("status");
   const statusFilter: BillStatusTab = isStatusTab(statusParam)
     ? statusParam
     : DEFAULT_STATUS_TAB;
-  /** One writer for every URL-backed filter, so they cannot fight each other. */
   const setParam = (key: string, value: string) => {
     setSearchParams(
       (prev) => {
@@ -100,16 +165,8 @@ export default function BillList() {
     staleWhileRevalidate: true,
     sessionPersistenceKey: "buildOne.billList",
   });
-  // The TAB is not a "filter" for this purpose — it always has a value, so
-  // counting it would leave Clear permanently enabled and the count chip
-  // permanently on.
   const hasActiveFilters = Boolean(search || fromDate || toDate);
 
-  // `page` is persisted in sessionStorage and shared across every tab and date
-  // combination, but only INTERACTIVE changes reset it (Codex P1). Open a
-  // shared `/bills?status=draft` link after last leaving the Completed tab on
-  // page 40 and the API answers with a real total and an out-of-range, empty
-  // page — the UI then says "no bills match" while bills plainly match.
   useEffect(() => {
     if (!loading && items.length === 0 && total > 0 && page > 1) setPage(1);
   }, [loading, items.length, total, page, setPage]);
@@ -131,42 +188,151 @@ export default function BillList() {
   const vendorMap = useIdNameMap<Vendor>("/api/v1/get/vendors", (v) => v.name);
   const projectMap = useIdNameMap<{ id: number; name: string }>("/api/v1/get/projects", (p) => p.name);
 
-  // Resolve vendor + project names for the card face.
   const resolvedItems = items.map((bill) => ({
     ...bill,
-    _vendor: vendorMap.get(bill.vendor_id) ?? "",
+    _vendor: bill.vendor_id != null ? (vendorMap.get(bill.vendor_id) ?? "") : "",
     _project: projectMap.get((bill as any).project_id) ?? "",
     _date: bill.bill_date ?? "",
     _amount: bill.total_amount ? Number(bill.total_amount) : 0,
   }));
 
-  const addFiles = useCallback((files: FileList | File[]) => {
-    const newFiles: PendingFile[] = [];
-    for (const file of Array.from(files)) {
-      if (!ACCEPTED_TYPES.includes(file.type)) continue;
-      const alreadyAdded = pendingFiles.some(
-        (p) => p.file.name === file.name && p.file.size === file.size,
-      );
-      if (!alreadyAdded) {
-        newFiles.push({ file, uploading: false, error: "" });
+  const processQueue = useCallback(async () => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    try {
+      for (;;) {
+        const snapshot = pendingFilesRef.current;
+        const entry = snapshot.find(
+          (e) => e.status === "pending" && !startedRowIdsRef.current.has(e.id),
+        );
+        if (!entry) break;
+
+        const { id, file, soloBatch, enqueueSeq } = entry;
+        startedRowIdsRef.current.add(id);
+        patchRow(id, { status: "uploading" });
+
+        let billPublicId: string | undefined;
+        let existing = false;
+        let existingReason: BillDraftFromAttachmentResponse["existing_reason"] = null;
+
+        try {
+          const attachment = await uploadFile<{ public_id: string }>(
+            "/api/v1/upload/attachment",
+            file,
+          );
+          patchRow(id, { status: "reading" });
+          const result = await post<BillDraftFromAttachmentResponse>(
+            "/api/v1/bill/draft-from-attachment",
+            { attachment_public_id: attachment.public_id },
+          );
+          billPublicId = result.bill_public_id;
+          existing = result.existing;
+          existingReason = result.existing_reason;
+          patchRow(id, {
+            status: "done",
+            bill_public_id: result.bill_public_id,
+            existing: result.existing,
+            existing_reason: result.existing_reason,
+          });
+          reload();
+        } catch (err) {
+          patchRow(id, { status: "error", error: draftAttachmentErrorMessage(err) });
+          continue;
+        }
+
+        const maySoloNavigate =
+          soloBatch &&
+          billPublicId &&
+          mountedRef.current &&
+          enqueueSeq === enqueueSeqRef.current;
+
+        if (maySoloNavigate) {
+          if (existing) {
+            if (existingReason === "same_vendor_number_date") {
+              toast("Opened the existing bill with this vendor, number and date.", "info");
+            } else {
+              toast("Opened the existing draft for this PDF.", "info");
+            }
+          }
+          navigate(`/bill/${billPublicId}/edit`);
+        }
+      }
+    } finally {
+      processingRef.current = false;
+      if (pendingFilesRef.current.some((e) => e.status === "pending")) {
+        void processQueue();
       }
     }
-    if (newFiles.length > 0) {
-      setPendingFiles((prev) => [...prev, ...newFiles]);
-    }
-  }, [pendingFiles]);
+  }, [navigate, patchRow, reload, toast]);
 
-  const removeFile = (index: number) => {
-    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+  const enqueueFiles = useCallback(
+    (files: FileList | File[]) => {
+      const list = Array.from(files);
+      const soloBatch = list.filter(isPdfFile).length === 1;
+      let sawNonPdf = false;
+      const pdfs: File[] = [];
+      const skippedDuplicates: string[] = [];
+      for (const file of list) {
+        if (!isPdfFile(file)) {
+          sawNonPdf = true;
+          continue;
+        }
+        pdfs.push(file);
+      }
+      if (sawNonPdf) setNonPdfMessage(NON_PDF_MESSAGE);
+      else if (pdfs.length > 0) setNonPdfMessage("");
+
+      if (pdfs.length === 0) return;
+
+      const newEntries: PendingFile[] = [];
+      for (const file of pdfs) {
+        const alreadyAdded = pendingFilesRef.current.some(
+          (p) => p.file.name === file.name && p.file.size === file.size && p.status !== "error",
+        );
+        if (alreadyAdded) {
+          skippedDuplicates.push(file.name);
+          continue;
+        }
+        newEntries.push({
+          id: allocPendingRowId(),
+          file,
+          status: "pending",
+          soloBatch,
+          enqueueSeq: 0,
+        });
+      }
+      if (skippedDuplicates.length > 0) {
+        setDuplicateNotes(skippedDuplicates.map((name) => `Already added: ${name}`));
+      } else if (newEntries.length > 0) {
+        setDuplicateNotes([]);
+      }
+      if (newEntries.length === 0) return;
+
+      enqueueSeqRef.current += 1;
+      const enqueueSeq = enqueueSeqRef.current;
+      for (const entry of newEntries) {
+        entry.enqueueSeq = enqueueSeq;
+      }
+
+      const next = [...pendingFilesRef.current, ...newEntries];
+      pendingFilesRef.current = next;
+      setPendingFiles(next);
+      void processQueue();
+    },
+    [processQueue],
+  );
+
+  const removeFile = (id: string) => {
+    const next = pendingFilesRef.current.filter((e) => e.id !== id);
+    pendingFilesRef.current = next;
+    setPendingFiles(next);
   };
 
-  const clearAllFiles = () => setPendingFiles([]);
-
-  const createBillFromFile = (index: number) => {
-    const entry = pendingFiles[index];
-    if (!entry || entry.uploading) return;
-    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
-    navigate("/bill/create", { state: { billPdfFile: entry.file } });
+  const clearAllFiles = () => {
+    setPendingFiles([]);
+    pendingFilesRef.current = [];
+    startedRowIdsRef.current.clear();
+    setDuplicateNotes([]);
   };
 
   const handleDragOver = (e: DragEvent) => {
@@ -181,12 +347,12 @@ export default function BillList() {
     e.preventDefault();
     setDragOver(false);
     if (e.dataTransfer.files.length > 0) {
-      addFiles(e.dataTransfer.files);
+      enqueueFiles(e.dataTransfer.files);
     }
   };
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      addFiles(e.target.files);
+      enqueueFiles(e.target.files);
       e.target.value = "";
     }
   };
@@ -208,7 +374,6 @@ export default function BillList() {
         </button>
       </PageHeader>
 
-      {/* Drop zone */}
       <div
         className={`drop-zone ${dragOver ? "drop-zone-active" : ""}`}
         onDragOver={handleDragOver}
@@ -217,7 +382,7 @@ export default function BillList() {
         onDrop={handleDrop}
       >
         <span className="drop-zone-icon">📁</span>
-        <p className="drop-zone-text">Drag & drop bill files here</p>
+        <p className="drop-zone-text">Drag & drop bill PDFs here</p>
         <p className="drop-zone-subtext">
           or{" "}
           <button
@@ -228,21 +393,26 @@ export default function BillList() {
             browse files
           </button>
         </p>
+        {nonPdfMessage && <p className="field-error">{nonPdfMessage}</p>}
+        {duplicateNotes.map((note, i) => (
+          <p key={`${note}-${i}`} className="field-error">
+            {note}
+          </p>
+        ))}
         <input
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".pdf,.png,.jpg,.jpeg,.gif,.webp"
+          accept=".pdf"
           style={{ display: "none" }}
           onChange={handleFileInput}
         />
       </div>
 
-      {/* Pending files table */}
       {pendingFiles.length > 0 && (
         <div className="pending-files">
           <div className="pending-files-header">
-            <h3>Files Ready for Import ({pendingFiles.length})</h3>
+            <h3>Import queue ({pendingFiles.length})</h3>
             <button type="button" className="btn btn-secondary btn-sm" onClick={clearAllFiles}>
               Clear All
             </button>
@@ -252,40 +422,37 @@ export default function BillList() {
               <tr>
                 <th>File Name</th>
                 <th>Size</th>
-                <th>Type</th>
+                <th>Status</th>
                 <th style={{ width: 160 }}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {pendingFiles.map((entry, idx) => (
-                <tr key={`${entry.file.name}-${idx}`}>
+              {pendingFiles.map((entry) => (
+                <tr key={entry.id}>
                   <td>{entry.file.name}</td>
                   <td>{fmtSize(entry.file.size)}</td>
-                  <td>{entry.file.type.split("/")[1]?.toUpperCase() ?? entry.file.type}</td>
+                  <td>{ROW_STATUS_LABELS[entry.status]}</td>
                   <td>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        onClick={() => createBillFromFile(idx)}
-                        disabled={entry.uploading}
-                      >
-                        {entry.uploading ? "Uploading..." : "Create Bill"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => removeFile(idx)}
-                        disabled={entry.uploading}
-                      >
-                        Remove
-                      </button>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                      {entry.status === "done" && entry.bill_public_id && (
+                        <Link
+                          to={`/bill/${entry.bill_public_id}/edit`}
+                          className="btn btn-primary btn-sm"
+                        >
+                          Open{entry.existing ? " (existing)" : ""}
+                        </Link>
+                      )}
+                      {(entry.status === "done" || entry.status === "error") && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => removeFile(entry.id)}
+                        >
+                          Remove
+                        </button>
+                      )}
                     </div>
-                    {entry.error && (
-                      <div style={{ color: "var(--color-error)", fontSize: 12, marginTop: 4 }}>
-                        {entry.error}
-                      </div>
-                    )}
+                    {entry.error && <div className="field-error">{entry.error}</div>}
                   </td>
                 </tr>
               ))}
@@ -300,11 +467,6 @@ export default function BillList() {
         onChange={(next) => { setParam("status", next); setPage(1); }}
       />
 
-      {/* Labor's filter bar (U-452). Search and the date bounds are applied
-          SERVER-SIDE, unlike LaborList which filters its fully-fetched status
-          set in the browser — that shape cannot work here. Narrowing a page in
-          JS would leave `count` describing the unfiltered set, which is exactly
-          the inconsistency U-447 removed. */}
       <div className="list-filter-bar">
         <div className="list-filter-row">
           <label className="list-filter-field list-filter-field-grow">
@@ -360,11 +522,6 @@ export default function BillList() {
         )}
       </div>
 
-      {/* Gated on `loading`, like LaborList (Codex P2). usePaginatedList keeps
-          `staleWhileRevalidate` items on a cache MISS — it sets loading but
-          never clears `items` — so switching tabs briefly rendered the previous
-          tab's bills underneath the new tab's heading. A bill shown under the
-          wrong lifecycle heading is worse than a flash of "Loading…". */}
       {loading && (
         <div className="page-loading" style={{ padding: "var(--space-xl) 0" }}>
           Loading…
@@ -384,6 +541,10 @@ export default function BillList() {
           fmtDate(bill.bill_date),
           bill._project || "No project",
         ].join(" · ");
+        const billPath =
+          status === "draft"
+            ? `/bill/${bill.public_id}/edit`
+            : `/bill/${bill.public_id}`;
         return (
           <EntryCard
             key={bill.public_id}
@@ -396,13 +557,6 @@ export default function BillList() {
                 <span className={`status-badge ${documentStatusBadgeClass(status)}`}>
                   {DOCUMENT_STATUS_LABELS[status] ?? status}
                 </span>
-                {/* The table carried Status AND Review as separate columns.
-                    Dropping the second was an unflagged loss: `review_status`
-                    is the ADMIN-EDITABLE stage name, so once someone adds a
-                    custom stage it is the only place that stage is visible —
-                    the lifecycle badge collapses every intermediate one to
-                    "In Review". Shown only when it says something the status
-                    badge does not. */}
                 {bill.review_status &&
                   bill.review_status !== (DOCUMENT_STATUS_LABELS[status] ?? status) && (
                     <span
@@ -413,7 +567,7 @@ export default function BillList() {
                   )}
               </>
             }
-            onClick={() => navigate(`/bill/${bill.public_id}`)}
+            onClick={() => navigate(billPath)}
           />
         );
       })}

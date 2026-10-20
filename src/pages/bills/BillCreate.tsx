@@ -1,5 +1,6 @@
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { filePrefillLabel } from "./filePrefillLabels";
 import { post, put, uploadFile } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
@@ -30,7 +31,6 @@ import { useBillCodingSuggestion } from "./useBillCodingSuggestion";
 import {
   createEmptyHeaderPrefill,
   createEmptyLine1Prefill,
-  HEADER_PREFILL_BADGE_LABEL,
   markHeaderUserEdit,
   markLine1PrefillUserEdit,
   revertUnacceptedHeaderPrefill,
@@ -42,7 +42,6 @@ import {
 import {
   applyReadAttachmentResult,
   GENERIC_READ_ERROR,
-  pullBillPdfFromLocationState,
   readBillAttachment,
   revertUnacceptedCodingPrefill,
   revertUnacceptedLine1Scalars,
@@ -96,33 +95,6 @@ function fmtMoney(v: string): string {
 
 const UPLOAD_PDF_ERROR = "Could not upload this PDF";
 
-function headerFilePrefillLabel(): ReactNode {
-  return (
-    <div className="coding-suggestion-actions header-prefill-adornment">
-      <span className="status-badge coding-suggested">{HEADER_PREFILL_BADGE_LABEL}</span>
-    </div>
-  );
-}
-
-function lineRowFilePrefillLabel(): ReactNode {
-  return (
-    <div className="coding-suggestion-actions coding-suggestion-actions-compact">
-      <span className={`status-badge coding-suggested ${BILL_CREATE_LINE_CHIP_CLASS}`}>
-        {HEADER_PREFILL_BADGE_LABEL}
-      </span>
-    </div>
-  );
-}
-
-function filePrefillLabel<F extends string>(
-  meta: { [K in F]?: { state?: string } },
-  field: F,
-  lineRow: boolean,
-): ReactNode {
-  if (meta[field]?.state !== "prefilled") return null;
-  return lineRow ? lineRowFilePrefillLabel() : headerFilePrefillLabel();
-}
-
 function lineItemBadgeSlot(content: ReactNode): ReactNode {
   return <div className="line-item-badge-slot">{content}</div>;
 }
@@ -171,7 +143,6 @@ export function projectOptionLabel(abbreviation: string | null | undefined, name
 
 export default function BillCreate() {
   const navigate = useNavigate();
-  const location = useLocation();
   const { data: lookups, loading: lookupsLoading } = useLookups(
     "vendors,payment_terms,sub_cost_codes,projects",
   );
@@ -212,7 +183,6 @@ export default function BillCreate() {
   const readAbortRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(false);
   const readGenerationRef = useRef(0);
-  const navPdfStartedRef = useRef(false);
   const pendingReadApplyRef = useRef<{
     result: Awaited<ReturnType<typeof readBillAttachment>>;
     generation: number;
@@ -630,15 +600,6 @@ export default function BillCreate() {
     }
   };
 
-  useEffect(() => {
-    const incoming = pullBillPdfFromLocationState(location.state);
-    if (!incoming) return;
-    navigate(location.pathname, { replace: true, state: {} });
-    if (navPdfStartedRef.current) return;
-    navPdfStartedRef.current = true;
-    acceptFile(incoming, "PDF drop");
-  }, [location.pathname, location.state, navigate]);
-
   const handleDragOver = (e: DragEvent) => {
     e.preventDefault();
     setDragOver(true);
@@ -722,6 +683,12 @@ export default function BillCreate() {
       is_draft: true,
       submit_for_review: false,
     };
+    const INTAKE_SOURCE_BY_METHOD: Partial<Record<BillMemoEntryMethod, Bill["intake_source"]>> = {
+      "PDF drop": "pdf_drop",
+      "PDF upload": "pdf_upload",
+    };
+    const intakeSource = INTAKE_SOURCE_BY_METHOD[memoEntryMethodRef.current];
+    if (intakeSource) body.intake_source = intakeSource;
     if (first) {
       body.line_description = first.description || null;
       body.line_quantity = first.quantity !== "" ? Number(first.quantity) : null;

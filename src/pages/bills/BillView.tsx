@@ -105,12 +105,15 @@ export default function BillView() {
 
   return (
     <DetailView
-      title={`Bill ${item.bill_number}`}
+      title={`Bill ${item.bill_number ?? "Draft"}`}
       editPath={`/bill/${publicId}/edit`}
-      breadcrumbs={entityCrumbs("Bills", "/bill/list", item.bill_number)}
+      breadcrumbs={entityCrumbs("Bills", "/bill/list", item.bill_number ?? "Draft")}
       fields={[
-        { label: "Vendor", value: vendorMap.get(item.vendor_id) ?? item.vendor_id },
-        { label: "Bill Number", value: item.bill_number },
+        {
+          label: "Vendor",
+          value: item.vendor_id != null ? (vendorMap.get(item.vendor_id) ?? item.vendor_id) : "—",
+        },
+        { label: "Bill Number", value: item.bill_number ?? "—" },
         { label: "Bill Date", value: fmtDate(item.bill_date) },
         { label: "Due Date", value: fmtDate(item.due_date) },
         { label: "Total Amount", value: fmtMoney(item.total_amount) },

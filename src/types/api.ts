@@ -759,15 +759,15 @@ export interface Bill {
   row_version: string;
   created_datetime: string | null;
   modified_datetime: string | null;
-  vendor_id: number;
+  vendor_id: number | null;
   payment_term_id: number | null;
-  bill_date: string;
+  bill_date: string | null;
   due_date: string;
-  bill_number: string;
+  bill_number: string | null;
   total_amount: string | null;
   memo: string | null;
   is_draft: boolean;
-  intake_source: string | null;         // "manual" | "agent" | "script"
+  intake_source: string | null;         // manual | agent | script | pdf_drop | pdf_upload | list_drop
   intake_source_detail: string | null;  // username / agent name / script name
   // Derived lifecycle (U-357). `status` is canonical; `review_status` is the
   // admin Name (display only) — branch on `review_status_kind`. List has
@@ -777,6 +777,28 @@ export interface Bill {
   review_status_kind?: "none" | "submitted" | "in_review" | "approved" | "declined" | null;
   review_status_is_final?: boolean | null;
   review_status_is_declined?: boolean | null;
+}
+
+export interface BillIntakePrediction {
+  status: string;
+  intake_source: string | null;
+  vendor: { public_id: string | null; name: string } | null;
+  vendor_extracted_name?: string | null;
+  bill_number: string | null;
+  bill_date: string | null;
+  total_amount: string | null;
+  description: string | null;
+  sub_cost_code: { public_id: string; number: string } | null;
+  project: { public_id: string; abbreviation: string } | null;
+  header_confidence: string | null;
+  coding_confidence: string | null;
+}
+
+export interface BillDraftFromAttachmentResponse {
+  bill_public_id: string;
+  existing: boolean;
+  existing_reason: "same_pdf" | "same_vendor_number_date" | null;
+  read_status: string;
 }
 
 export type BillLineCodingPrefillState = "prefilled" | "accepted" | "changed";
