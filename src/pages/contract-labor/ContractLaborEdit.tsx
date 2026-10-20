@@ -14,6 +14,11 @@ import {
   fractionToPercent,
   percentToFraction,
 } from "../../shared/money";
+import {
+  existingUidsByPublicId,
+  newLineItemUid,
+  persistedLineItemUid,
+} from "../../shared/lineItemUid";
 import type {
   ContractLabor,
   ContractLaborDailySummary,
@@ -28,6 +33,8 @@ import type {
 const MAX_DAILY_HOURS = 8;
 
 interface LineRow {
+  /** Client-only stable identity for React keys and async patches — never sent on save. */
+  uid: string;
   // Server identity (null = new, unsaved row)
   id: number | null;
   public_id: string | null;
@@ -61,6 +68,7 @@ function computePrice(row: LineRow): number {
 
 function emptyRow(workDate: string): LineRow {
   return {
+    uid: newLineItemUid(),
     id: null,
     public_id: null,
     row_version: null,
@@ -76,9 +84,10 @@ function emptyRow(workDate: string): LineRow {
   };
 }
 
-function fromServer(item: ContractLaborLineItem, fallbackDate: string): LineRow {
+function fromServer(item: ContractLaborLineItem, fallbackDate: string, uid: string): LineRow {
   const rawMarkup = item.markup;
   return {
+    uid,
     id: item.id,
     public_id: item.public_id,
     row_version: item.row_version,
@@ -197,8 +206,19 @@ export default function ContractLaborEdit() {
         setRowVersion(e.row_version);
         // Bill metadata is no longer populated from this page —
         // the Generate Bills flow derives it at billing time.
-        const mapped = items.data.map((li) => fromServer(li, e.work_date));
-        setLines(mapped.length > 0 ? mapped : [emptyRow(e.work_date)]);
+        setLines((prev) => {
+          const existing = existingUidsByPublicId(
+            prev.map((r) => ({ uid: r.uid, public_id: r.public_id ?? undefined })),
+          );
+          const mapped = items.data.map((li) =>
+            fromServer(
+              li,
+              e.work_date,
+              existing.get(li.public_id) ?? persistedLineItemUid(li.public_id),
+            ),
+          );
+          return mapped.length > 0 ? mapped : [emptyRow(e.work_date)];
+        });
       } catch (err) {
         if (cancelled) return;
         setLoadError(err instanceof ApiError ? err.detail : "Failed to load entry");
@@ -292,9 +312,9 @@ export default function ContractLaborEdit() {
     }
   }
 
-  function updateLine(index: number, patch: Partial<LineRow>) {
-    setLines((prev) => prev.map((row, i) => {
-      if (i !== index) return row;
+  function updateLine(uid: string, patch: Partial<LineRow>) {
+    setLines((prev) => prev.map((row) => {
+      if (row.uid !== uid) return row;
       const next = { ...row, ...patch };
       // Overhead toggle clears the project FK and disables the dropdown
       if (patch.is_overhead === true) next.project_id = "";
@@ -314,6 +334,7 @@ export default function ContractLaborEdit() {
     ) {
       const vendorId = entry.vendor_id;
       const projectId = Number(patch.project_id);
+      const projectIdAtRequest = patch.project_id;
       void queryClient
         .fetchQuery({
           queryKey: ["cl-effective-rate", vendorId, projectId],
@@ -329,8 +350,9 @@ export default function ContractLaborEdit() {
         })
         .then((r) => {
           setLines((prev) =>
-            prev.map((row, i) => {
-              if (i !== index) return row;
+            prev.map((row) => {
+              if (row.uid !== uid) return row;
+              if (row.project_id !== projectIdAtRequest) return row;
               // Only overwrite fields the DB actually returned.
               const p: Partial<LineRow> = {};
               if (r.hourly_rate !== null) p.rate = r.hourly_rate;
@@ -357,8 +379,8 @@ export default function ContractLaborEdit() {
     ]);
   }
 
-  function removeLine(index: number) {
-    setLines((prev) => prev.filter((_, i) => i !== index));
+  function removeLine(uid: string) {
+    setLines((prev) => prev.filter((row) => row.uid !== uid));
   }
 
   function showStatus(tone: "success" | "error", msg: string, autoHideMs?: number) {
@@ -423,8 +445,19 @@ export default function ContractLaborEdit() {
       setRowVersion(res.row_version);
       // Re-fetch line items so new rows pick up their server-assigned id + row_version
       const items = await getList<ContractLaborLineItem>(`/api/v1/contract-labor/${publicId}/line-items`);
-      const mapped = items.data.map((li) => fromServer(li, entry.work_date));
-      setLines(mapped.length > 0 ? mapped : [emptyRow(entry.work_date)]);
+      setLines((prev) => {
+        const existing = existingUidsByPublicId(
+          prev.map((r) => ({ uid: r.uid, public_id: r.public_id ?? undefined })),
+        );
+        const mapped = items.data.map((li) =>
+          fromServer(
+            li,
+            entry.work_date,
+            existing.get(li.public_id) ?? persistedLineItemUid(li.public_id),
+          ),
+        );
+        return mapped.length > 0 ? mapped : [emptyRow(entry.work_date)];
+      });
       dailySummaryQuery.refetch();
       if (markAsReady) {
         showStatus("success", "Saved and marked as ready.", 1500);
@@ -667,13 +700,13 @@ export default function ContractLaborEdit() {
             const amount = computeAmount(row);
             const price = computePrice(row);
             return (
-              <div key={row.public_id ?? `new-${index}`} className="cl-line-item-card">
+              <div key={row.uid} className="cl-line-item-card">
                 <div className="cl-line-item-header">
                   <span className="cl-line-item-number">Line {index + 1}</span>
                   <button
                     type="button"
                     className="btn btn-danger btn-sm"
-                    onClick={() => removeLine(index)}
+                    onClick={() => removeLine(row.uid)}
                     disabled={isBilled}
                   >
                     Remove
@@ -682,13 +715,13 @@ export default function ContractLaborEdit() {
                 <div className="cl-form-row">
                   <div className="cl-field cl-field-sm">
                     <label>Date</label>
-                    <input type="date" value={row.line_date} onChange={(e) => updateLine(index, { line_date: e.target.value })} disabled={isBilled} />
+                    <input type="date" value={row.line_date} onChange={(e) => updateLine(row.uid, { line_date: e.target.value })} disabled={isBilled} />
                   </div>
                   <div className="cl-field">
                     <label>Project</label>
                     <select
                       value={row.project_id}
-                      onChange={(e) => updateLine(index, { project_id: e.target.value })}
+                      onChange={(e) => updateLine(row.uid, { project_id: e.target.value })}
                       disabled={isBilled || row.is_overhead}
                     >
                       <option value="">— Select Project —</option>
@@ -709,7 +742,7 @@ export default function ContractLaborEdit() {
                     <label>SubCostCode</label>
                     <select
                       value={row.sub_cost_code_id}
-                      onChange={(e) => updateLine(index, { sub_cost_code_id: e.target.value })}
+                      onChange={(e) => updateLine(row.uid, { sub_cost_code_id: e.target.value })}
                       disabled={isBilled}
                     >
                       <option value="">— Select SubCostCode —</option>
@@ -730,7 +763,7 @@ export default function ContractLaborEdit() {
                       min="0"
                       max="24"
                       value={row.hours}
-                      onChange={(e) => updateLine(index, { hours: e.target.value })}
+                      onChange={(e) => updateLine(row.uid, { hours: e.target.value })}
                       placeholder="0.00"
                       disabled={isBilled}
                     />
@@ -742,7 +775,7 @@ export default function ContractLaborEdit() {
                       step="0.01"
                       min="0"
                       value={row.rate}
-                      onChange={(e) => updateLine(index, { rate: e.target.value })}
+                      onChange={(e) => updateLine(row.uid, { rate: e.target.value })}
                       placeholder="0.00"
                       disabled={isBilled}
                     />
@@ -759,7 +792,7 @@ export default function ContractLaborEdit() {
                       min="0"
                       max="100"
                       value={row.markup_percent}
-                      onChange={(e) => updateLine(index, { markup_percent: e.target.value })}
+                      onChange={(e) => updateLine(row.uid, { markup_percent: e.target.value })}
                       placeholder="0"
                       disabled={isBilled}
                     />
@@ -770,11 +803,11 @@ export default function ContractLaborEdit() {
                   </div>
                   <div className="cl-field cl-field-xs">
                     <label>Billable</label>
-                    <input type="checkbox" checked={row.is_billable} onChange={(e) => updateLine(index, { is_billable: e.target.checked })} disabled={isBilled} />
+                    <input type="checkbox" checked={row.is_billable} onChange={(e) => updateLine(row.uid, { is_billable: e.target.checked })} disabled={isBilled} />
                   </div>
                   <div className="cl-field cl-field-xs">
                     <label>Overhead</label>
-                    <input type="checkbox" checked={row.is_overhead} onChange={(e) => updateLine(index, { is_overhead: e.target.checked })} disabled={isBilled} />
+                    <input type="checkbox" checked={row.is_overhead} onChange={(e) => updateLine(row.uid, { is_overhead: e.target.checked })} disabled={isBilled} />
                   </div>
                 </div>
                 <div className="cl-form-row">
@@ -783,7 +816,7 @@ export default function ContractLaborEdit() {
                     <input
                       type="text"
                       value={row.description}
-                      onChange={(e) => updateLine(index, { description: e.target.value })}
+                      onChange={(e) => updateLine(row.uid, { description: e.target.value })}
                       placeholder="e.g., We removed lights in ceiling."
                       disabled={isBilled}
                     />

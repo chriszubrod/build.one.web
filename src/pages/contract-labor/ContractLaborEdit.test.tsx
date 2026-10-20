@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import ContractLaborEdit from "./ContractLaborEdit";
 import { flushUntil } from "../../__testutils__/flush";
 import { setInputValue, setSelectValue } from "../../__testutils__/domEvents";
+import { deferred } from "../../hooks/__testutils__/renderHook";
 import type {
   ContractLabor,
   ContractLaborLineItem,
@@ -36,8 +37,19 @@ const mockNavigate = vi.fn();
 let mockEntityItems: Record<string, unknown[]> = {};
 let lineItems: ContractLaborLineItem[] = [];
 let vendorConfig: ContractLaborVendorConfig = {};
-let effectiveRate: { hourly_rate: string | null; markup: string | null; rate_source: string } | null =
-  null;
+type EffectiveRatePayload = {
+  hourly_rate: string | null;
+  markup: string | null;
+  rate_source: string;
+};
+
+let effectiveRate: EffectiveRatePayload | null = null;
+/** When set, effective-rate GETs hang until resolveEffectiveRate(projectId). */
+let effectiveRateDeferredRates: Record<number, EffectiveRatePayload> | null = null;
+const effectiveRateWaiters = new Map<
+  number,
+  Array<{ def: ReturnType<typeof deferred<void>>; payload: EffectiveRatePayload }>
+>();
 
 vi.mock("../../api/client", () => ({
   getList: (...args: unknown[]) => mockGetList(...args),
@@ -209,6 +221,19 @@ function setupMocks() {
     if (path === `${CL_PATH}/daily-summary`) return Promise.resolve({});
     if (path === "/api/v1/contract-labor/vendor-config") return Promise.resolve(vendorConfig);
     if (path.startsWith("/api/v1/contract-labor/effective-rate")) {
+      const q = path.split("?")[1] ?? "";
+      const projectId = Number(new URLSearchParams(q).get("project_id"));
+      if (effectiveRateDeferredRates) {
+        const payload = effectiveRateDeferredRates[projectId];
+        if (payload === undefined) {
+          return Promise.reject(new Error(`effective-rate not stubbed for project ${projectId}`));
+        }
+        const def = deferred<void>();
+        const list = effectiveRateWaiters.get(projectId) ?? [];
+        list.push({ def, payload });
+        effectiveRateWaiters.set(projectId, list);
+        return def.promise.then(() => payload);
+      }
       return effectiveRate
         ? Promise.resolve(effectiveRate)
         : Promise.reject(new Error(`effective-rate not stubbed: ${path}`));
@@ -260,30 +285,32 @@ function renderEdit() {
   });
 }
 
+function firstCard(): ParentNode {
+  const card = container.querySelector(".cl-line-item-card");
+  if (!card) throw new Error("line-item card not rendered");
+  return card;
+}
+
 /** Throws on miss — for use in assertions, never as a flushUntil predicate. */
 function labeledControl<K extends "input" | "select">(
   label: string,
   tag: K,
 ): HTMLElementTagNameMap[K] {
-  const card = container.querySelector(".cl-line-item-card");
-  if (!card) throw new Error("line-item card not rendered");
-  for (const el of card.querySelectorAll("label")) {
-    if (el.textContent?.trim() === label) {
-      const control = el.parentElement?.querySelector(tag);
-      if (!control) throw new Error(`no ${tag} under label: ${label}`);
-      return control;
-    }
-  }
-  throw new Error(`${tag} not found for label: ${label}`);
+  return labeledControlInCard(firstCard(), label, tag);
 }
 
 const labeledInput = (label: string) => labeledControl(label, "input");
 const labeledSelect = (label: string) => labeledControl(label, "select");
 
-function saveChangesButton(): HTMLButtonElement | undefined {
-  return Array.from(container.querySelectorAll("button")).find(
-    (b) => b.textContent?.trim() === "Save Changes",
+function buttonByText(text: string): HTMLButtonElement | undefined {
+  const btn = Array.from(container.querySelectorAll("button")).find(
+    (b) => b.textContent?.trim() === text,
   );
+  return btn instanceof HTMLButtonElement ? btn : undefined;
+}
+
+function saveChangesButton(): HTMLButtonElement | undefined {
+  return buttonByText("Save Changes");
 }
 
 /** The predicate must be able to report "not yet" rather than throw — an
@@ -320,6 +347,8 @@ beforeEach(() => {
   lineItems = [];
   vendorConfig = {};
   effectiveRate = null;
+  effectiveRateDeferredRates = null;
+  effectiveRateWaiters.clear();
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   setupMocks();
 
@@ -491,9 +520,7 @@ describe("ContractLaborEdit markup display (U-195)", () => {
 });
 
 function deleteButton(): HTMLButtonElement | undefined {
-  return Array.from(container.querySelectorAll("button")).find(
-    (b) => b.textContent?.trim() === "Delete" || b.textContent?.trim() === "Deleting…",
-  );
+  return buttonByText("Delete") ?? buttonByText("Deleting…");
 }
 
 const CL_DELETE_INVALIDATION_KEYS = [
@@ -578,5 +605,328 @@ describe("ContractLaborEdit delete (U-683a)", () => {
     await waitForLineForm();
 
     expect(deleteButton()).toBeUndefined();
+  });
+});
+
+function lineCards(): HTMLElement[] {
+  return Array.from(container.querySelectorAll(".cl-line-item-card"));
+}
+
+function lineCardByNumber(n: number): HTMLElement {
+  const cards = lineCards();
+  const card = cards.find((c) =>
+    c.querySelector(".cl-line-item-number")?.textContent?.trim() === `Line ${n}`,
+  );
+  if (!card) throw new Error(`Line ${n} card not found (have ${cards.length} cards)`);
+  return card;
+}
+
+function labeledControlInCard<K extends "input" | "select">(
+  card: ParentNode,
+  label: string,
+  tag: K,
+): HTMLElementTagNameMap[K] {
+  for (const el of card.querySelectorAll("label")) {
+    if (el.textContent?.trim() === label) {
+      const control = el.parentElement?.querySelector(tag);
+      if (!control) throw new Error(`no ${tag} under label: ${label}`);
+      return control;
+    }
+  }
+  throw new Error(`${tag} not found for label: ${label}`);
+}
+
+function removeButtonInCard(card: ParentNode): HTMLButtonElement {
+  const btn = card.querySelector("button.btn-danger");
+  if (!btn || !(btn instanceof HTMLButtonElement)) throw new Error("Remove button not found in card");
+  return btn;
+}
+
+function addLineItemButton(): HTMLButtonElement {
+  const btn = buttonByText("+ Add Line Item");
+  if (!btn) throw new Error("+ Add Line Item not found");
+  return btn;
+}
+
+function armDeferredEffectiveRate(ratesByProject: Record<number, EffectiveRatePayload>) {
+  effectiveRateDeferredRates = ratesByProject;
+  effectiveRate = null;
+}
+
+function resolveEffectiveRate(projectId: number) {
+  const list = effectiveRateWaiters.get(projectId);
+  const next = list?.shift();
+  if (!next) throw new Error(`no pending effective-rate for project ${projectId}`);
+  next.def.resolve();
+}
+
+function pendingEffectiveRateCount(): number {
+  let n = 0;
+  for (const list of effectiveRateWaiters.values()) n += list.length;
+  return n;
+}
+
+async function waitForLineCount(n: number) {
+  await flushUntil(() => lineCards().length === n);
+  expect(lineCards().length).toBe(n);
+}
+
+describe("ContractLaborEdit line uid identity (U-683c)", () => {
+  beforeEach(() => {
+    mockEntityItems["/api/v1/get/vendors"] = [sampleVendor()];
+    mockEntityItems["/api/v1/get/projects"] = [
+      sampleProject({ id: 7, name: "Proj A" }),
+      sampleProject({ id: 8, public_id: "p-8", name: "Proj B" }),
+    ];
+  });
+
+  it("remove-before-resolve: effective rate patches the row that still matches, not by index", async () => {
+    lineItems = [
+      sampleLineItem({ id: 10, public_id: "cli-1", rate: "10", markup: null }),
+      sampleLineItem({ id: 11, public_id: "cli-2", rate: "20", markup: null }),
+    ];
+    armDeferredEffectiveRate({
+      7: { hourly_rate: "99", markup: "0.07", rate_source: "vendor_project" },
+    });
+
+    renderEdit();
+    await waitForLineCount(2);
+
+    const line2 = lineCardByNumber(2);
+    await act(async () => {
+      setSelectValue(labeledControlInCard(line2, "Project", "select"), "7");
+    });
+    expect(pendingEffectiveRateCount()).toBe(1);
+
+    const line1 = lineCardByNumber(1);
+    await act(async () => {
+      removeButtonInCard(line1).click();
+    });
+    await waitForLineCount(1);
+
+    await act(async () => {
+      resolveEffectiveRate(7);
+    });
+
+    await flushUntil(() => labeledControlInCard(lineCardByNumber(1), "Rate (per hour)", "input").value === "99");
+    const sole = lineCardByNumber(1);
+    expect(labeledControlInCard(sole, "Rate (per hour)", "input").value).toBe("99");
+    expect(labeledControlInCard(sole, "Markup (%)", "input").value).toBe("7");
+    expect(labeledControlInCard(sole, "Project", "select").value).toBe("7");
+  });
+
+  it("stale effective-rate response is ignored when project changed again before resolve", async () => {
+    lineItems = [sampleLineItem({ id: 10, public_id: "cli-1", rate: "10", markup: null })];
+    armDeferredEffectiveRate({
+      7: { hourly_rate: "77", markup: "0.07", rate_source: "vendor_project" },
+      8: { hourly_rate: "88", markup: "0.14", rate_source: "vendor_project" },
+    });
+
+    renderEdit();
+    await waitForLineCount(1);
+
+    const card = lineCardByNumber(1);
+    await act(async () => {
+      setSelectValue(labeledControlInCard(card, "Project", "select"), "7");
+    });
+    expect(pendingEffectiveRateCount()).toBe(1);
+
+    await act(async () => {
+      setSelectValue(labeledControlInCard(card, "Project", "select"), "8");
+    });
+    expect(pendingEffectiveRateCount()).toBe(2);
+
+    await act(async () => {
+      resolveEffectiveRate(8);
+    });
+    await flushUntil(() => labeledControlInCard(card, "Rate (per hour)", "input").value === "88");
+
+    await act(async () => {
+      resolveEffectiveRate(7);
+    });
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    expect(labeledControlInCard(card, "Project", "select").value).toBe("8");
+    expect(labeledControlInCard(card, "Rate (per hour)", "input").value).toBe("88");
+    expect(labeledControlInCard(card, "Markup (%)", "input").value).toBe("14");
+  });
+
+  it("sibling lines: effective-rate patches only the row that requested it", async () => {
+    lineItems = [
+      sampleLineItem({
+        id: 10,
+        public_id: "cli-1",
+        project_id: 7,
+        rate: "10",
+        markup: "0.05",
+      }),
+      sampleLineItem({ id: 11, public_id: "cli-2", rate: "20", markup: null }),
+    ];
+    armDeferredEffectiveRate({
+      7: { hourly_rate: "99", markup: "0.14", rate_source: "vendor_project" },
+    });
+
+    renderEdit();
+    await waitForLineCount(2);
+
+    const line1 = lineCardByNumber(1);
+    expect(labeledControlInCard(line1, "Rate (per hour)", "input").value).toBe("10");
+    expect(labeledControlInCard(line1, "Markup (%)", "input").value).toBe("5");
+
+    const line2 = lineCardByNumber(2);
+    await act(async () => {
+      setSelectValue(labeledControlInCard(line2, "Project", "select"), "7");
+    });
+    expect(pendingEffectiveRateCount()).toBe(1);
+
+    await act(async () => {
+      resolveEffectiveRate(7);
+    });
+
+    await flushUntil(
+      () => labeledControlInCard(lineCardByNumber(2), "Rate (per hour)", "input").value === "99",
+    );
+    expect(labeledControlInCard(line1, "Rate (per hour)", "input").value).toBe("10");
+    expect(labeledControlInCard(line1, "Markup (%)", "input").value).toBe("5");
+    expect(labeledControlInCard(line2, "Rate (per hour)", "input").value).toBe("99");
+    expect(labeledControlInCard(line2, "Markup (%)", "input").value).toBe("14");
+  });
+
+  it("saved line keeps card DOM identity across Save Changes; in-flight effective-rate lands after re-fetch", async () => {
+    const initialRows = [
+      sampleLineItem({
+        id: 10,
+        public_id: "cli-1",
+        project_id: null,
+        rate: "10",
+        markup: "0.05",
+      }),
+    ];
+    lineItems = initialRows;
+    const persistedAfterSave = sampleLineItem({
+      id: 10,
+      public_id: "cli-1",
+      row_version: "li-rv-2",
+      project_id: 7,
+      rate: "10",
+      markup: "0.05",
+    });
+    let lineItemsReads = 0;
+    mockGetList.mockImplementation((path: string) => {
+      if (path === LINE_ITEMS_PATH) {
+        lineItemsReads++;
+        const data = lineItemsReads >= 2 ? [persistedAfterSave] : initialRows;
+        return Promise.resolve({ data, count: data.length });
+      }
+      return Promise.reject(new Error(`unexpected getList: ${path}`));
+    });
+
+    armDeferredEffectiveRate({
+      7: { hourly_rate: "55", markup: null, rate_source: "vendor_project" },
+    });
+
+    renderEdit();
+    await waitForLineCount(1);
+
+    const card = lineCardByNumber(1);
+    const rateInput = labeledControlInCard(card, "Rate (per hour)", "input");
+
+    await act(async () => {
+      setSelectValue(labeledControlInCard(card, "Project", "select"), "7");
+    });
+    expect(pendingEffectiveRateCount()).toBe(1);
+
+    mockPut.mockClear();
+    await act(async () => {
+      saveChangesButton()!.click();
+    });
+    await flushUntil(() => mockPut.mock.calls.some((c) => c[0] === `${CL_PATH}/bill`));
+    await flushUntil(() => lineItemsReads >= 2);
+
+    const rateAfterSave = labeledControlInCard(lineCardByNumber(1), "Rate (per hour)", "input");
+    expect(rateAfterSave).toBe(rateInput);
+
+    await act(async () => {
+      resolveEffectiveRate(7);
+    });
+    await flushUntil(() => rateAfterSave.value === "55");
+    expect(rateAfterSave.value).toBe("55");
+    expect(rateAfterSave).toBe(rateInput);
+  });
+
+  // Regression guard — passes on origin/main too (controlled inputs); still worth
+  // keeping so a revert to index keys cannot slip in unnoticed.
+  it("add/remove keeps React identity so description stays on the same physical line card", async () => {
+    lineItems = [sampleLineItem({ id: 10, public_id: "cli-1", description: "first line" })];
+
+    renderEdit();
+    await waitForLineCount(1);
+
+    await act(async () => {
+      addLineItemButton().click();
+    });
+    await waitForLineCount(2);
+
+    const line2Before = lineCardByNumber(2);
+    await act(async () => {
+      setInputValue(labeledControlInCard(line2Before, "Description", "input"), "typed on second line");
+    });
+    expect(labeledControlInCard(line2Before, "Description", "input").value).toBe("typed on second line");
+
+    await act(async () => {
+      removeButtonInCard(lineCardByNumber(1)).click();
+    });
+    await waitForLineCount(1);
+
+    const sole = lineCardByNumber(1);
+    expect(labeledControlInCard(sole, "Description", "input").value).toBe("typed on second line");
+
+    mockPut.mockClear();
+    await act(async () => {
+      saveChangesButton()!.click();
+    });
+    await flushUntil(() => mockPut.mock.calls.some((c) => c[0] === `${CL_PATH}/bill`));
+    const body = mockPut.mock.calls.find((c) => c[0] === `${CL_PATH}/bill`)![1] as {
+      line_items: { description: string | null }[];
+    };
+    expect(body.line_items).toHaveLength(1);
+    expect(body.line_items[0].description).toBe("typed on second line");
+  });
+
+  it("save payload line_items omit client uid", async () => {
+    lineItems = [sampleLineItem()];
+
+    renderEdit();
+    await waitForLineForm();
+
+    mockPut.mockClear();
+    await act(async () => {
+      saveChangesButton()!.click();
+    });
+    await flushUntil(() => mockPut.mock.calls.some((c) => c[0] === `${CL_PATH}/bill`));
+
+    const body = mockPut.mock.calls.find((c) => c[0] === `${CL_PATH}/bill`)![1] as {
+      line_items: Record<string, unknown>[];
+    };
+    expect(body.line_items[0]).not.toHaveProperty("uid");
+    expect(Object.keys(body.line_items[0]).sort()).toEqual(
+      [
+        "description",
+        "hours",
+        "id",
+        "is_billable",
+        "is_overhead",
+        "line_date",
+        "markup",
+        "price",
+        "project_id",
+        "public_id",
+        "rate",
+        "row_version",
+        "sub_cost_code_id",
+      ].sort(),
+    );
   });
 });
