@@ -45,3 +45,13 @@ export function setSelectValue(select: HTMLSelectElement, value: string): void {
   nativeSetter.call(select, value);
   select.dispatchEvent(new Event("change", { bubbles: true }));
 }
+
+/** Dispatch a drop event with {@link files} on {@link el} (jsdom has no native DataTransfer). */
+export function dispatchDrop(el: HTMLElement, files: File[]): void {
+  const drop = new Event("drop", { bubbles: true, cancelable: true });
+  Object.defineProperty(drop, "dataTransfer", {
+    value: { files },
+    configurable: true,
+  });
+  el.dispatchEvent(drop);
+}

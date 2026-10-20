@@ -6,7 +6,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import BillCreate from "./BillCreate";
 import { flushUntil } from "../../__testutils__/flush";
-import { setInputValue, setSelectValue, setTextareaValue } from "../../__testutils__/domEvents";
+import { dispatchDrop, setInputValue, setSelectValue, setTextareaValue } from "../../__testutils__/domEvents";
+import { deferred } from "../../hooks/__testutils__/renderHook";
 import { Modules } from "../../shared/modules";
 import type { CurrentUser, CurrentUserModule } from "../../types/api";
 
@@ -261,17 +262,11 @@ function pdfFile() {
   return new File(["x"], "bill.pdf", { type: "application/pdf" });
 }
 
-async function attachPdfViaDrop() {
+async function attachPdfViaDrop(file: File = pdfFile()) {
   await flushUntil(() => container.querySelector(".drop-zone") !== null);
   const zone = container.querySelector(".drop-zone") as HTMLElement;
-  const file = pdfFile();
   await act(async () => {
-    const drop = new Event("drop", { bubbles: true, cancelable: true });
-    Object.defineProperty(drop, "dataTransfer", {
-      value: { files: [file] },
-      configurable: true,
-    });
-    zone.dispatchEvent(drop);
+    dispatchDrop(zone, [file]);
   });
 }
 
@@ -1797,6 +1792,80 @@ describe("BillCreate PDF read attachment", () => {
     expect((container.querySelector("#bill_number") as HTMLInputElement).value).toBe("INV-42");
     expect((container.querySelector("#bill_date") as HTMLInputElement).value).toBe("2026-03-10");
     expect(sccSelectAt(0).value).toBe("10");
+  });
+
+  it("single-file drop judges only the first file: [pdf, txt] attaches the pdf", async () => {
+    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
+    renderPage();
+    await flushUntil(() => container.querySelector(".drop-zone") !== null);
+    const zone = container.querySelector(".drop-zone") as HTMLElement;
+    await act(async () => {
+      dispatchDrop(zone, [pdfFile(), new File(["n"], "notes.txt", { type: "text/plain" })]);
+    });
+    await flushUntil(() => mockUploadFile.mock.calls.length >= 1);
+    expect(mockUploadFile).toHaveBeenCalledTimes(1);
+    expect(mockUploadFile).toHaveBeenCalledWith(
+      "/api/v1/upload/attachment",
+      expect.objectContaining({ name: "bill.pdf" }),
+    );
+    expect(container.textContent).not.toContain("Only PDF files are allowed.");
+  });
+
+  it("single-file drop judges only the first file: [txt, pdf] is rejected", async () => {
+    renderPage();
+    await flushUntil(() => container.querySelector(".drop-zone") !== null);
+    const zone = container.querySelector(".drop-zone") as HTMLElement;
+    await act(async () => {
+      dispatchDrop(zone, [new File(["n"], "notes.txt", { type: "text/plain" }), pdfFile()]);
+    });
+    await flushUntil(() => container.textContent?.includes("Only PDF files are allowed."));
+    expect(container.textContent).toContain("Only PDF files are allowed.");
+    expect(mockUploadFile).not.toHaveBeenCalled();
+  });
+
+  it("accepts extension-only pdf with empty MIME on drop and reads it", async () => {
+    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
+    renderPage();
+    await attachPdfViaDrop(new File(["x"], "x.pdf", { type: "" }));
+    await flushUntil(() => mockUploadFile.mock.calls.length >= 1);
+    expect(mockUploadFile).toHaveBeenCalledWith(
+      "/api/v1/upload/attachment",
+      expect.objectContaining({ name: "x.pdf" }),
+    );
+    await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
+    expect(mockReadBillAttachment).toHaveBeenCalledWith(
+      "att-1",
+      null,
+      expect.any(AbortSignal),
+    );
+    await flushUntil(() => container.textContent?.includes("From file"));
+    expect((container.querySelector("#bill_number") as HTMLInputElement).value).toBe("INV-42");
+  });
+
+  it("passes line-1 project picked during upload to readBillAttachment", async () => {
+    const uploadDef = deferred<{ public_id: string; content_type: string | null }>();
+    mockUploadFile.mockImplementationOnce(() => uploadDef.promise);
+    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
+    renderPage();
+    await flushUntil(() => container.querySelector(".drop-zone") !== null);
+
+    await attachPdfViaDrop();
+    await flushUntil(() => mockUploadFile.mock.calls.length >= 1);
+
+    await act(async () => {
+      fillLineRow(0, "Line one", "p-2");
+    });
+
+    await act(async () => {
+      uploadDef.resolve({ public_id: "att-1", content_type: "application/pdf" });
+    });
+    await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
+
+    expect(mockReadBillAttachment).toHaveBeenCalledWith(
+      "att-1",
+      "p-2",
+      expect.any(AbortSignal),
+    );
   });
 
   it("Save reuses uploaded attachment id (single upload across drop and save)", async () => {

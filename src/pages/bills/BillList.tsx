@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, type DragEvent } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
@@ -28,6 +28,8 @@ import {
   documentStatus,
   documentStatusBadgeClass,
 } from "../../shared/documentLifecycle";
+import PdfDropZone from "../../components/PdfDropZone";
+import type { AttachmentUploadResponse } from "../../hooks/useAttachmentRead";
 
 function fmtMoney(v: string | null): string {
   if (v === null || v === undefined || v === "") return "$0.00";
@@ -80,10 +82,6 @@ const ROW_STATUS_LABELS: Record<PendingRowStatus, string> = {
   error: "Error",
 };
 
-function isPdfFile(file: File): boolean {
-  return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-}
-
 /** User-facing copy for draft-from-attachment failures (never raw server detail). */
 export function draftAttachmentErrorMessage(err: unknown): string {
   if (err instanceof OfflineError) {
@@ -108,15 +106,12 @@ function allocPendingRowId(): string {
 export default function BillList() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [dragOver, setDragOver] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const pendingFilesRef = useRef(pendingFiles);
   const processingRef = useRef(false);
   const mountedRef = useRef(true);
   const enqueueSeqRef = useRef(0);
   const startedRowIdsRef = useRef(new Set<string>());
-
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -216,7 +211,7 @@ export default function BillList() {
         let existingReason: BillDraftFromAttachmentResponse["existing_reason"] = null;
 
         try {
-          const attachment = await uploadFile<{ public_id: string }>(
+          const attachment = await uploadFile<AttachmentUploadResponse>(
             "/api/v1/upload/attachment",
             file,
           );
@@ -266,23 +261,11 @@ export default function BillList() {
   }, [navigate, patchRow, reload, toast]);
 
   const enqueueFiles = useCallback(
-    (files: FileList | File[]) => {
-      const list = Array.from(files);
-      const soloBatch = list.filter(isPdfFile).length === 1;
-      let sawNonPdf = false;
-      const pdfs: File[] = [];
-      const skippedDuplicates: string[] = [];
-      for (const file of list) {
-        if (!isPdfFile(file)) {
-          sawNonPdf = true;
-          continue;
-        }
-        pdfs.push(file);
-      }
-      if (sawNonPdf) setNonPdfMessage(NON_PDF_MESSAGE);
-      else if (pdfs.length > 0) setNonPdfMessage("");
-
+    (files: File[]) => {
+      const pdfs = files;
       if (pdfs.length === 0) return;
+      const soloBatch = pdfs.length === 1;
+      const skippedDuplicates: string[] = [];
 
       const newEntries: PendingFile[] = [];
       for (const file of pdfs) {
@@ -335,28 +318,6 @@ export default function BillList() {
     setDuplicateNotes([]);
   };
 
-  const handleDragOver = (e: DragEvent) => {
-    e.preventDefault();
-    setDragOver(true);
-  };
-  const handleDragLeave = (e: DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-  };
-  const handleDrop = (e: DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    if (e.dataTransfer.files.length > 0) {
-      enqueueFiles(e.dataTransfer.files);
-    }
-  };
-  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      enqueueFiles(e.target.files);
-      e.target.value = "";
-    }
-  };
-
   if (loading && page === 1 && !search) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
 
@@ -374,40 +335,23 @@ export default function BillList() {
         </button>
       </PageHeader>
 
-      <div
-        className={`drop-zone ${dragOver ? "drop-zone-active" : ""}`}
-        onDragOver={handleDragOver}
-        onDragEnter={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
+      <PdfDropZone
+        icon="📁"
+        text="Drag & drop bill PDFs here"
+        multiple
+        onSelect={(accepted, rejected) => {
+          if (rejected.length) setNonPdfMessage(NON_PDF_MESSAGE);
+          else if (accepted.length) setNonPdfMessage("");
+          if (accepted.length) enqueueFiles(accepted);
+        }}
       >
-        <span className="drop-zone-icon">📁</span>
-        <p className="drop-zone-text">Drag & drop bill PDFs here</p>
-        <p className="drop-zone-subtext">
-          or{" "}
-          <button
-            type="button"
-            className="drop-zone-browse"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            browse files
-          </button>
-        </p>
         {nonPdfMessage && <p className="field-error">{nonPdfMessage}</p>}
         {duplicateNotes.map((note, i) => (
           <p key={`${note}-${i}`} className="field-error">
             {note}
           </p>
         ))}
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept=".pdf"
-          style={{ display: "none" }}
-          onChange={handleFileInput}
-        />
-      </div>
+      </PdfDropZone>
 
       {pendingFiles.length > 0 && (
         <div className="pending-files">

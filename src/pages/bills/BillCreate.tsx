@@ -1,7 +1,12 @@
 import { useNavigate } from "react-router-dom";
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { filePrefillLabel } from "./filePrefillLabels";
 import { post, put, uploadFile } from "../../api/client";
+import PdfDropZone from "../../components/PdfDropZone";
+import {
+  useAttachmentRead,
+  type AttachmentUploadResponse,
+} from "../../hooks/useAttachmentRead";
 import { useLookups } from "../../hooks/useLookups";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
@@ -45,11 +50,6 @@ import {
   revertUnacceptedLine1Scalars,
 } from "./readAttachment";
 import { composeBillMemo, type BillMemoEntryMethod } from "./billMemo";
-
-interface AttachmentResponse {
-  public_id: string;
-  content_type: string | null;
-}
 
 type LineItemDraft = BillLineRow;
 
@@ -111,7 +111,13 @@ export default function BillCreate() {
   const [lines, setLines] = useState<LineItemDraft[]>(() => [newLine()]);
   const [file, setFile] = useState<File | null>(null);
   const [attachmentPublicId, setAttachmentPublicId] = useState<string | null>(null);
-  const [readingAttachment, setReadingAttachment] = useState(false);
+  const {
+    begin: beginAttachmentRead,
+    abort: abortReadAttachment,
+    reading: readingAttachment,
+    setReading: setReadingAttachment,
+    currentGeneration: attachmentReadGeneration,
+  } = useAttachmentRead();
   const [readInlineMessage, setReadInlineMessage] = useState<string | null>(null);
   const [headerPrefill, setHeaderPrefill] = useState<HeaderPrefillMeta>(() =>
     createEmptyHeaderPrefill(),
@@ -122,9 +128,6 @@ export default function BillCreate() {
   );
   /** Line row uid that owns line1Prefill badges/gates (not index 0 after row removal). */
   const [line1PrefillUid, setLine1PrefillUid] = useState<string | null>(null);
-  const readAbortRef = useRef<AbortController | null>(null);
-  const mountedRef = useRef(false);
-  const readGenerationRef = useRef(0);
   const pendingReadApplyRef = useRef<{
     result: Awaited<ReturnType<typeof readBillAttachment>>;
     generation: number;
@@ -149,8 +152,6 @@ export default function BillCreate() {
   // Built + revoked via useEffect below so we don't leak object URLs across
   // successive selections.
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   // Three mutually-exclusive in-flight actions collapsed into one state.
   // null = idle. The button labels + disabled gates branch off this value
   // instead of three separate booleans.
@@ -327,29 +328,12 @@ export default function BillCreate() {
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      queueMicrotask(() => {
-        if (!mountedRef.current) {
-          readAbortRef.current?.abort();
-        }
-      });
-    };
-  }, []);
-
-  const abortReadAttachment = () => {
-    readAbortRef.current?.abort();
-    readAbortRef.current = null;
-  };
-
   const applyPendingReadResult = (generation: number) => {
     const pending = pendingReadApplyRef.current;
     if (
       !pending ||
       pending.generation !== generation ||
-      generation !== readGenerationRef.current ||
+      generation !== attachmentReadGeneration() ||
       pending.result == null
     ) {
       return false;
@@ -407,7 +391,7 @@ export default function BillCreate() {
   useEffect(() => {
     const pending = pendingReadApplyRef.current;
     if (!pending) return;
-    if (pending.generation !== readGenerationRef.current) {
+    if (pending.generation !== attachmentReadGeneration()) {
       pendingReadApplyRef.current = null;
       return;
     }
@@ -456,7 +440,6 @@ export default function BillCreate() {
     setMemoEntryMethod(entryMethod);
     const hadPriorAttachment = file !== null || attachmentPublicId !== null;
     pendingReadApplyRef.current = null;
-    abortReadAttachment();
     if (hadPriorAttachment) {
       revertFilePrefillState();
     }
@@ -465,61 +448,29 @@ export default function BillCreate() {
     setSaveError("");
     setFile(f);
 
-    const ac = new AbortController();
-    readAbortRef.current = ac;
-    const readGeneration = ++readGenerationRef.current;
-
-    void (async () => {
-      setReadingAttachment(true);
-      try {
-        const attachment = await uploadFile<AttachmentResponse>(
-          "/api/v1/upload/attachment",
-          f,
-        );
-        if (ac.signal.aborted) return;
-        setAttachmentPublicId(attachment.public_id);
-
-        const projectHint = projectHintFromLines(linesRef.current);
-        const result = await readBillAttachment(
-          attachment.public_id,
-          projectHint || null,
-          ac.signal,
-        );
-        if (ac.signal.aborted || readGenerationRef.current !== readGeneration) return;
-
-        if (result == null) {
-          setReadInlineMessage(GENERIC_READ_ERROR);
-          return;
-        }
-
-        pendingReadApplyRef.current = { result, generation: readGeneration };
-        applyPendingReadResult(readGeneration);
-      } catch (err: unknown) {
-        if (!ac.signal.aborted) {
-          setReadInlineMessage(UPLOAD_PDF_ERROR);
-        }
-      } finally {
-        if (readAbortRef.current === ac) readAbortRef.current = null;
-        if (readGenerationRef.current === readGeneration) {
-          const stillDeferred =
-            pendingReadApplyRef.current?.generation === readGeneration;
-          setReadingAttachment(stillDeferred);
-        }
-      }
-    })();
-  };
-
-  const acceptFile = (
-    f: File | null,
-    entryMethod: "PDF drop" | "PDF upload",
-  ): boolean => {
-    if (!f) return false;
-    if (f.type !== "application/pdf") {
-      setSaveError("Only PDF files are allowed.");
-      return false;
-    }
-    beginPdfAttachment(f, entryMethod);
-    return true;
+    beginAttachmentRead(
+      f,
+      (attachmentPublicId, signal) =>
+        readBillAttachment(
+          attachmentPublicId,
+          projectHintFromLines(linesRef.current) || null,
+          signal,
+        ),
+      {
+        onUploaded: (publicId) => setAttachmentPublicId(publicId),
+        onResult: (result, readGeneration) => {
+          if (result == null) {
+            setReadInlineMessage(GENERIC_READ_ERROR);
+            return;
+          }
+          pendingReadApplyRef.current = { result, generation: readGeneration };
+          applyPendingReadResult(readGeneration);
+        },
+        onError: () => setReadInlineMessage(UPLOAD_PDF_ERROR),
+        deferredForGeneration: (readGeneration) =>
+          pendingReadApplyRef.current?.generation === readGeneration,
+      },
+    );
   };
 
   const clearPdfAttachment = () => {
@@ -532,29 +483,6 @@ export default function BillCreate() {
     setAttachmentPublicId(null);
     setReadInlineMessage(null);
     setReadingAttachment(false);
-  };
-
-  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0] ?? null;
-    if (!f || !acceptFile(f, "PDF upload")) {
-      clearPdfAttachment();
-      e.target.value = "";
-    }
-  };
-
-  const handleDragOver = (e: DragEvent) => {
-    e.preventDefault();
-    setDragOver(true);
-  };
-  const handleDragLeave = (e: DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-  };
-  const handleDrop = (e: DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    const dropped = e.dataTransfer.files?.[0];
-    if (dropped) acceptFile(dropped, "PDF drop");
   };
 
   // Drop empty rows (per the (a) call). Everything downstream — buildBody,
@@ -675,7 +603,7 @@ export default function BillCreate() {
     try {
       let attId = attachmentPublicId;
       if (!attId) {
-        const attachment = await uploadFile<AttachmentResponse>(
+        const attachment = await uploadFile<AttachmentUploadResponse>(
           "/api/v1/upload/attachment",
           file,
         );
@@ -1006,35 +934,23 @@ export default function BillCreate() {
               </div>
             </>
           ) : (
-            <div
-              className={`drop-zone ${dragOver ? "drop-zone-active" : ""}`}
-              onDragOver={handleDragOver}
-              onDragEnter={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-            >
-              <span className="drop-zone-icon">📄</span>
-              <p className="drop-zone-text">Drop the PDF here</p>
-              <p className="drop-zone-subtext">
-                or{" "}
-                <button
-                  type="button"
-                  className="drop-zone-browse"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={busy}
-                >
-                  browse files
-                </button>
-              </p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="application/pdf"
-                style={{ display: "none" }}
-                onChange={onFileChange}
-                disabled={busy}
-              />
-            </div>
+            <PdfDropZone
+              icon="📄"
+              text="Drop the PDF here"
+              disabled={busy}
+              onSelect={(accepted, rejected, source) => {
+                if (rejected.length) {
+                  setSaveError("Only PDF files are allowed.");
+                  return;
+                }
+                if (accepted.length) {
+                  beginPdfAttachment(
+                    accepted[0],
+                    source === "drop" ? "PDF drop" : "PDF upload",
+                  );
+                }
+              }}
+            />
           )}
         </div>
       </form>
