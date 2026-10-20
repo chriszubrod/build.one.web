@@ -74,3 +74,37 @@ describe("billEdit prefill match helpers", () => {
     expect(line1FieldMatchesPrediction(prediction, lineRateMatch, "amount")).toBe(false);
   });
 });
+
+describe("prefill match helpers tolerate API-shaped values (U-676q hotfix)", () => {
+  const prediction: BillIntakePrediction = {
+    status: "ok",
+    intake_source: "list_drop",
+    vendor: { public_id: "v-1", name: "Acme" },
+    bill_number: "7032",
+    bill_date: "2026-10-15",
+    total_amount: "12900.00",
+    description: "Interior Painting And Plaster",
+    sub_cost_code: null,
+    project: null,
+    header_confidence: "0.9",
+    coding_confidence: "0.8",
+  } as unknown as BillIntakePrediction;
+
+  it("numeric rate/amount (as the line-item API returns them) never throw and still match", () => {
+    const line = { description: "Interior Painting And Plaster", rate: 12900 as unknown as string, amount: 12900 as unknown as string };
+    expect(() => line1FieldMatchesPrediction(prediction, line, "rate")).not.toThrow();
+    expect(line1FieldMatchesPrediction(prediction, line, "rate")).toBe(true);
+    expect(line1FieldMatchesPrediction(prediction, line, "amount")).toBe(true);
+  });
+
+  it("null description and null header values never throw", () => {
+    const line = { description: null as unknown as string, rate: "", amount: "" };
+    expect(() => line1FieldMatchesPrediction(prediction, line, "description")).not.toThrow();
+    expect(line1FieldMatchesPrediction(prediction, line, "description")).toBe(false);
+    const form = { is_draft: true, vendor_public_id: null as unknown as string, bill_number: null as unknown as string, bill_date: null as unknown as string };
+    for (const f of ["vendor_public_id", "bill_number", "bill_date"] as const) {
+      expect(() => headerFieldMatchesPrediction(prediction, form, f)).not.toThrow();
+      expect(headerFieldMatchesPrediction(prediction, form, f)).toBe(false);
+    }
+  });
+});

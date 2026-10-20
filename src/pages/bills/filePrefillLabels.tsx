@@ -43,9 +43,17 @@ type Line1Slice = {
   amount: string;
 };
 
-function centsEqual(a: string | null | undefined, b: string | null | undefined): boolean {
-  const ca = decimalToCents(a);
-  const cb = decimalToCents(b);
+// Values reach these helpers from API payloads and form state: a line's rate/amount
+// arrive from GET /bill_line_items as JSON numbers, a description can be null. Never
+// call string methods on them directly (U-676q hotfix: `.trim` on a number crashed Edit).
+function asText(value: unknown): string | null {
+  if (value == null) return null;
+  return typeof value === "string" ? value : String(value);
+}
+
+function centsEqual(a: unknown, b: unknown): boolean {
+  const ca = decimalToCents(asText(a));
+  const cb = decimalToCents(asText(b));
   if (ca === null || cb === null) return false;
   return ca === cb;
 }
@@ -59,16 +67,18 @@ export function headerFieldMatchesPrediction(
     case "vendor_public_id":
       return (
         !!prediction.vendor?.public_id &&
-        form.vendor_public_id === prediction.vendor.public_id
+        asText(form.vendor_public_id) === prediction.vendor.public_id
       );
-    case "bill_number":
-      return (
-        prediction.bill_number != null &&
-        form.bill_number.trim() === prediction.bill_number.trim()
-      );
+    case "bill_number": {
+      const predicted = asText(prediction.bill_number);
+      const current = asText(form.bill_number);
+      return predicted != null && current != null && current.trim() === predicted.trim();
+    }
     case "bill_date": {
-      if (!prediction.bill_date || !form.bill_date) return false;
-      return form.bill_date.slice(0, 10) === prediction.bill_date.slice(0, 10);
+      const predicted = asText(prediction.bill_date);
+      const current = asText(form.bill_date);
+      if (!predicted || !current) return false;
+      return current.slice(0, 10) === predicted.slice(0, 10);
     }
   }
 }
@@ -80,10 +90,9 @@ export function line1FieldMatchesPrediction(
 ): boolean {
   if (!line) return false;
   if (field === "description") {
-    return (
-      prediction.description != null &&
-      line.description.trim() === prediction.description.trim()
-    );
+    const predicted = asText(prediction.description);
+    const current = asText(line.description);
+    return predicted != null && current != null && current.trim() === predicted.trim();
   }
   if (prediction.total_amount == null) return false;
   if (field === "rate") {
