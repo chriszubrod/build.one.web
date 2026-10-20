@@ -54,6 +54,17 @@ The lifecycle:
 5. Clicking Reload calls `updateSW(true)`, which messages the SW to
    `skipWaiting` then reloads the page
 
+### Update checks (U-680)
+
+Long-lived tabs also poll for a new `sw.js` without waiting for a full page
+load or the browser’s default ~24 h check. `PWAUpdatePrompt` calls
+`registration.update()` every 30 minutes and when the tab becomes visible
+again (throttled to at most once per 5 minutes). Checks are skipped while
+offline, while a check is already in flight, or while an update is already
+downloading (`registration.installing`). Activation is still **prompt-only** —
+the Reload banner appears only after a waiting worker is detected; nothing
+auto-reloads.
+
 ## Escape hatch — `/sw-kill.html`
 
 If an installed client is stuck on a broken SW build, the recovery URL
