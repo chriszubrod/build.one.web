@@ -469,3 +469,23 @@ describe("BillCreditEdit token rebase (U-471)", () => {
     expect(container.textContent).not.toContain("This bill credit was changed in another window.");
   });
 });
+
+describe("BillCreditEdit document header (U-683b)", () => {
+  function headerLabels(): string[] {
+    return Array.from(container.querySelectorAll(".detail-fields-form label")).map((l) =>
+      l.textContent?.replace(/\*/g, "").trim() ?? "",
+    );
+  }
+
+  it("header labels follow Vendor → Credit Number → Credit Date → Total Amount → Memo", async () => {
+    renderBillCreditEdit(root);
+    await waitForCondition(() => container.querySelector(".detail-fields-form") !== null);
+    expect(headerLabels()).toEqual([
+      "Vendor",
+      "Credit Number",
+      "Credit Date",
+      "Total Amount",
+      "Memo",
+    ]);
+  });
+});

@@ -6,10 +6,8 @@ import { invalidateEntity } from "../../hooks/useEntity";
 import { useLookups } from "../../hooks/useLookups";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { hasBillCreditPermission } from "./billCreditPermissions";
-import FormField from "../../components/FormField";
-import DateField from "../../components/DateField";
-import TextareaField from "../../components/TextareaField";
-import SelectField from "../../components/SelectField";
+import DocumentHeaderFields from "../../components/DocumentHeaderFields";
+import { billCreditHeaderFields, vendorSelectOptions } from "./billCreditHeaderFields";
 import type { BillCredit } from "../../types/api";
 
 export default function BillCreditCreate() {
@@ -28,7 +26,10 @@ export default function BillCreditCreate() {
   const [saveError, setSaveError] = useState("");
   const queryClient = useQueryClient();
 
-  const onChange = (name: string, value: string) => setForm((prev) => ({ ...prev, [name]: value }));
+  const onHeaderChange = (name: string, value: string | boolean) =>
+    setForm((prev) => ({ ...prev, [name]: value }));
+
+  const headerFields = billCreditHeaderFields(vendorSelectOptions(lookups.vendors), "create");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,22 +70,7 @@ export default function BillCreditCreate() {
       <form className="form-card" onSubmit={handleSubmit}>
         {saveError && <div className="form-error">{saveError}</div>}
 
-        <div className="form-header-grid">
-          <FormField label="Credit Number" name="credit_number" value={form.credit_number} onChange={onChange} required />
-          <SelectField
-            label="Vendor"
-            name="vendor_public_id"
-            value={form.vendor_public_id}
-            onChange={onChange}
-            options={(lookups.vendors ?? []).map((v) => ({ value: v.public_id, label: v.name }))}
-            required
-          />
-          <DateField label="Credit Date" name="credit_date" value={form.credit_date} onChange={onChange} required />
-          <FormField label="Total Amount" name="total_amount" value={form.total_amount} onChange={onChange} type="number" />
-          <div className="full-width">
-            <TextareaField label="Memo" name="memo" value={form.memo} onChange={onChange} />
-          </div>
-        </div>
+        <DocumentHeaderFields fields={headerFields} values={form} onChange={onHeaderChange} />
 
         <p className="text-muted" style={{ marginTop: 16, fontSize: 13 }}>
           Save first, then add line items on the edit page.

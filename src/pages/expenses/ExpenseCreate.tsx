@@ -4,10 +4,8 @@ import { post, uploadFile } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { hasExpensePermission } from "./expensePermissions";
-import FormField from "../../components/FormField";
-import DateField from "../../components/DateField";
-import TextareaField from "../../components/TextareaField";
-import SelectField from "../../components/SelectField";
+import DocumentHeaderFields from "../../components/DocumentHeaderFields";
+import { expenseHeaderFields, vendorSelectOptions } from "./expenseHeaderFields";
 import type { Expense } from "../../types/api";
 
 interface AttachmentResponse {
@@ -32,7 +30,10 @@ export default function ExpenseCreate() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
-  const onChange = (name: string, value: string) => setForm((prev) => ({ ...prev, [name]: value }));
+  const onHeaderChange = (name: string, value: string | boolean) =>
+    setForm((prev) => ({ ...prev, [name]: value }));
+
+  const headerFields = expenseHeaderFields(vendorSelectOptions(lookups.vendors), "create");
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null;
@@ -99,50 +100,24 @@ export default function ExpenseCreate() {
       <form className="form-card" onSubmit={handleSubmit}>
         {saveError && <div className="form-error">{saveError}</div>}
 
-        <div className="form-header-grid">
-          <SelectField
-            label="Vendor"
-            name="vendor_public_id"
-            value={form.vendor_public_id}
-            onChange={onChange}
-            options={(lookups.vendors ?? []).map((v) => ({ value: v.public_id, label: v.name }))}
+        <DocumentHeaderFields fields={headerFields} values={form} onChange={onHeaderChange} />
+
+        <div className="form-group">
+          <label>
+            PDF Receipt <span style={{ color: "#c00" }}>*</span>
+          </label>
+          <input
+            type="file"
+            accept="application/pdf"
+            onChange={onFileChange}
             required
+            disabled={saving}
           />
-          <DateField label="Expense Date" name="expense_date" value={form.expense_date} onChange={onChange} required />
-          <FormField label="Reference Number" name="reference_number" value={form.reference_number} onChange={onChange} required />
-          <FormField label="Total Amount" name="total_amount" value={form.total_amount} onChange={onChange} type="number" />
-          <div className="full-width">
-            <TextareaField label="Memo" name="memo" value={form.memo} onChange={onChange} />
-          </div>
-          <div className="form-group">
-            <label>
-              <input
-                type="checkbox"
-                checked={form.is_credit}
-                onChange={(e) => setForm((prev) => ({ ...prev, is_credit: e.target.checked }))}
-              />
-              {" "}Is Credit
-            </label>
-          </div>
-          <div className="full-width">
-            <div className="form-group">
-              <label>
-                PDF Receipt <span style={{ color: "#c00" }}>*</span>
-              </label>
-              <input
-                type="file"
-                accept="application/pdf"
-                onChange={onFileChange}
-                required
-                disabled={saving}
-              />
-              {file && (
-                <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
-                  Selected: {file.name} ({Math.round(file.size / 1024)} KB)
-                </div>
-              )}
+          {file && (
+            <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
+              Selected: {file.name} ({Math.round(file.size / 1024)} KB)
             </div>
-          </div>
+          )}
         </div>
 
         <p className="text-muted" style={{ marginTop: 16, fontSize: 13 }}>

@@ -14,10 +14,8 @@ import { put, post, del, getList, getOne, ApiError } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { resolveExpenseEditActions } from "./expensePermissions";
-import FormField from "../../components/FormField";
-import DateField from "../../components/DateField";
-import TextareaField from "../../components/TextareaField";
-import SelectField from "../../components/SelectField";
+import DocumentHeaderFields from "../../components/DocumentHeaderFields";
+import { expenseHeaderFields, vendorSelectOptions } from "./expenseHeaderFields";
 import InlineLineItems, { type LineItemFieldDef } from "../../components/InlineLineItems";
 import LineItemAttachment from "../../components/LineItemAttachment";
 import ReviewTimeline from "../../components/ReviewTimeline";
@@ -485,6 +483,8 @@ export default function ExpenseEdit() {
     ];
   }, [fullSubCostCodes, fullProjects, projectFor]);
 
+  const headerFields = expenseHeaderFields(vendorSelectOptions(lookups.vendors), "edit");
+
   if (loading || meLoading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
   if (!form) return null;
@@ -500,7 +500,8 @@ export default function ExpenseEdit() {
     );
   }
 
-  const onChange = (name: string, value: string) => setForm((prev: any) => ({ ...prev, [name]: value }));
+  const onHeaderChange = (name: string, value: string | boolean) =>
+    setForm((prev: any) => ({ ...prev, [name]: value }));
 
   // One save at a time. A second caller (e.g. Submit for Review clicked while Save is
   // still writing) JOINS the save in flight instead of starting another: saveAllOnce
@@ -675,31 +676,7 @@ export default function ExpenseEdit() {
           />
         )}
 
-        <div className="form-header-grid">
-          <SelectField
-            label="Vendor"
-            name="vendor_public_id"
-            value={form.vendor_public_id}
-            onChange={onChange}
-            options={(lookups.vendors ?? []).map((v) => ({ value: v.public_id, label: v.name }))}
-          />
-          <DateField label="Expense Date" name="expense_date" value={form.expense_date} onChange={onChange} required />
-          <FormField label="Reference Number" name="reference_number" value={form.reference_number} onChange={onChange} required />
-          <FormField label="Total Amount" name="total_amount" value={form.total_amount} onChange={onChange} type="number" />
-          <div className="full-width">
-            <TextareaField label="Memo" name="memo" value={form.memo} onChange={onChange} />
-          </div>
-          <div className="form-group">
-            <label>
-              <input
-                type="checkbox"
-                checked={form.is_credit}
-                onChange={(e) => setForm((prev: any) => ({ ...prev, is_credit: e.target.checked }))}
-              />
-              {" "}Is Credit
-            </label>
-          </div>
-        </div>
+        <DocumentHeaderFields fields={headerFields} values={form} onChange={onHeaderChange} />
 
         <InlineLineItems
           fields={lineItemFields}

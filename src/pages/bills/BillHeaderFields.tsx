@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
-import FormField from "../../components/FormField";
-import DateField from "../../components/DateField";
-import TextareaField from "../../components/TextareaField";
-import SelectField from "../../components/SelectField";
+import DocumentHeaderFields, {
+  type DocumentHeaderFieldDef,
+} from "../../components/DocumentHeaderFields";
 import {
   billEditFilePrefillAdornment,
   type HeaderFormSlice,
@@ -48,7 +47,8 @@ export default function BillHeaderFields({
 }: BillHeaderFieldsProps) {
   const required = mode === "create" || !form.is_draft;
 
-  const handleChange = (name: string, value: string) => {
+  const handleChange = (name: string, value: string | boolean) => {
+    if (typeof value !== "string") return;
     if (name === "bill_date" && mode === "edit") {
       onChange("bill_date", value);
       onChange("due_date", value);
@@ -62,55 +62,57 @@ export default function BillHeaderFields({
       ? billEditFilePrefillAdornment(intakePrediction ?? null, formForPrefill ?? null, field)
       : null;
 
+  const fields: DocumentHeaderFieldDef[] = [
+    {
+      key: "vendor_public_id",
+      label: "Vendor",
+      type: "select",
+      options: vendorOptions,
+      required: mode === "create",
+      adornment:
+        mode === "create"
+          ? createHeaderAdornment?.("vendor_public_id")
+          : editAdornment("vendor_public_id"),
+    },
+    {
+      key: "bill_number",
+      label: "Bill Number",
+      type: "text",
+      required,
+      adornment:
+        mode === "create"
+          ? createHeaderAdornment?.("bill_number")
+          : editAdornment("bill_number"),
+    },
+    {
+      key: "bill_date",
+      label: "Bill Date",
+      type: "date",
+      required,
+      adornment:
+        mode === "create"
+          ? createHeaderAdornment?.("bill_date")
+          : editAdornment("bill_date"),
+    },
+    {
+      key: "payment_term_public_id",
+      label: "Payment Term",
+      type: "select",
+      options: paymentTermOptions,
+    },
+    {
+      key: "memo",
+      label: "Memo",
+      type: "textarea",
+      fullWidth: true,
+    },
+  ];
+
   return (
-    <div className="detail-fields-form">
-      <SelectField
-        label="Vendor"
-        name="vendor_public_id"
-        value={form.vendor_public_id}
-        onChange={handleChange}
-        options={vendorOptions}
-        required={mode === "create"}
-        adornment={
-          mode === "create"
-            ? createHeaderAdornment?.("vendor_public_id")
-            : editAdornment("vendor_public_id")
-        }
-      />
-      <FormField
-        label="Bill Number"
-        name="bill_number"
-        value={form.bill_number}
-        onChange={handleChange}
-        required={required}
-        adornment={
-          mode === "create"
-            ? createHeaderAdornment?.("bill_number")
-            : editAdornment("bill_number")
-        }
-      />
-      <DateField
-        label="Bill Date"
-        name="bill_date"
-        value={form.bill_date}
-        onChange={handleChange}
-        required={required}
-        adornment={
-          mode === "create"
-            ? createHeaderAdornment?.("bill_date")
-            : editAdornment("bill_date")
-        }
-      />
-      <SelectField
-        label="Payment Term"
-        name="payment_term_public_id"
-        value={form.payment_term_public_id}
-        onChange={handleChange}
-        options={paymentTermOptions}
-      />
-      <div className="full-width">
-        <TextareaField label="Memo" name="memo" value={form.memo} onChange={handleChange} />
-      </div>
-    </div>
+    <DocumentHeaderFields
+      fields={fields}
+      values={form as unknown as Record<string, string | boolean | null | undefined>}
+      onChange={handleChange}
+    />
   );
 }

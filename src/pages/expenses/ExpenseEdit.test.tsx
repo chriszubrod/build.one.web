@@ -2945,3 +2945,61 @@ describe("ExpenseEdit Billable default when projects arrive mid-load (U-647, Cod
     expect(box.checked).toBe(true);   // the project default, not the Ramp NotBillable mirror
   });
 });
+
+describe("ExpenseEdit document header (U-683b)", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    mockGetListResolvedForAll({ data: [], count: 0 });
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === EXPENSE_GET_PATH) {
+        return Promise.resolve(sampleExpense({ is_draft: true }));
+      }
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+    mockPut.mockResolvedValue(sampleExpense({ row_version: "rv-2", is_draft: true }));
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    document.body.removeChild(container);
+    vi.useRealTimers();
+  });
+
+  function headerLabels(): string[] {
+    return Array.from(container.querySelectorAll(".detail-fields-form label")).map((l) =>
+      l.textContent?.replace(/\*/g, "").trim() ?? "",
+    );
+  }
+
+  it("header labels follow Vendor → Reference Number → Expense Date → Total Amount → Memo → Is Credit", async () => {
+    renderExpenseEdit(root);
+    await flushUntil(() => container.querySelector(".detail-fields-form") !== null);
+    expect(headerLabels()).toEqual([
+      "Vendor",
+      "Reference Number",
+      "Expense Date",
+      "Total Amount",
+      "Memo",
+      "Is Credit",
+    ]);
+  });
+
+  it("requires reference number and expense date but not vendor on edit", async () => {
+    renderExpenseEdit(root);
+    await flushUntil(() => container.querySelector('select[name="vendor_public_id"]') !== null);
+    expect(container.querySelector('select[name="vendor_public_id"]')?.hasAttribute("required")).toBe(
+      false,
+    );
+    expect(container.querySelector('input[name="reference_number"]')?.hasAttribute("required")).toBe(
+      true,
+    );
+    expect(container.querySelector('input[name="expense_date"]')?.hasAttribute("required")).toBe(true);
+  });
+});
