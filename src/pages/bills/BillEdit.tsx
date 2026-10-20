@@ -17,32 +17,27 @@ import { resolveBillEditActions } from "./billPermissions";
 import { useEntityList } from "../../hooks/useEntity";
 import type { Vendor as FullVendor, SubCostCode, Project } from "../../types/api";
 import { computeBillLine, sumLineAmounts } from "./lineMath";
-import FormField from "../../components/FormField";
-import DateField from "../../components/DateField";
-import TextareaField from "../../components/TextareaField";
-import SelectField from "../../components/SelectField";
+import InlineLineItems from "../../components/InlineLineItems";
+import BillHeaderFields, { type BillHeaderFormValues } from "./BillHeaderFields";
 import LineItemAttachment from "../../components/LineItemAttachment";
+import {
+  BILL_LINE_COL,
+  buildBillLineFields,
+  fmtBillLineMoney,
+  projectOptionLabel,
+  type BillLineRow,
+} from "./billLineFields";
 import ReviewTimeline from "../../components/ReviewTimeline";
 import RecordChangedBanner from "../../components/RecordChangedBanner";
 import Breadcrumb from "../../components/Breadcrumb";
 import type { Bill, BillIntakePrediction, BillLineItem } from "../../types/api";
-import {
-  billEditFilePrefillAdornment,
-  billEditLine1FilePrefillAdornment,
-  type HeaderFormSlice,
-} from "./filePrefillLabels";
+import type { HeaderFormSlice } from "./filePrefillLabels";
 import type { ReviewActionKind } from "../../components/ReviewTimeline";
 import {
   codingSuggestAmountFromLines,
-  formatSuggestionBadgeLabel,
   codingPrefillStateForApi,
-  formatBillCreateProjectBadgeLabel,
   applyUserLinePatch,
-  lineShowsProjectSuggestionMarker,
-  lineShowsSuggestionBadgeFor,
   projectHintFromLines,
-  suggestionBadgeClassName,
-  type LineCodingFields,
 } from "./codingSuggestion";
 import { useBillCodingSuggestion } from "./useBillCodingSuggestion";
 import { documentStatus } from "../../shared/documentLifecycle";
@@ -71,38 +66,9 @@ function useDebouncedMemoAfterBaseline(
 const SUBMIT_REQUIRES_PROJECT_MSG =
   "Add a line item with a project before submitting for review.";
 
-interface LineItemRow extends LineCodingFields {
-  /** Stable client-side row identity, minted on load and on Add Row. saveAll stamps
-   * server-confirmed facts back by uid, never by array index: Save does not disable
-   * "+ Add Row" / remove, so a mid-loop remove shifts indices and an index-keyed
-   * stamp would write one row's public_id onto a different row. Also the React key,
-   * so a row does not remount (losing focus) the moment its public_id arrives.
-   * TimeEntryView.tsx has the same convention — extract it if a third page needs it. */
-  uid: string;
-  public_id?: string;
+interface LineItemRow extends BillLineRow {
+  /** Server row version — stamped back by saveAll via uid. */
   row_version?: string;
-  description: string;
-  /** Set when the stored line references a project outside this actor's UserProject
-   * scope, so it is absent from /get/projects. project_public_id stays '' (we have no
-   * public_id for it), and this field is what distinguishes 'cannot render it' from
-   * 'user cleared it'. */
-  unresolved_project_id?: number;
-  quantity: string;
-  rate: string;
-  amount: string;
-  is_billable: boolean;
-  markup: string;
-  price: string;
-}
-
-/** Display-only <select> value — never written to project_public_id or request bodies. */
-const UNRESOLVED_PROJECT_VALUE = "__unresolved_project__";
-
-function fmtMoney(v: string): string {
-  if (!v) return "";
-  const n = Number(v);
-  if (isNaN(n)) return v;
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
 const computeLineItem = (li: LineItemRow): LineItemRow => computeBillLine(li);
@@ -272,13 +238,14 @@ export default function BillEdit() {
           // A stored project absent from the scoped list keeps its numeric id here so a
           // save cannot mistake "cannot render it" for "user cleared it".
           const unresolvedProjectId = project ? undefined : (li.project_id ?? undefined);
+          const projectPublicId = project?.public_id ?? "";
           return computeLineItem({
             uid: newLineUid(),
             public_id: li.public_id,
             row_version: li.row_version,
             description: li.description ?? "",
             sub_cost_code_id: li.sub_cost_code_id != null ? String(li.sub_cost_code_id) : "",
-            project_public_id: project?.public_id ?? "",
+            project_public_id: projectPublicId,
             unresolved_project_id: unresolvedProjectId,
             quantity: li.quantity != null ? String(li.quantity) : "",
             rate: li.rate ?? "",
@@ -399,7 +366,7 @@ export default function BillEdit() {
         vendor_public_id: form.vendor_public_id || undefined,
         payment_term_public_id: form.payment_term_public_id || undefined,
         bill_date: form.bill_date,
-        due_date: form.due_date,
+        due_date: form.bill_date, // DueDate = BillDate (U-681)
         bill_number: form.bill_number,
         total_amount: persistedLineTotalRef.current,
         memo: form.memo || null,
@@ -545,7 +512,7 @@ export default function BillEdit() {
         vendor_public_id: latestForm.vendor_public_id || undefined,
         payment_term_public_id: latestForm.payment_term_public_id || undefined,
         bill_date: latestForm.bill_date,
-        due_date: latestForm.due_date,
+        due_date: latestForm.bill_date, // DueDate = BillDate (U-681)
         bill_number: latestForm.bill_number,
         total_amount: computedTotal,
         memo: latestForm.memo || null,
@@ -733,8 +700,43 @@ export default function BillEdit() {
   // index, and the sub-cost-code catalog is ~500 rows — rebuilding both per row
   // per render meant N×(500+P) allocations on every keystroke in the table.
   // Same shape BillCreate computes once in its component body.
-  const sccOptions = fullSubCostCodes.map((s) => ({ value: String(s.id), label: s.number ? `${s.number} — ${s.name}` : s.name }));
-  const projectOptions = fullProjects.map((p) => ({ value: p.public_id, label: p.name }));
+  const sccOptions = fullSubCostCodes.map((s) => ({
+    value: String(s.id),
+    label: s.number ? `${s.number} — ${s.name}` : s.name,
+  }));
+  const projectOptions = fullProjects.map((p) => ({
+    value: p.public_id,
+    label: projectOptionLabel(p.abbreviation, p.name),
+  }));
+
+  const patchLineAt = (index: number, patch: Partial<LineItemRow>, bumpEpoch: boolean) => {
+    if (bumpEpoch) setLineUserEditEpoch((n) => n + 1);
+    setLineItems((prev) => {
+      const updated = prev.map((item, i) => {
+        if (i !== index) return item;
+        return applyUserLinePatch(item, patch);
+      });
+      return updated.map(computeLineItem);
+    });
+  };
+
+  const onLineEdit = (index: number, key: string, value: unknown) => {
+    const patch: Partial<LineItemRow> = { [key]: value } as Partial<LineItemRow>;
+    if (key === "project_public_id") {
+      patch.unresolved_project_id = undefined;
+    }
+    patchLineAt(index, patch, true);
+  };
+
+  const addLineItem = () => {
+    setLineItems((prev) => [...prev.map(computeLineItem), computeLineItem(newLineItem())]);
+  };
+
+  const removeLineItem = (index: number) => {
+    setLineItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const lineFooterTotal = sumLineAmounts(lineItems);
 
   const displayBillNumber = (item?.bill_number ?? "").trim();
   const billCrumbLabel = displayBillNumber || "Draft";
@@ -812,215 +814,64 @@ export default function BillEdit() {
           />
         )}
 
-        <div className="detail-fields-form">
-          <FormField
-            label="Bill Number"
-            name="bill_number"
-            value={form.bill_number}
-            onChange={onChange}
-            required={!form.is_draft}
-            adornment={billEditFilePrefillAdornment(intakePrediction, formForPrefill, "bill_number")}
-          />
-          <SelectField
-            label="Vendor"
-            name="vendor_public_id"
-            value={form.vendor_public_id}
-            onChange={onChange}
-            options={(lookups.vendors ?? []).map((v) => ({ value: v.public_id, label: v.name }))}
-            adornment={billEditFilePrefillAdornment(intakePrediction, formForPrefill, "vendor_public_id")}
-          />
-          <DateField
-            label="Bill Date"
-            name="bill_date"
-            value={form.bill_date}
-            onChange={onChange}
-            required={!form.is_draft}
-            adornment={billEditFilePrefillAdornment(intakePrediction, formForPrefill, "bill_date")}
-          />
-          <DateField label="Due Date" name="due_date" value={form.due_date} onChange={onChange} required />
-          <SelectField
-            label="Payment Term"
-            name="payment_term_public_id"
-            value={form.payment_term_public_id}
-            onChange={onChange}
-            options={(lookups.payment_terms ?? []).map((pt) => ({ value: pt.public_id, label: pt.name }))}
-          />
-          <div className="form-group">
-            <label>Total Amount</label>
-            <div className="form-value">
-              {lineItems.length > 0
-                ? sumLineAmounts(lineItems).toLocaleString("en-US", { style: "currency", currency: "USD" })
-                : "$0.00"}
-            </div>
-          </div>
-          <div className="full-width">
-            <TextareaField label="Memo" name="memo" value={form.memo} onChange={onChange} />
-          </div>
-        </div>
+        <BillHeaderFields
+          mode="edit"
+          form={form as BillHeaderFormValues}
+          onChange={onChange}
+          vendorOptions={(lookups.vendors ?? []).map((v) => ({ value: v.public_id, label: v.name }))}
+          paymentTermOptions={(lookups.payment_terms ?? []).map((pt) => ({
+            value: pt.public_id,
+            label: pt.name,
+          }))}
+          intakePrediction={intakePrediction ?? null}
+          formForPrefill={formForPrefill}
+        />
 
         <div className="li-cards-section">
-          <div className="inline-li-header">
-            <h3 className="line-items-heading">Line Items ({lineItems.length})</h3>
-            <div className="inline-li-header-actions">
-              {form.is_draft && budgetChip && (
+          <InlineLineItems
+            layout="measured"
+            actionsCol={BILL_LINE_COL.actions}
+            headerActions={
+              form.is_draft && budgetChip ? (
                 <span className={budgetChip.className}>{budgetChip.label}</span>
-              )}
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setLineItems([...lineItems.map(computeLineItem), computeLineItem(newLineItem())])}>
-                + Add Row
-              </button>
-            </div>
-          </div>
-
-          <table className="data-table line-items-edit-table">
-            <thead>
-              <tr>
-                <th>Description</th>
-                <th>Sub Cost Code</th>
-                <th>Project</th>
-                <th style={{ textAlign: "right" }}>Qty</th>
-                <th style={{ textAlign: "right" }}>Rate</th>
-                <th style={{ textAlign: "right" }}>Amount</th>
-                <th style={{ textAlign: "right" }}>Markup</th>
-                <th style={{ textAlign: "right" }}>Price</th>
-                <th style={{ textAlign: "center" }}>Billable</th>
-                <th>Attachment</th>
-                <th aria-label="Actions"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {lineItems.length === 0 && (
-                <tr>
-                  <td colSpan={11} className="empty-state">
-                    No line items. Click "+ Add Row" to start.
-                  </td>
-                </tr>
-              )}
-              {lineItems.map((li, idx) => {
-                // Patch one row, then recompute EVERY row — computeLineItem repopulates
-                // amount/price from stored values (U-167), so narrowing it to the edited
-                // row would change which rows get derived.
-                const patchRow = (patch: Partial<LineItemRow>) => {
-                  setLineUserEditEpoch((n) => n + 1);
-                  const updated = lineItems.map((item, i) => {
-                    if (i !== idx) return item;
-                    return applyUserLinePatch(item, patch);
-                  });
-                  setLineItems(updated.map(computeLineItem));
-                };
-                const updateField = (key: string, value: any) =>
-                  patchRow({ [key]: value } as Partial<LineItemRow>);
-                const removeRow = () => setLineItems(lineItems.filter((_, i) => i !== idx));
-                const projectSelectValue =
-                  li.project_public_id ||
-                  (li.unresolved_project_id != null ? UNRESOLVED_PROJECT_VALUE : "");
-                // An explicit user pick — including "—" (clear) — drops the unresolved marker,
-                // which is what distinguishes a real clear from a project we merely can't render.
-                const handleProjectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-                  const value = e.target.value;
-                  if (value === UNRESOLVED_PROJECT_VALUE) return;
-                  setProjectHintForSuggest(value || undefined);
-                  patchRow({ project_public_id: value, unresolved_project_id: undefined });
-                };
-
-                return (
-                  <tr key={li.uid}>
-                    <td>
-                      <div className="coding-suggestion-cell">
-                        <input className="inline-li-input" value={li.description} onChange={(e) => updateField("description", e.target.value)} />
-                        {idx === 0 &&
-                          billEditLine1FilePrefillAdornment(intakePrediction, formForPrefill, li, "description")}
-                      </div>
-                    </td>
-                    <td>
-                      <div className="coding-suggestion-cell">
-                        <select className="inline-li-input" value={li.sub_cost_code_id} onChange={(e) => updateField("sub_cost_code_id", e.target.value)}>
-                          <option value="">—</option>
-                          {sccOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </select>
-                        {form.is_draft &&
-                          lineShowsSuggestionBadgeFor(li) && (
-                          <div className="coding-suggestion-actions">
-                            <span
-                              className={suggestionBadgeClassName(li.coding_suggestion_confidence ?? null)}
-                              title={li.coding_suggestion_reason ?? undefined}
-                            >
-                              {formatSuggestionBadgeLabel(
-                                li.coding_suggestion_confidence ?? null,
-                                li.coding_suggestion_source,
-                              )}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <div className="coding-suggestion-cell">
-                        <select
-                          className="inline-li-input"
-                          value={projectSelectValue}
-                          onChange={handleProjectChange}
-                        >
-                          <option value="">—</option>
-                          {li.unresolved_project_id != null && (
-                            <option value={UNRESOLVED_PROJECT_VALUE} disabled>
-                              Project #{li.unresolved_project_id} (not in your projects)
-                            </option>
-                          )}
-                          {projectOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </select>
-                        {form.is_draft && lineShowsProjectSuggestionMarker(li) && (
-                          <div className="coding-suggestion-actions">
-                            <span
-                              className="status-badge coding-suggested"
-                              title="Project predicted from the bill's attachment text"
-                            >
-                              {formatBillCreateProjectBadgeLabel(li.coding_project_prefill_origin)}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      <input className="inline-li-input" type="number" step="any" value={li.quantity} onChange={(e) => updateField("quantity", e.target.value)} />
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      <div className="coding-suggestion-cell">
-                        <input className="inline-li-input" type="number" step="any" value={li.rate} onChange={(e) => updateField("rate", e.target.value)} />
-                        {idx === 0 &&
-                          billEditLine1FilePrefillAdornment(intakePrediction, formForPrefill, li, "rate")}
-                      </div>
-                    </td>
-                    <td style={{ textAlign: "right" }} className="inline-li-computed">
-                      <div className="coding-suggestion-cell">
-                        {fmtMoney(li.amount)}
-                        {idx === 0 &&
-                          billEditLine1FilePrefillAdornment(intakePrediction, formForPrefill, li, "amount")}
-                      </div>
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      <input className="inline-li-input" type="number" step="any" placeholder="0.10" value={li.markup} onChange={(e) => updateField("markup", e.target.value)} />
-                    </td>
-                    <td style={{ textAlign: "right" }} className="inline-li-computed">
-                      {fmtMoney(li.price)}
-                    </td>
-                    <td style={{ textAlign: "center" }}>
-                      <input type="checkbox" checked={li.is_billable} onChange={(e) => updateField("is_billable", e.target.checked)} />
-                    </td>
-                    <td>
-                      {li.public_id ? (
-                        <LineItemAttachment lineItemPublicId={li.public_id} entityType="bill" />
-                      ) : (
-                        <span className="text-muted" style={{ fontSize: 12 }}>Save first</span>
-                      )}
-                    </td>
-                    <td style={{ textAlign: "center" }}>
-                      <button type="button" className="inline-li-remove" onClick={removeRow} title="Remove">&times;</button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+              ) : null
+            }
+            addPlacement="below"
+            addLabel="+ Add Line"
+            minRows={1}
+            removeLabel={(index) => `Remove line ${index + 1}`}
+            fields={buildBillLineFields({
+              mode: "edit",
+              sccOptions,
+              projectOptions,
+              showDraftBadges: form.is_draft,
+              intakePrediction: intakePrediction ?? null,
+              formForPrefill,
+              onProjectHintChange: setProjectHintForSuggest,
+            })}
+            items={lineItems}
+            onEdit={onLineEdit}
+            onAdd={addLineItem}
+            onRemove={removeLineItem}
+            extraColumn={{
+              label: "Attachment",
+              col: BILL_LINE_COL.attachment,
+              render: (li) =>
+                li.public_id ? (
+                  <LineItemAttachment lineItemPublicId={li.public_id} entityType="bill" />
+                ) : (
+                  <span className="text-muted" style={{ fontSize: 12 }}>
+                    Save first
+                  </span>
+                ),
+            }}
+            footer={
+              <div style={{ marginTop: 8, textAlign: "right", fontSize: 14 }}>
+                Total Amount:{" "}
+                <strong>{fmtBillLineMoney(String(lineFooterTotal))}</strong>
+              </div>
+            }
+          />
         </div>
 
         <div className="form-actions">

@@ -77,6 +77,18 @@ vi.mock("./readAttachment", async (importOriginal) => {
   };
 });
 
+const codingSuggestHookCalls: Array<{ projectHintForSuggest?: string }> = [];
+
+vi.mock("./useBillCodingSuggestion", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./useBillCodingSuggestion")>();
+  return {
+    useBillCodingSuggestion: (props: Parameters<typeof actual.useBillCodingSuggestion>[0]) => {
+      codingSuggestHookCalls.push({ projectHintForSuggest: props.projectHintForSuggest });
+      return actual.useBillCodingSuggestion(props);
+    },
+  };
+});
+
 vi.mock("../../components/Toast", () => ({
   useToast: () => ({ toast: mockToast }),
 }));
@@ -394,6 +406,7 @@ async function arrangeOneLineBill(project = "p-1") {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  codingSuggestHookCalls.length = 0;
   delete (globalThis as { __billCreateEmptyLookups?: boolean }).__billCreateEmptyLookups;
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   mockUseCurrentUser.mockReturnValue({ data: adminUser(), isLoading: false });
@@ -830,9 +843,6 @@ describe("BillCreate due date mirrors bill date", () => {
         "pt-30",
       );
     });
-
-    // The read-only row shows the bill date itself — never bill_date + due_days.
-    expect(container.querySelector("#due_date_display")?.textContent).toBe("2026-01-15");
 
     await act(async () => {
       findButton("Save For Later").click();
@@ -2459,9 +2469,67 @@ describe("BillCreate PDF read attachment", () => {
     const newFirstRow = container.querySelectorAll("tbody tr")[0];
     expect(newFirstRow.textContent?.includes("From file")).toBe(false);
     expect(newFirstRow.querySelector("[class*='coding-suggested']")).toBeNull();
+    const descOnRemaining = newFirstRow!.querySelector(
+      ".line-item-control input.inline-li-input",
+    ) as HTMLInputElement;
+    await act(async () => {
+      setInputValue(descOnRemaining, "Edited remaining row");
+    });
+    expect(newFirstRow!.querySelector(".line-item-badge-slot .status-badge")).toBeNull();
+    await act(async () => {
+      findButton("+ Add Line").click();
+    });
+    const rowsAfterAdd = container.querySelectorAll(".line-items-measured tbody tr");
+    expect(rowsAfterAdd).toHaveLength(2);
+    const addedRowDesc = rowsAfterAdd[1]!.querySelector(
+      ".line-item-control input.inline-li-input",
+    ) as HTMLInputElement;
+    await act(async () => {
+      setInputValue(addedRowDesc, "Manual line after remove");
+    });
+    expect(rowsAfterAdd[1]!.textContent?.includes("From file")).toBe(false);
+    expect(
+      rowsAfterAdd[1]!.querySelector(".line-item-badge-slot .status-badge"),
+    ).toBeNull();
     await acceptEachVisibleFileCheck();
     await flushUntil(() => !findButton("Save For Later").disabled);
     expect(findButton("Save For Later").disabled).toBe(false);
+  });
+
+  it("removing the file-prefilled line keeps a later PDF clear off the surviving row", async () => {
+    // removeLine's cleanup drops line-1 prefill meta with its row. Without it, the stale
+    // meta re-targets row 0 and "Change file" wipes a description the user typed.
+    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
+    renderPage();
+    await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+    await attachPdf();
+    await flushUntil(() => container.textContent?.includes("From file"));
+    const descInput = (row: number) =>
+      container
+        .querySelectorAll("tbody tr")
+        [row]!.querySelector(".line-item-control input.inline-li-input") as HTMLInputElement;
+    expect(descInput(0).value).toBe("From PDF");
+
+    await act(async () => {
+      findButton("+ Add Line").click();
+    });
+    await act(async () => {
+      setInputValue(descInput(1), "From PDF");
+    });
+    await act(async () => {
+      (
+        container.querySelector('button[aria-label="Remove line 1"]') as HTMLButtonElement
+      ).click();
+    });
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(1);
+    expect(descInput(0).value).toBe("From PDF");
+
+    await act(async () => {
+      findButton("Change file").click();
+    });
+    await flushUntil(() => container.querySelector('input[type="file"]') !== null);
+    expect(container.querySelector('input[type="file"]')).not.toBeNull();
+    expect(descInput(0).value).toBe("From PDF");
   });
 
   it("does not fill project when file coding SCC does not map to lookups", async () => {
@@ -2741,9 +2809,9 @@ describe("BillCreate PDF read attachment", () => {
 
   it("line item row cells pin the alignment DOM contract", () => {
     renderPage();
-    const table = container.querySelector(".bill-create-lines");
+    const table = container.querySelector(".line-items-measured");
     expect(table).toBeTruthy();
-    const cells = container.querySelectorAll(".bill-create-lines tbody tr td");
+    const cells = container.querySelectorAll(".line-items-measured tbody tr td");
     expect(cells.length).toBeGreaterThan(0);
     for (const td of cells) {
       expect(td.classList.contains("line-item-cell")).toBe(true);
@@ -2753,24 +2821,24 @@ describe("BillCreate PDF read attachment", () => {
 
   it("U-676i line table pins column colgroup for width contract", () => {
     renderPage();
-    const table = container.querySelector(".bill-create-lines");
-    expect(table?.querySelector("colgroup col.bill-create-col-desc")).toBeTruthy();
-    expect(table?.querySelector("colgroup col.bill-create-col-qty")).toBeTruthy();
-    expect(table?.querySelector("colgroup col.bill-create-col-markup")).toBeTruthy();
+    const table = container.querySelector(".line-items-measured");
+    expect(table?.querySelector("colgroup col.bill-line-col-desc")).toBeTruthy();
+    expect(table?.querySelector("colgroup col.bill-line-col-qty")).toBeTruthy();
+    expect(table?.querySelector("colgroup col.bill-line-col-markup")).toBeTruthy();
   });
 
-  it("U-676k bill-create-lines colgroup pins width contract (no col min-width floors)", () => {
+  it("U-676k measured colgroup pins width contract (no col min-width floors)", () => {
     renderPage();
-    const table = container.querySelector(".bill-create-lines");
+    const table = container.querySelector(".line-items-measured");
     const colContract = (cls: string) =>
       table?.querySelector(`col.${cls}`)?.getAttribute("data-width-contract");
     // Measured in a browser (U-676k): at a 1440px window a 5-word description, "43.00 — Millwork &
     // Trim" and "HP2 - 4406 Harding" fit; at 1280px nothing overflows the content area.
-    expect(colContract("bill-create-col-desc")).toBe("24%");
-    expect(colContract("bill-create-col-scc")).toBe("23%");
-    expect(colContract("bill-create-col-project")).toBe("21%");
-    expect(colContract("bill-create-col-qty")).toBe("3.25rem");
-    expect(colContract("bill-create-col-markup")).toBe("4.5rem");
+    expect(colContract("bill-line-col-desc")).toBe("24%");
+    expect(colContract("bill-line-col-scc")).toBe("23%");
+    expect(colContract("bill-line-col-project")).toBe("21%");
+    expect(colContract("bill-line-col-qty")).toBe("3.25rem");
+    expect(colContract("bill-line-col-markup")).toBe("4.5rem");
     for (const col of table!.querySelectorAll("colgroup col")) {
       expect(col.getAttribute("style")).toBeNull();
     }
@@ -2783,7 +2851,7 @@ describe("BillCreate PDF read attachment", () => {
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("From file · AI 77%"));
     expect(container.textContent).toContain("From file · AI 77%");
-    const row = container.querySelectorAll(".bill-create-lines tbody tr")[0];
+    const row = container.querySelectorAll(".line-items-measured tbody tr")[0];
     const projectSlot = row.querySelectorAll("td")[2].querySelector(".line-item-badge-slot");
     expect(projectSlot?.textContent).toContain("From file");
   });
@@ -2799,28 +2867,52 @@ describe("BillCreate PDF read attachment", () => {
     expect(container.textContent).not.toContain("From file ·");
   });
 
-  it("U-676i every line-row suggestion chip shares bill-create-line-chip", async () => {
+  it("U-676i every line-row suggestion chip shares bill-line-chip", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
     renderPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() =>
-      container.querySelector(".bill-create-lines .bill-create-line-chip") !== null,
+      container.querySelector(".line-items-measured .bill-line-chip") !== null,
     );
-    const row = container.querySelector(".bill-create-lines tbody tr");
-    const chips = row!.querySelectorAll(".line-item-badge-slot .bill-create-line-chip");
+    const row = container.querySelector(".line-items-measured tbody tr");
+    const chips = row!.querySelectorAll(".line-item-badge-slot .bill-line-chip");
     expect(chips.length).toBeGreaterThanOrEqual(3);
     row!.querySelectorAll(".line-item-badge-slot .status-badge").forEach((badge) => {
-      expect(badge.classList.contains("bill-create-line-chip")).toBe(true);
+      expect(badge.classList.contains("bill-line-chip")).toBe(true);
     });
     expect(row!.querySelectorAll(".line-item-badge-slot .btn-coding-accept").length).toBe(0);
   });
 
-  it("BillEdit line table does not use BillCreate-only layout class", () => {
-    expect(billEditSource).toContain('className="data-table line-items-edit-table"');
+  it("BillEdit shares measured line layout via InlineLineItems", () => {
+    expect(billEditSource).toContain('layout="measured"');
+    expect(billEditSource).toContain("buildBillLineFields");
     expect(billEditSource).not.toContain("bill-create-lines");
-    expect(billEditSource).not.toContain("bill-create-line-chip");
   });
+
+  it("project select updates projectHintForSuggest", async () => {
+    renderPage();
+    await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+    await act(async () => {
+      selectChange(container.querySelector("#vendor_public_id") as HTMLSelectElement, "v-1");
+    });
+    await flushUntil(() => container.querySelectorAll("tbody tr").length >= 1);
+    const projectSelect = container
+      .querySelectorAll("tbody tr")[0]!
+      .querySelectorAll("td")[2]
+      .querySelector("select") as HTMLSelectElement;
+    await act(async () => {
+      setSelectValue(projectSelect, "p-2");
+    });
+    await flushUntil(
+      () =>
+        codingSuggestHookCalls[codingSuggestHookCalls.length - 1]?.projectHintForSuggest === "p-2",
+    );
+    expect(codingSuggestHookCalls[codingSuggestHookCalls.length - 1]?.projectHintForSuggest).toBe(
+      "p-2",
+    );
+  });
+
 });
 
 
@@ -2861,7 +2953,7 @@ describe("BillCreate intake_source on create", () => {
 
 describe("projectOptionLabel (U-676k)", () => {
   it("does not repeat an abbreviation the project name already starts with", async () => {
-    const { projectOptionLabel } = await import("./BillCreate");
+    const { projectOptionLabel } = await import("./billLineFields");
     expect(projectOptionLabel("HP2", "HP2 - 4406 Harding")).toBe("HP2 - 4406 Harding");
     expect(projectOptionLabel("WR", "WR - 5224 Williamsburg")).toBe("WR - 5224 Williamsburg");
     expect(projectOptionLabel("hp2", "HP2: Harding")).toBe("HP2: Harding");

@@ -108,6 +108,24 @@ vi.mock("./codingSuggestion", async (importOriginal) => {
   };
 });
 
+const codingSuggestHookCalls: Array<{
+  lineUserEditEpoch?: number;
+  projectHintForSuggest?: string;
+}> = [];
+
+vi.mock("./useBillCodingSuggestion", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./useBillCodingSuggestion")>();
+  return {
+    useBillCodingSuggestion: (props: Parameters<typeof actual.useBillCodingSuggestion>[0]) => {
+      codingSuggestHookCalls.push({
+        lineUserEditEpoch: props.lineUserEditEpoch,
+        projectHintForSuggest: props.projectHintForSuggest,
+      });
+      return actual.useBillCodingSuggestion(props);
+    },
+  };
+});
+
 function sampleBill(overrides: Partial<Bill> = {}): Bill {
   return {
     id: 1,
@@ -266,7 +284,7 @@ function findSaveButton(): HTMLButtonElement {
 
 function findAddRowButton(): HTMLButtonElement {
   const btn = Array.from(container.querySelectorAll("button")).find(
-    (b) => b.textContent?.trim() === "+ Add Row",
+    (b) => b.textContent?.trim() === "+ Add Line",
   );
   expect(btn).toBeDefined();
   return btn!;
@@ -365,6 +383,7 @@ beforeEach(() => {
   mockNavigate.mockClear();
   mockSuggestCoding.mockReset();
   mockSuggestCoding.mockResolvedValue(null);
+  codingSuggestHookCalls.length = 0;
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   setupMocks([unresolvedProjectLine()]);
 
@@ -3056,6 +3075,277 @@ describe("BillEdit coding suggestions", () => {
       expect(headerFieldShowsFromFile("bill_number")).toBe(false);
       expect(headerFieldShowsFromFile("vendor_public_id")).toBe(false);
       expect(line1CellShowsFromFile(0)).toBe(false);
+    });
+  });
+
+  describe("U-681 shared bill line layout", () => {
+    it("measured table pins width contract and compact chip class", async () => {
+      setupMocks([sampleLineItem()]);
+      renderBillEdit();
+      await flushUntilHard(
+        () => container.querySelector(".line-items-measured") !== null,
+        "measured table",
+      );
+      const table = container.querySelector(".line-items-measured")!;
+      expect(
+        table.querySelector("col.bill-line-col-attachment")?.getAttribute("data-width-contract"),
+      ).toBe("7.5rem");
+      for (const col of table.querySelectorAll("colgroup col")) {
+        expect(col.getAttribute("style")).toBeNull();
+      }
+      const cells = table.querySelectorAll("tbody tr td.line-item-cell");
+      expect(cells.length).toBeGreaterThan(0);
+    });
+
+    it("header field order is Vendor before Bill Number; no Due Date", async () => {
+      setupMocks([sampleLineItem()]);
+      renderBillEdit();
+      await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+      const labels = Array.from(container.querySelectorAll(".detail-fields-form label")).map(
+        (l) => l.textContent?.replace("*", "").trim(),
+      );
+      expect(labels.indexOf("Vendor")).toBeLessThan(labels.indexOf("Bill Number"));
+      expect(labels).not.toContain("Due Date");
+    });
+
+    it("footer shows sum of line amounts, not a single row", async () => {
+      setupMocks([
+        sampleLineItem({ public_id: "li-a", amount: "40.00", description: "a" }),
+        sampleLineItem({ public_id: "li-b", amount: "35.50", description: "b" }),
+      ]);
+      renderBillEdit();
+      await flushUntil(() => lineItemRows().length === 2);
+      const footer = container.querySelector(".inline-line-items > div:last-child");
+      expect(footer?.textContent?.replace(/\s+/g, " ").trim()).toBe("Total Amount: $75.50");
+      expect(footer?.textContent).not.toContain("$40.00");
+    });
+
+    it("hides remove when one line remains", async () => {
+      setupMocks([sampleLineItem()]);
+      renderBillEdit();
+      await flushUntil(() => lineItemRows().length === 1);
+      expect(container.querySelector('button[aria-label="Remove line 1"]')).toBeNull();
+    });
+
+    it("PUT sends due_date equal to bill_date when the stored due date differs", async () => {
+      // sampleBill stores bill_date 2026-01-15 / due_date 2026-02-15; DueDate = BillDate on every save.
+      setupMocks([sampleLineItem()]);
+      renderBillEdit();
+      await flushUntilHard(() => findSaveButton() !== null, "save ready");
+      await act(async () => {
+        setInputValue(
+          container.querySelector('input[name="bill_number"]') as HTMLInputElement,
+          "B-101",
+        );
+      });
+      await act(async () => {
+        findSaveButton().click();
+      });
+      await flushUntil(() =>
+        mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/bill/bill-1"),
+      );
+      const billPuts = mockPut.mock.calls.filter((c) => c[0] === "/api/v1/update/bill/bill-1");
+      expect(billPuts.length).toBeGreaterThan(0);
+      for (const call of billPuts) {
+        expect(call[1].bill_date).toBe("2026-01-15");
+        expect(call[1].due_date).toBe("2026-01-15");
+      }
+    });
+
+    it("PUT sends due_date equal to bill_date after bill date change", async () => {
+      setupMocks([sampleLineItem()]);
+      renderBillEdit();
+      await flushUntilHard(() => findSaveButton() !== null, "save ready");
+      await act(async () => {
+        setInputValue(
+          container.querySelector('input[name="bill_date"]') as HTMLInputElement,
+          "2026-03-01",
+        );
+      });
+      await act(async () => {
+        findSaveButton().click();
+      });
+      await flushUntil(() =>
+        mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/bill/bill-1"),
+      );
+      const billPut = mockPut.mock.calls.find((c) => c[0] === "/api/v1/update/bill/bill-1");
+      expect(billPut?.[1].bill_date).toBe("2026-03-01");
+      expect(billPut?.[1].due_date).toBe("2026-03-01");
+    });
+
+    it("line edit bumps lineUserEditEpoch; remove does not", async () => {
+      setupMocks([
+        sampleLineItem({ public_id: "li-1", description: "one" }),
+        sampleLineItem({ public_id: "li-2", description: "two" }),
+      ]);
+      renderBillEdit();
+      await flushUntilHard(() => lineItemRows().length === 2, "two lines");
+      const epochBeforeEdit =
+        codingSuggestHookCalls[codingSuggestHookCalls.length - 1]?.lineUserEditEpoch ?? 0;
+      await act(async () => {
+        setInputValue(
+          lineItemRows()[0].querySelector('input[class*="inline-li-input"]') as HTMLInputElement,
+          "edited",
+        );
+      });
+      await flushUntilHard(
+        () =>
+          (codingSuggestHookCalls[codingSuggestHookCalls.length - 1]?.lineUserEditEpoch ?? 0) >
+          epochBeforeEdit,
+        "epoch bumped after edit",
+      );
+      const epochAfterEdit =
+        codingSuggestHookCalls[codingSuggestHookCalls.length - 1]?.lineUserEditEpoch ?? 0;
+      await act(async () => {
+        (
+          container.querySelector('button[aria-label="Remove line 2"]') as HTMLButtonElement
+        ).click();
+      });
+      await flushUntil(() => lineItemRows().length === 1);
+      expect(
+        codingSuggestHookCalls[codingSuggestHookCalls.length - 1]?.lineUserEditEpoch ?? 0,
+      ).toBe(epochAfterEdit);
+    });
+
+    it.each([
+      ["reload succeeds", false],
+      ["reload fails", true],
+    ])("hides suggestion badges once Complete flips the bill to not-draft (%s)", async (_label, reloadFails) => {
+      // After Complete the lines reload. On success the rows come back without suggestion
+      // fields (behaviour check only); on failure the old rows keep their live suggestions
+      // under a not-draft form, and only the draft gate hides the chips (gate pin).
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      mockSuggestCoding.mockResolvedValue(codingSuggestionPayloadEdit());
+      setupMocks([
+        sampleLineItem({
+          public_id: "li-sug",
+          sub_cost_code_id: null,
+          project_id: VISIBLE_PROJECT.id,
+        }),
+      ]);
+      let completed = false;
+      let lineSaved = false;
+      const baseGetList = mockGetList.getMockImplementation()!;
+      mockGetList.mockImplementation((path: string) => {
+        if (path === BILL_LINE_ITEMS_PATH && completed && reloadFails) {
+          return Promise.reject(new Error("line reload failed"));
+        }
+        if (path === BILL_LINE_ITEMS_PATH && lineSaved) {
+          // What the server returns after the accepted line PUT: the coding is stored.
+          return Promise.resolve(
+            lineItemsListResponse([
+              sampleLineItem({
+                public_id: "li-sug",
+                sub_cost_code_id: 10,
+                project_id: VISIBLE_PROJECT.id,
+                coding_prefill_state: "accepted",
+              }),
+            ]),
+          );
+        }
+        return baseGetList(path);
+      });
+      const basePut = mockPut.getMockImplementation()!;
+      mockPut.mockImplementation((path: string, body: unknown) => {
+        if (path === "/api/v1/update/bill_line_item/li-sug") lineSaved = true;
+        return basePut(path, body);
+      });
+      mockGetOne.mockImplementation((path: string) => {
+        if (path === BILL_GET_PATH) {
+          return Promise.resolve(
+            completed ? sampleBill({ is_draft: false, status: "completed" }) : sampleBill(),
+          );
+        }
+        if (path === "/api/v1/bill/bill-1/intake-prediction") {
+          return Promise.reject(new ApiError(404, "Not found"));
+        }
+        if (path.startsWith("/api/v1/get/bill-line-item-attachment/by-bill-line-item/")) {
+          return Promise.reject(new ApiError(404, "Not found"));
+        }
+        return Promise.reject(new Error(`unexpected getOne: ${path}`));
+      });
+      mockPost.mockImplementation((path: string) => {
+        if (path === "/api/v1/complete/bill/bill-1") {
+          completed = true;
+          return Promise.resolve({});
+        }
+        return Promise.reject(new Error(`unexpected post: ${path}`));
+      });
+
+      renderBillEdit();
+      await flushUntilHard(() => lineItemRows().length === 1, "line table");
+      await flushUntilHard(
+        () => container.querySelector(".line-item-badge-slot .bill-line-chip") !== null,
+        "draft shows the live suggestion chip",
+      );
+
+      const completeBtn = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+        (b) => b.textContent === "Complete Bill",
+      )!;
+      await act(async () => {
+        completeBtn.click();
+      });
+      await flushUntilHard(() => completed, "POST /complete/bill");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3500); // one completion-poll tick
+      });
+      await flushUntilHard(
+        () => container.querySelector(".status-badge.finalized") !== null,
+        "form flipped to not-draft",
+      );
+      expect(lineItemRows()).toHaveLength(1);
+      expect(sccSelect(lineItemRows()[0]).value).toBe("10");
+      expect(container.querySelector(".line-item-badge-slot .bill-line-chip")).toBeNull();
+    });
+
+    it("project select updates projectHintForSuggest", async () => {
+      setupMocks([sampleLineItem({ project_id: null, sub_cost_code_id: null })]);
+      renderBillEdit();
+      await flushUntilHard(() => lineItemRows().length === 1, "line ready");
+      await act(async () => {
+        setSelectValue(projectSelect(lineItemRows()[0]), "p-visible");
+      });
+      await flushUntilHard(
+        () =>
+          codingSuggestHookCalls[codingSuggestHookCalls.length - 1]?.projectHintForSuggest ===
+          "p-visible",
+        "project hint updated",
+      );
+    });
+
+    it("remove line does not trigger another suggestCoding round", async () => {
+      mockSuggestCoding.mockResolvedValue(codingSuggestionPayloadEdit());
+      setupMocks([
+        sampleLineItem({ public_id: "li-1", sub_cost_code_id: null, project_id: null }),
+        sampleLineItem({
+          public_id: "li-2",
+          sub_cost_code_id: null,
+          project_id: null,
+          description: "second",
+        }),
+      ]);
+      renderBillEdit();
+      await flushUntilHard(() => lineItemRows().length === 2, "two lines");
+      await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 1, "initial suggest");
+      const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+      await act(async () => {
+        setTextareaValue(memo, "memo change");
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 2, "debounced suggest");
+      const callsBeforeRemove = mockSuggestCoding.mock.calls.length;
+      await act(async () => {
+        (
+          container.querySelector('button[aria-label="Remove line 2"]') as HTMLButtonElement
+        ).click();
+      });
+      await flushUntil(() => lineItemRows().length === 1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      expect(mockSuggestCoding.mock.calls.length).toBe(callsBeforeRemove);
     });
   });
 

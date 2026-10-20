@@ -76,8 +76,8 @@ export function formatSuggestionBadgeLabel(
   return `${prefix} ${pct}%`;
 }
 
-/** Shared size/style class for every suggestion chip in a Bill Create line row. */
-export const BILL_CREATE_LINE_CHIP_CLASS = "bill-create-line-chip";
+/** Shared size/style class for every suggestion chip in a bill line row. */
+export const BILL_LINE_CHIP_CLASS = "bill-line-chip";
 
 /** Bill Create line-row cost-code badge label (BillEdit keeps formatSuggestionBadgeLabel). */
 export function formatBillCreateCodingBadgeLabel(

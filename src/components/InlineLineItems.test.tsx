@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 import InlineLineItems, { type LineItemFieldDef } from "./InlineLineItems";
 import { setInputValue } from "../__testutils__/domEvents";
 import { flushUntil } from "../__testutils__/flush";
@@ -16,6 +17,55 @@ import { newLineItemUid } from "../shared/lineItemUid";
 type TestRow = { uid: string; description: string };
 
 const fields: LineItemFieldDef[] = [{ key: "description", label: "Description" }];
+
+type DefaultContractRow = {
+  uid: string;
+  description: string;
+  qty: string;
+  status: string;
+  billable: boolean;
+  amount: string;
+};
+
+const defaultContractFields: LineItemFieldDef<DefaultContractRow>[] = [
+  { key: "description", label: "Description", type: "text" },
+  { key: "qty", label: "Qty", type: "number", align: "right", width: "80px" },
+  {
+    key: "status",
+    label: "Status",
+    type: "select",
+    options: [{ value: "open", label: "Open" }],
+  },
+  {
+    key: "billable",
+    label: "Billable",
+    type: "checkbox",
+    hint: () => "Bill if reimbursable",
+  },
+  { key: "amount", label: "Amount", type: "computed", align: "right" },
+];
+
+const defaultContractRow: DefaultContractRow = {
+  uid: "snapshot-uid-1",
+  description: "Line A",
+  qty: "2",
+  status: "open",
+  billable: true,
+  amount: "12.5",
+};
+
+const defaultContractExtraColumn = {
+  label: "Attach",
+  width: "120px",
+  render: () => createElement("span", { className: "extra-col" }, "—"),
+};
+
+/** Captured from origin/main InlineLineItems for defaultContractFields + row + extraColumn. */
+const EXPECTED_DEFAULT_LAYOUT_WITH_ROWS =
+  '<div class="inline-line-items"><div class="inline-li-header"><h3 class="line-items-heading">Line Items (1)</h3><button type="button" class="btn btn-secondary btn-sm">+ Add Row</button></div><div class="inline-li-table-wrap"><table class="data-table inline-li-table"><thead><tr><th style="text-align:left">Description</th><th style="width:80px;text-align:right">Qty</th><th style="text-align:left">Status</th><th style="text-align:left">Billable</th><th style="text-align:right">Amount</th><th style="width:120px">Attach</th><th style="width:40px"></th></tr></thead><tbody><tr><td style="text-align:left"><input class="inline-li-input" type="text" value="Line A"/></td><td style="text-align:right"><input class="inline-li-input" type="number" step="any" value="2"/></td><td style="text-align:left"><select class="inline-li-input"><option value="">—</option><option value="open" selected="">Open</option></select></td><td style="text-align:left"><input type="checkbox" checked=""/><span class="inline-li-hint text-muted" style="display:block;font-size:11px">Bill if reimbursable</span></td><td style="text-align:right"><span class="inline-li-computed">$12.50</span></td><td><span class="extra-col">—</span></td><td><button type="button" class="inline-li-remove" title="Remove">×</button></td></tr></tbody></table></div></div>';
+
+const EXPECTED_DEFAULT_LAYOUT_EMPTY =
+  '<div class="inline-line-items"><div class="inline-li-header"><h3 class="line-items-heading">Line Items (0)</h3><button type="button" class="btn btn-secondary btn-sm">+ Add Row</button></div><div class="inline-li-table-wrap"><table class="data-table inline-li-table"><thead><tr><th style="text-align:left">Description</th><th style="width:80px;text-align:right">Qty</th><th style="text-align:left">Status</th><th style="text-align:left">Billable</th><th style="text-align:right">Amount</th><th style="width:120px">Attach</th><th style="width:40px"></th></tr></thead><tbody><tr><td colSpan="7" class="empty-state">No line items. Click &quot;+ Add Row&quot; to start.</td></tr></tbody></table></div></div>';
 
 function ControlledHarness({ initial }: { initial: TestRow[] }) {
   const [items, setItems] = useState(initial);
@@ -81,8 +131,6 @@ describe("InlineLineItems row keys", () => {
     expect(descriptions).not.toContain("Row-A");
     expect(descriptions).toEqual(["Row-B", "Row-C", "TRANSIENT-TYPED"]);
 
-    // Controlled inputs always re-sync `.value` from props — that cannot detect
-    // index-key DOM reuse. Same logical row must keep the same input element.
     expect(inlineLineItemInputForValue(container, "Row-B")).toBe(inputRowB);
     expect(inlineLineItemInputForValue(container, "Row-C")).toBe(inputRowC);
     expect(inlineLineItemInputForValue(container, "TRANSIENT-TYPED")).toBe(inputRowD);
@@ -123,9 +171,204 @@ describe("InlineLineItems row keys", () => {
     expect(descriptions).not.toContain("Beta");
     expect(descriptions).not.toContain("Beta-edited");
 
-    // `.value` alone is vacuous on controlled fields; index keys reuse Beta's node for Gamma.
     expect(inlineLineItemInputForValue(container, "Alpha")).toBe(inputAlpha);
     expect(inlineLineItemInputForValue(container, "Gamma")).toBe(inputGamma);
     expect(container.contains(inputBeta)).toBe(false);
   });
 });
+
+describe("InlineLineItems default layout contract", () => {
+  it("matches origin/main static markup with rows (field types + extra column)", () => {
+    const markup = renderToStaticMarkup(
+      createElement(InlineLineItems<DefaultContractRow>, {
+        fields: defaultContractFields,
+        items: [defaultContractRow],
+        onChange: () => {},
+        newItem: () => ({ ...defaultContractRow, uid: "snapshot-uid-new" }),
+        extraColumn: defaultContractExtraColumn,
+      }),
+    );
+    expect(markup).toBe(EXPECTED_DEFAULT_LAYOUT_WITH_ROWS);
+  });
+
+  it("matches origin/main static markup for empty state", () => {
+    const markup = renderToStaticMarkup(
+      createElement(InlineLineItems<DefaultContractRow>, {
+        fields: defaultContractFields,
+        items: [],
+        onChange: () => {},
+        newItem: () => ({ ...defaultContractRow, uid: "snapshot-uid-new" }),
+        extraColumn: defaultContractExtraColumn,
+      }),
+    );
+    expect(markup).toBe(EXPECTED_DEFAULT_LAYOUT_EMPTY);
+  });
+
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    document.body.removeChild(container);
+  });
+
+  it("renders legacy table classes and remove title without measured cells", () => {
+    act(() => {
+      root.render(
+        createElement(ControlledHarness, {
+          initial: [{ uid: "u1", description: "A" }],
+        }),
+      );
+    });
+    expect(container.querySelector(".inline-li-table")).toBeTruthy();
+    expect(container.querySelector(".line-items-edit-table")).toBeNull();
+    expect(container.querySelector(".line-item-cell")).toBeNull();
+    expect(container.querySelector('button[title="Remove"]')).toBeTruthy();
+    expect(container.querySelector(".inline-li-header .line-items-heading")?.textContent).toBe(
+      "Line Items (1)",
+    );
+    expect(container.querySelector(".inline-li-header-actions")).toBeNull();
+  });
+});
+
+type MeasuredRow = { uid: string; description: string; amount: string };
+
+describe("InlineLineItems measured layout", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const onEdit = vi.fn();
+  const onAdd = vi.fn();
+  const onRemove = vi.fn();
+
+  const measuredFields: LineItemFieldDef<MeasuredRow>[] = [
+    {
+      key: "description",
+      label: "Description",
+      col: { className: "bill-line-col-desc", contract: "24%" },
+      render: (item, _i, update) =>
+        createElement("input", {
+          className: "inline-li-input custom-desc",
+          value: item.description,
+          onChange: (e: { target: HTMLInputElement }) => update(e.target.value),
+        }),
+      adornment: () => createElement("span", { className: "test-adornment" }, "badge"),
+    },
+    {
+      key: "amount",
+      label: "Amount",
+      align: "right",
+      readOnly: true,
+      col: { className: "bill-line-col-amount", contract: "5.5rem" },
+      format: (v) => `$${v}`,
+    },
+  ];
+
+  beforeEach(() => {
+    onEdit.mockReset();
+    onAdd.mockReset();
+    onRemove.mockReset();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    document.body.removeChild(container);
+  });
+
+  function renderMeasured(
+    items: MeasuredRow[] = [{ uid: "r1", description: "X", amount: "10" }],
+    extra: Record<string, unknown> = {},
+  ) {
+    act(() => {
+      root.render(
+        createElement(InlineLineItems<MeasuredRow>, {
+          layout: "measured",
+          actionsCol: { className: "bill-line-col-actions", contract: "2rem" },
+          fields: measuredFields,
+          items,
+          onEdit,
+          onAdd,
+          onRemove,
+          minRows: 1,
+          removeLabel: (i) => `Remove line ${i + 1}`,
+          addPlacement: "below",
+          addLabel: "+ Add Line",
+          footer: createElement("div", { className: "test-footer" }, "footer"),
+          headerActions: createElement("span", { className: "test-header-actions" }, "chip"),
+          ...extra,
+        }),
+      );
+    });
+  }
+
+  it("renders colgroup without inline styles and measured cells with badge slots", () => {
+    renderMeasured();
+    const table = container.querySelector(".line-items-measured");
+    expect(table).toBeTruthy();
+    for (const col of table!.querySelectorAll("colgroup col")) {
+      expect(col.getAttribute("style")).toBeNull();
+    }
+    const tds = table!.querySelectorAll("tbody tr td");
+    expect(tds.length).toBeGreaterThan(0);
+    for (const td of tds) {
+      expect(td.classList.contains("line-item-cell")).toBe(true);
+      expect(td.querySelector(".line-item-badge-slot")).toBeTruthy();
+    }
+    expect(container.querySelector(".test-adornment")).toBeTruthy();
+    expect(container.querySelector(".custom-desc")).toBeTruthy();
+    expect(container.querySelector(".line-item-readonly")?.textContent).toBe("$10");
+    expect(container.querySelector(".inline-li-header-actions")).toBeTruthy();
+    expect(container.querySelector('th[aria-label="Actions"]')).toBeTruthy();
+  });
+
+  it("routes onAdd, onRemove, removeLabel aria-label, headerActions, footer, add below", async () => {
+    renderMeasured([
+      { uid: "r1", description: "X", amount: "10" },
+      { uid: "r2", description: "Y", amount: "20" },
+    ]);
+    expect(container.querySelector(".test-header-actions")).toBeTruthy();
+    expect(container.querySelector(".test-footer")).toBeTruthy();
+    expect(container.querySelector('button[aria-label="Remove line 1"]')).toBeTruthy();
+    await act(async () => {
+      findButton(container, "+ Add Line").click();
+    });
+    expect(onAdd).toHaveBeenCalled();
+    await act(async () => {
+      (
+        container.querySelector('button[aria-label="Remove line 2"]') as HTMLButtonElement
+      ).click();
+    });
+    expect(onRemove).toHaveBeenCalledWith(1);
+  });
+
+  it("routes onEdit when render prop updates a field", async () => {
+    renderMeasured();
+    setInputValue(container.querySelector(".custom-desc") as HTMLInputElement, "edited");
+    expect(onEdit).toHaveBeenCalledWith(0, "description", "edited");
+  });
+
+  it("hides remove when only minRows remain", () => {
+    renderMeasured([{ uid: "r1", description: "X", amount: "10" }]);
+    expect(container.querySelector('button[aria-label="Remove line 1"]')).toBeNull();
+  });
+});
+
+function findButton(scope: HTMLElement, label: string): HTMLButtonElement {
+  const btn = Array.from(scope.querySelectorAll("button")).find(
+    (b) => b.textContent?.trim() === label,
+  );
+  if (!btn) throw new Error(`button ${label} not found`);
+  return btn;
+}

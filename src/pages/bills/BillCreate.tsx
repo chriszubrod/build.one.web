@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { filePrefillLabel } from "./filePrefillLabels";
 import { post, put, uploadFile } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
@@ -7,10 +7,15 @@ import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useToast } from "../../components/Toast";
 import { computeBillLine, sumLineAmounts } from "./lineMath";
-import FormField from "../../components/FormField";
-import DateField from "../../components/DateField";
-import TextareaField from "../../components/TextareaField";
-import SelectField from "../../components/SelectField";
+import InlineLineItems from "../../components/InlineLineItems";
+import BillHeaderFields from "./BillHeaderFields";
+import {
+  BILL_LINE_COL,
+  buildBillLineFields,
+  fmtBillLineMoney,
+  projectOptionLabel,
+  type BillLineRow,
+} from "./billLineFields";
 import Breadcrumb, { entityCrumbs } from "../../components/Breadcrumb";
 import type { Bill } from "../../types/api";
 import { hasBillPermission } from "./billPermissions";
@@ -18,14 +23,7 @@ import {
   applyUserLinePatch,
   codingPrefillStateForApi,
   codingSuggestAmountFromLines,
-  BILL_CREATE_LINE_CHIP_CLASS,
-  formatBillCreateCodingBadgeLabel,
-  formatBillCreateProjectBadgeLabel,
-  lineShowsProjectSuggestionMarker,
-  lineShowsSuggestionBadgeFor,
   projectHintFromLines,
-  suggestionBadgeClassName,
-  type LineCodingFields,
 } from "./codingSuggestion";
 import { useBillCodingSuggestion } from "./useBillCodingSuggestion";
 import {
@@ -53,19 +51,7 @@ interface AttachmentResponse {
   content_type: string | null;
 }
 
-// Local shape for the line items entered alongside the bill header. Same
-// field names as BillEdit's LineItemRow so the compute helpers + downstream
-// POST payload line up.
-interface LineItemDraft extends LineCodingFields {
-  uid: string;
-  description: string;
-  quantity: string;
-  rate: string;
-  amount: string;
-  markup: string;
-  price: string;
-  is_billable: boolean;
-}
+type LineItemDraft = BillLineRow;
 
 // Every row carries a client-minted `uid` so the rendered rows can be keyed on
 // identity rather than array index — removing a non-last row otherwise makes
@@ -73,7 +59,7 @@ interface LineItemDraft extends LineCodingFields {
 // and in-progress input on the wrong one. Same convention as BillEdit's
 // newLineItem(). The uid is render-local: it is never sent to the API.
 let nextLineUid = 0;
-const newLine = (): LineItemDraft => ({
+const newLine = (): BillLineRow => ({
   uid: `li-uid-${++nextLineUid}`,
   project_public_id: "",
   sub_cost_code_id: "",
@@ -86,38 +72,7 @@ const newLine = (): LineItemDraft => ({
   is_billable: true,
 });
 
-function fmtMoney(v: string): string {
-  if (!v) return "$0.00";
-  const n = Number(v);
-  if (isNaN(n)) return v;
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
-}
-
 const UPLOAD_PDF_ERROR = "Could not upload this PDF";
-
-function lineItemBadgeSlot(content: ReactNode): ReactNode {
-  return <div className="line-item-badge-slot">{content}</div>;
-}
-
-function lineItemCell(
-  control: ReactNode,
-  badge: ReactNode,
-  opts?: { align?: "right" | "center"; computed?: boolean },
-): ReactNode {
-  const alignClass =
-    opts?.align === "right"
-      ? " line-item-cell-align-right"
-      : opts?.align === "center"
-        ? " line-item-cell-align-center"
-        : "";
-  const computedClass = opts?.computed ? " line-item-cell-computed" : "";
-  return (
-    <td className={`line-item-cell${alignClass}${computedClass}`}>
-      <div className="line-item-control">{control}</div>
-      {lineItemBadgeSlot(badge)}
-    </td>
-  );
-}
 
 function enteredByDisplayName(
   me: ReturnType<typeof useCurrentUser>["data"],
@@ -126,19 +81,6 @@ function enteredByDisplayName(
   const name = [u?.firstname ?? "", u?.lastname ?? ""].join(" ").trim();
   if (name !== "") return name;
   return me?.auth.username ?? "";
-}
-
-/** "HP2 — 4406 Harding" style label; a name that already starts with its abbreviation
- *  ("HP2 - 4406 Harding") is shown as-is instead of "HP2 — HP2 - 4406 Harding". */
-export function projectOptionLabel(abbreviation: string | null | undefined, name: string): string {
-  const abbr = (abbreviation ?? "").trim();
-  if (!abbr) return name;
-  const trimmed = name.trim();
-  const next = trimmed.charAt(abbr.length);
-  const startsWithAbbr =
-    trimmed.toLowerCase().startsWith(abbr.toLowerCase()) &&
-    (next === "" || next === " " || next === "-" || next === "—" || next === ":");
-  return startsWithAbbr ? name : `${abbr} — ${name}`;
 }
 
 export default function BillCreate() {
@@ -930,251 +872,57 @@ export default function BillCreate() {
             .detail-row shape. The .detail-fields-form class flips each
             enclosed .form-group (rendered by FormField/SelectField/etc.) to
             a horizontal layout with a thin divider between rows. */}
-        <div className="detail-fields-form">
-          <SelectField
-            label="Vendor"
-            name="vendor_public_id"
-            value={form.vendor_public_id}
-            onChange={onChange}
-            options={(lookups.vendors ?? []).map((v) => ({ value: v.public_id, label: v.name }))}
-            required
-            adornment={filePrefillLabel(headerPrefill, "vendor_public_id", false)}
-          />
-          <FormField
-            label="Bill Number"
-            name="bill_number"
-            value={form.bill_number}
-            onChange={onChange}
-            required
-            adornment={filePrefillLabel(headerPrefill, "bill_number", false)}
-          />
-          <DateField
-            label="Bill Date"
-            name="bill_date"
-            value={form.bill_date}
-            onChange={onChange}
-            required
-            adornment={filePrefillLabel(headerPrefill, "bill_date", false)}
-          />
-          {/* Read-only: dbo.CreateBill / dbo.UpdateBillById persist DueDate = BillDate and
-              ignore @DueDate, so an editable due date here would mislead the user. Payment
-              Term (PaymentTermId) is what actually drives when payment is owed. */}
-          <div className="form-group">
-            <label>Due Date</label>
-            <div id="due_date_display" className="form-value">{form.bill_date || "—"}</div>
-          </div>
-          <SelectField
-            label="Payment Term"
-            name="payment_term_public_id"
-            value={form.payment_term_public_id}
-            onChange={onChange}
-            options={(lookups.payment_terms ?? []).map((pt) => ({ value: pt.public_id, label: pt.name }))}
-          />
-          <TextareaField label="Memo" name="memo" value={form.memo} onChange={onChange} />
-        </div>
+        <BillHeaderFields
+          mode="create"
+          form={form}
+          onChange={onChange}
+          vendorOptions={(lookups.vendors ?? []).map((v) => ({ value: v.public_id, label: v.name }))}
+          paymentTermOptions={(lookups.payment_terms ?? []).map((pt) => ({
+            value: pt.public_id,
+            label: pt.name,
+          }))}
+          createHeaderAdornment={(field) =>
+            filePrefillLabel(headerPrefill, field, false)
+          }
+        />
 
-        {/* ─── Line Item Details (optional) ────────────────────────────── */}
         <div className="li-cards-section" style={{ marginTop: 16 }}>
-          <div className="inline-li-header inline-li-header-with-hint">
-            <h3 className="line-items-heading">Line Item Details</h3>
-            <span className="text-muted inline-li-header-hint" style={{ fontSize: 12 }}>
-              Optional — fill in to enable Submit for Review.
-            </span>
-            <div className="inline-li-header-actions">
-              {budgetChip && (
+          <InlineLineItems
+            layout="measured"
+            actionsCol={BILL_LINE_COL.actions}
+            headerHint="Optional — fill in to enable Submit for Review."
+            headerActions={
+              budgetChip ? (
                 <span className={budgetChip.className}>{budgetChip.label}</span>
-              )}
-            </div>
-          </div>
-          <table className="data-table line-items-edit-table bill-create-lines">
-            <colgroup>
-              <col className="bill-create-col-desc" data-width-contract="24%" />
-              <col className="bill-create-col-scc" data-width-contract="23%" />
-              <col className="bill-create-col-project" data-width-contract="21%" />
-              <col className="bill-create-col-qty" data-width-contract="3.25rem" />
-              <col className="bill-create-col-rate" data-width-contract="6.25rem" />
-              <col className="bill-create-col-amount" data-width-contract="5.5rem" />
-              <col className="bill-create-col-markup" data-width-contract="4.5rem" />
-              <col className="bill-create-col-price" data-width-contract="5.5rem" />
-              <col className="bill-create-col-billable" data-width-contract="4.75rem" />
-              <col className="bill-create-col-actions" data-width-contract="2rem" />
-            </colgroup>
-            <thead>
-              <tr>
-                <th>Description</th>
-                <th>Sub Cost Code</th>
-                <th>Project</th>
-                <th style={{ textAlign: "right" }}>Qty</th>
-                <th style={{ textAlign: "right" }}>Rate</th>
-                <th style={{ textAlign: "right" }}>Amount</th>
-                <th style={{ textAlign: "right" }}>Markup</th>
-                <th style={{ textAlign: "right" }}>Price</th>
-                <th style={{ textAlign: "center" }}>Billable</th>
-                <th aria-label="Actions"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((li, index) => {
-                const sccBadge =
-                  lineShowsSuggestionBadgeFor(li) ? (
-                    <div className="coding-suggestion-actions coding-suggestion-actions-compact">
-                      <span
-                        className={`${suggestionBadgeClassName(li.coding_suggestion_confidence ?? null)} ${BILL_CREATE_LINE_CHIP_CLASS}`}
-                        title={li.coding_suggestion_reason ?? undefined}
-                      >
-                        {formatBillCreateCodingBadgeLabel(
-                          li.coding_suggestion_confidence ?? null,
-                          li.coding_suggestion_source,
-                          li.coding_prefill_origin,
-                        )}
-                      </span>
-                    </div>
-                  ) : null;
-                const projectBadge = lineShowsProjectSuggestionMarker(li) ? (
-                  <div className="coding-suggestion-actions coding-suggestion-actions-compact">
-                    <span
-                      className={`status-badge coding-suggested ${BILL_CREATE_LINE_CHIP_CLASS}`}
-                      title="Project predicted from the bill's attachment text"
-                    >
-                      {formatBillCreateProjectBadgeLabel(li.coding_project_prefill_origin)}
-                    </span>
-                  </div>
-                ) : null;
-                return (
-                  <tr key={li.uid}>
-                    {lineItemCell(
-                      <input
-                        className="inline-li-input"
-                        value={li.description}
-                        onChange={(e) => updateLine(index, "description", e.target.value)}
-                      />,
-                      li.uid === line1PrefillUid
-                        ? filePrefillLabel(line1Prefill, "description", true)
-                        : null,
-                    )}
-                    {lineItemCell(
-                      <select
-                        className="inline-li-input"
-                        value={li.sub_cost_code_id}
-                        onChange={(e) => updateLine(index, "sub_cost_code_id", e.target.value)}
-                      >
-                        <option value="">—</option>
-                        {sccOptions.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </select>,
-                      sccBadge,
-                    )}
-                    {lineItemCell(
-                      <select
-                        className="inline-li-input"
-                        value={li.project_public_id}
-                        onChange={(e) => {
-                          setProjectHintForSuggest(e.target.value || undefined);
-                          updateLine(index, "project_public_id", e.target.value);
-                        }}
-                      >
-                        <option value="">—</option>
-                        {projectOptions.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </select>,
-                      projectBadge,
-                    )}
-                    {lineItemCell(
-                      <input
-                        className="inline-li-input"
-                        type="number"
-                        step="any"
-                        value={li.quantity}
-                        onChange={(e) => updateLine(index, "quantity", e.target.value)}
-                      />,
-                      null,
-                      { align: "right" },
-                    )}
-                    {lineItemCell(
-                      <input
-                        className="inline-li-input"
-                        type="number"
-                        step="any"
-                        value={li.rate}
-                        onChange={(e) => updateLine(index, "rate", e.target.value)}
-                      />,
-                      li.uid === line1PrefillUid
-                        ? filePrefillLabel(line1Prefill, "rate", true)
-                        : null,
-                      { align: "right" },
-                    )}
-                    {lineItemCell(
-                      <div className="line-item-readonly inline-li-computed">{fmtMoney(li.amount)}</div>,
-                      null,
-                      { align: "right", computed: true },
-                    )}
-                    {lineItemCell(
-                      <input
-                        className="inline-li-input"
-                        type="number"
-                        step="any"
-                        placeholder="0.10"
-                        value={li.markup}
-                        onChange={(e) => updateLine(index, "markup", e.target.value)}
-                      />,
-                      null,
-                      { align: "right" },
-                    )}
-                    {lineItemCell(
-                      <div className="line-item-readonly inline-li-computed">{fmtMoney(li.price)}</div>,
-                      null,
-                      { align: "right", computed: true },
-                    )}
-                    {lineItemCell(
-                      <input
-                        type="checkbox"
-                        checked={li.is_billable}
-                        onChange={(e) => updateLine(index, "is_billable", e.target.checked)}
-                      />,
-                      null,
-                      { align: "center" },
-                    )}
-                    {lineItemCell(
-                      lines.length > 1 ? (
-                        <button
-                          type="button"
-                          className="inline-li-remove"
-                          onClick={() => removeLine(index)}
-                          title="Remove this line"
-                          aria-label={`Remove line ${index + 1}`}
-                        >
-                          &times;
-                        </button>
-                      ) : null,
-                      null,
-                      { align: "center" },
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-
-          <div style={{ marginTop: 8 }}>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={addLine}
-              disabled={busy}
-            >
-              + Add Line
-            </button>
-          </div>
-
-          <div style={{ marginTop: 8, textAlign: "right", fontSize: 14 }}>
-            Total Amount: <strong>{fmtMoney(String(totalAmount))}</strong>
-          </div>
+              ) : null
+            }
+            addPlacement="below"
+            addLabel="+ Add Line"
+            addDisabled={busy}
+            minRows={1}
+            removeLabel={(index) => `Remove line ${index + 1}`}
+            removeTitle="Remove this line"
+            fields={buildBillLineFields({
+              mode: "create",
+              sccOptions,
+              projectOptions,
+              line1PrefillUid,
+              line1Prefill,
+              onProjectHintChange: setProjectHintForSuggest,
+            })}
+            items={lines}
+            onEdit={(index, key, value) =>
+              updateLine(index, key as keyof BillLineRow, value as string | boolean)
+            }
+            onAdd={addLine}
+            onRemove={removeLine}
+            emptyState={false}
+            footer={
+              <div style={{ marginTop: 8, textAlign: "right", fontSize: 14 }}>
+                Total Amount: <strong>{fmtBillLineMoney(String(totalAmount))}</strong>
+              </div>
+            }
+          />
         </div>
 
         <div className="form-actions" style={{ marginTop: 16 }}>

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { HEADER_PREFILL_BADGE_LABEL } from "./headerPrefill";
-import { BILL_CREATE_LINE_CHIP_CLASS, decimalToCents } from "./codingSuggestion";
+import { BILL_LINE_CHIP_CLASS, decimalToCents } from "./codingSuggestion";
 import type { BillIntakePrediction } from "../../types/api";
 
 export function headerFilePrefillLabel(): ReactNode {
@@ -14,7 +14,7 @@ export function headerFilePrefillLabel(): ReactNode {
 export function lineRowFilePrefillLabel(): ReactNode {
   return (
     <div className="coding-suggestion-actions coding-suggestion-actions-compact">
-      <span className={`status-badge coding-suggested ${BILL_CREATE_LINE_CHIP_CLASS}`}>
+      <span className={`status-badge coding-suggested ${BILL_LINE_CHIP_CLASS}`}>
         {HEADER_PREFILL_BADGE_LABEL}
       </span>
     </div>
