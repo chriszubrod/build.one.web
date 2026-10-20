@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useServerOwnedRebase } from "../../hooks/useServerOwnedRebase";
 import { useSyncedToken } from "../../hooks/useSyncedToken";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEntityItem, useEntityList, deleteEntity, entityItemKey } from "../../hooks/useEntity";
+import { useEntityItem, useEntityList, entityItemKey } from "../../hooks/useEntity";
+import { useDeleteDocument } from "../../hooks/useDeleteDocument";
 import { useViewAttachmentObjectUrl } from "../../hooks/useViewAttachmentObjectUrl";
 import { useAutoSave } from "../../hooks/useAutoSave";
 import { useCompletionPolling } from "../../hooks/useCompletionPolling";
@@ -241,7 +242,6 @@ export default function ExpenseEdit() {
   const [saving, setSaving] = useState(false);
   const saveInFlightRef = useRef<Promise<boolean> | null>(null); // see saveAll
   const [completing, setCompleting] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [attachmentPublicId, setAttachmentPublicId] = useState<string | null>(null);
   const { objectUrl: attachmentBlobUrl, loading: attachmentLoading, loadError: attachmentLoadError } =
     useViewAttachmentObjectUrl(attachmentPublicId);
@@ -425,6 +425,16 @@ export default function ExpenseEdit() {
   useEffect(() => {
     if (!actions.canEdit) cancelAutoSave();
   }, [actions.canEdit, cancelAutoSave]);
+
+  const { deleting, runDelete: runDeleteExpense } = useDeleteDocument({
+    deletePath: id ? `/api/v1/delete/expense/${id}` : "",
+    confirmText: "Delete this expense? This cannot be undone.",
+    successToast: "Expense deleted.",
+    errorFallback: "Could not delete expense.",
+    navigateTo: "/expense/list",
+    beforeDelete: cancelAutoSave,
+    removeQueryKeys: id ? [entityItemKey(expenseItemPath)] : [],
+  });
 
   const projectFor = useCallback(
     (projectId: string) => fullProjects.find((p) => String(p.id) === projectId),
@@ -714,20 +724,7 @@ export default function ExpenseEdit() {
               type="button"
               className="btn btn-danger"
               disabled={saving || completing || deleting}
-              onClick={async () => {
-                if (!confirm("Delete this expense? This cannot be undone.")) return;
-                cancelAutoSave();
-                setDeleting(true);
-                try {
-                  await deleteEntity(`/api/v1/delete/expense/${id}`);
-                  queryClient.removeQueries({ queryKey: entityItemKey(expenseItemPath) });
-                  toast("Expense deleted.");
-                  navigate("/expense/list");
-                } catch (err: any) {
-                  toast(err.message, "error");
-                  setDeleting(false);
-                }
-              }}
+              onClick={() => void runDeleteExpense()}
             >
               {deleting ? "Deleting..." : "Delete"}
             </button>

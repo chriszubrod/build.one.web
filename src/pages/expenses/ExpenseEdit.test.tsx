@@ -115,6 +115,29 @@ vi.mock("../../hooks/useLookups", () => ({
   }),
 }));
 
+let expenseDeleteDocumentAutoSaveStub = false;
+const mockCancelAutoSaveForDelete = vi.fn();
+
+vi.mock("../../hooks/useAutoSave", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../../hooks/useAutoSave")>();
+  return {
+    useAutoSave: (
+      saveFn: Parameters<typeof mod.useAutoSave>[0],
+      deps: Parameters<typeof mod.useAutoSave>[1],
+      delay?: number,
+      enabled?: boolean,
+    ) => {
+      if (expenseDeleteDocumentAutoSaveStub) {
+        return {
+          flush: vi.fn().mockResolvedValue(undefined),
+          cancel: mockCancelAutoSaveForDelete,
+        };
+      }
+      return mod.useAutoSave(saveFn, deps, delay, enabled);
+    },
+  };
+});
+
 function sampleExpense(overrides: Partial<Expense> = {}): Expense {
   return {
     id: 1,
@@ -2601,7 +2624,146 @@ describe("ExpenseEdit U-487 bill parity", () => {
   });
 });
 
+describe("ExpenseEdit delete document (U-683a)", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let queryClient: QueryClient;
 
+  beforeEach(() => {
+    expenseDeleteDocumentAutoSaveStub = true;
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    mockCurrentUserData = {
+      is_admin: false,
+      modules: [
+        {
+          public_id: "mod-exp",
+          name: "Expenses",
+          route: null,
+          can_create: false,
+          can_read: true,
+          can_update: true,
+          can_delete: true,
+          can_submit: false,
+          can_approve: false,
+          can_complete: true,
+          can_view_team: false,
+        },
+      ],
+      auth: { public_id: "a", username: "user" },
+      user: { id: 1, public_id: "u", firstname: "A", lastname: "D" },
+      role: null,
+      accessible_project_ids: [],
+    };
+
+    mockGetOne.mockImplementation((path: string) => {
+      const elia404 = elia404IfMatch(path);
+      if (elia404) return elia404;
+      if (path === EXPENSE_GET_PATH) return Promise.resolve(sampleExpense({ is_draft: true }));
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+
+    mockGetListWithCodingCatalog((path: string) => {
+      if (path === "/api/v1/get/expense_line_items/expense/1") {
+        return {
+          data: [expenseLineItemFixture("li-coded", "Line to code", "50.00")],
+          count: 1,
+        };
+      }
+      if (path === SUB_COST_CODES_PATH || path === PROJECTS_PATH) {
+        return { data: [], count: 0 };
+      }
+      return Promise.reject(new Error(`unexpected getList: ${path}`));
+    });
+
+    mockPut.mockImplementation((path: string) => {
+      if (path === EXPENSE_UPDATE_PATH) {
+        return Promise.resolve(sampleExpense({ row_version: "rv-2", is_draft: true, vendor_id: 1 }));
+      }
+      return Promise.reject(new Error("unexpected put: " + path));
+    });
+
+    mockDel.mockImplementation((path: string) => {
+      if (path === EXPENSE_DELETE_PATH) {
+        expect(mockCancelAutoSaveForDelete).toHaveBeenCalled();
+        return Promise.resolve(undefined);
+      }
+      return Promise.reject(new Error(`unexpected del: ${path}`));
+    });
+
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(entityItemKey(EXPENSE_GET_PATH), sampleExpense());
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root.render(
+        createElement(
+          MemoryRouter,
+          { initialEntries: ["/expense/exp-1/edit"] },
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(
+              Routes,
+              null,
+              createElement(Route, {
+                path: "/expense/:publicId/edit",
+                element: createElement(ExpenseEdit),
+              }),
+            ),
+          ),
+        ),
+      );
+    });
+  });
+
+  afterEach(() => {
+    expenseDeleteDocumentAutoSaveStub = false;
+    act(() => {
+      root.unmount();
+    });
+    document.body.removeChild(container);
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  async function waitForExpenseForm() {
+    await waitForCondition(() => findSaveButton(container) !== undefined);
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+  }
+
+  it("confirm → cancelAutoSave → DELETE → cache removed → toast → navigate", async () => {
+    await waitForExpenseForm();
+
+    const callOrder: string[] = [];
+    mockCancelAutoSaveForDelete.mockImplementation(() => {
+      callOrder.push("cancel");
+    });
+    mockDel.mockImplementation((path: string) => {
+      if (path === EXPENSE_DELETE_PATH) {
+        callOrder.push("delete");
+        return Promise.resolve(undefined);
+      }
+      return Promise.reject(new Error(`unexpected del: ${path}`));
+    });
+
+    await act(async () => {
+      deleteButton(container)!.click();
+    });
+
+    await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/expense/list"));
+    expect(callOrder).toEqual(["cancel", "delete"]);
+    expect(mockDel).toHaveBeenCalledWith(EXPENSE_DELETE_PATH);
+    expect(queryClient.getQueryData(entityItemKey(EXPENSE_GET_PATH))).toBeUndefined();
+    expect(mockToast).toHaveBeenCalledWith("Expense deleted.");
+    expect(mockNavigate).toHaveBeenCalledWith("/expense/list");
+  });
+});
 
 describe("ExpenseEdit Billable decision on a NEW line (U-647, Codex P1)", () => {
   let container: HTMLDivElement;

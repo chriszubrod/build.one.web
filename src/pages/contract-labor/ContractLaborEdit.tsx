@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, del, getList, getOne, post, put } from "../../api/client";
+import { ApiError, getList, getOne, post, put } from "../../api/client";
 import { useEntityList } from "../../hooks/useEntity";
+import { useDeleteDocument } from "../../hooks/useDeleteDocument";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import ReviewTimeline from "../../components/ReviewTimeline";
 import { resolveContractLaborEditActions } from "./contractLaborPermissions";
@@ -209,6 +210,28 @@ export default function ContractLaborEdit() {
       cancelled = true;
     };
   }, [publicId]);
+
+  const { deleting, runDelete: runDeleteEntry } = useDeleteDocument({
+    deletePath: publicId ? `/api/v1/contract-labor/${publicId}` : "",
+    confirmText: "Delete this entry and all its line items? This cannot be undone.",
+    successToast: "Entry deleted.",
+    errorFallback: "Could not delete entry.",
+    navigateTo: "/contract-labor/list",
+    removeQueryKeys: publicId
+      ? [
+          ["cl-entry", publicId] as const,
+          ["cl-line-items", publicId] as const,
+          ["cl-daily-summary", publicId] as const,
+        ]
+      : [],
+    invalidateQueryKeys: [
+      ["contract-labor-list"],
+      ["contract-labor-count"],
+      ["contract-labor-billing-periods"],
+      ["contract-labor"],
+    ],
+    formatError: (err, fb) => (err instanceof ApiError ? err.detail : fb),
+  });
 
   // Vendor → rate + markup defaults from VENDOR_CONFIG.
   // Keyed off entry.vendor_id (the contract-labor vendor, already bound
@@ -441,19 +464,6 @@ export default function ContractLaborEdit() {
       return false;
     } finally {
       setSubmittingReview(false);
-    }
-  }
-
-  async function handleDelete() {
-    if (!publicId) return;
-    if (!window.confirm("Delete this entry and all its line items? This cannot be undone.")) return;
-    setSaving(true);
-    try {
-      await del(`/api/v1/contract-labor/${publicId}`);
-      navigate("/contract-labor/list");
-    } catch (err) {
-      setSaving(false);
-      showStatus("error", err instanceof ApiError ? err.detail : "Failed to delete");
     }
   }
 
@@ -792,7 +802,7 @@ export default function ContractLaborEdit() {
 
       <div className="cl-form-actions">
         <div style={{ display: "flex", gap: 8 }}>
-          <button type="button" className="btn btn-primary" onClick={() => save(false)} disabled={saving || isBilled}>
+          <button type="button" className="btn btn-primary" onClick={() => save(false)} disabled={saving || deleting || isBilled}>
             {saving ? "Saving..." : "Save Changes"}
           </button>
           <button
@@ -803,7 +813,7 @@ export default function ContractLaborEdit() {
                 /* in-place re-render via reviewTimelineRefreshKey */
               }
             }}
-            disabled={saving || submittingReview || isBilled || !actions.canSubmit}
+            disabled={saving || deleting || submittingReview || isBilled || !actions.canSubmit}
           >
             {submittingReview ? "Submitting…" : "Submit For Review"}
           </button>
@@ -811,8 +821,13 @@ export default function ContractLaborEdit() {
         <div style={{ display: "flex", gap: 8 }}>
           <Link to="/contract-labor/list" className="btn btn-secondary">Cancel</Link>
           {!isBilled && actions.canDelete && (
-            <button type="button" className="btn btn-danger" onClick={handleDelete} disabled={saving}>
-              Delete
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={() => void runDeleteEntry()}
+              disabled={saving || deleting}
+            >
+              {deleting ? "Deleting…" : "Delete"}
             </button>
           )}
         </div>

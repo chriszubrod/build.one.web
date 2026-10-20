@@ -24,6 +24,9 @@ const mockGetList = vi.fn();
 const mockGetOne = vi.fn();
 const mockPost = vi.fn();
 const mockPut = vi.fn();
+const mockDel = vi.fn();
+const mockToast = vi.fn();
+const mockNavigate = vi.fn();
 
 // Per-spec fixtures the ONE mock router below reads. Specs assign these
 // instead of re-stubbing the whole router, so a newly-fetched path only has
@@ -53,14 +56,19 @@ vi.mock("../../api/client", () => ({
   },
 }));
 
-vi.mock("../../hooks/useEntity", () => ({
-  useEntityList: (path: string) => ({
-    items: mockEntityItems[path] ?? [],
-    loading: false,
-    error: "",
-    reload: vi.fn(),
-  }),
-}));
+vi.mock("../../hooks/useEntity", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../../hooks/useEntity")>();
+  return {
+    ...mod,
+    useEntityList: (path: string) => ({
+      items: mockEntityItems[path] ?? [],
+      loading: false,
+      error: "",
+      reload: vi.fn(),
+    }),
+    deleteEntity: (...args: unknown[]) => mockDel(...args),
+  };
+});
 
 vi.mock("../../hooks/useCurrentUser", () => ({
   useCurrentUser: () => ({
@@ -79,6 +87,18 @@ vi.mock("../../hooks/useCurrentUser", () => ({
 vi.mock("../../components/ReviewTimeline", () => ({
   default: () => null,
 }));
+
+vi.mock("../../components/Toast", () => ({
+  useToast: () => ({ toast: (...args: unknown[]) => mockToast(...args) }),
+}));
+
+vi.mock("react-router-dom", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("react-router-dom")>();
+  return {
+    ...mod,
+    useNavigate: () => mockNavigate,
+  };
+});
 
 function sampleLineItem(
   overrides: Partial<ContractLaborLineItem> = {},
@@ -293,6 +313,9 @@ beforeEach(() => {
   mockGetOne.mockReset();
   mockPost.mockReset();
   mockPut.mockReset();
+  mockDel.mockReset();
+  mockToast.mockClear();
+  mockNavigate.mockClear();
   mockEntityItems = {};
   lineItems = [];
   vendorConfig = {};
@@ -464,5 +487,96 @@ describe("ContractLaborEdit markup display (U-195)", () => {
     // Reverting the call site to String(Number(r.markup) * 100) renders
     // '7.000000000000001' and this spec goes RED.
     expect(labeledInput("Markup (%)").value).toBe("7");
+  });
+});
+
+function deleteButton(): HTMLButtonElement | undefined {
+  return Array.from(container.querySelectorAll("button")).find(
+    (b) => b.textContent?.trim() === "Delete" || b.textContent?.trim() === "Deleting…",
+  );
+}
+
+const CL_DELETE_INVALIDATION_KEYS = [
+  ["contract-labor-list"],
+  ["contract-labor-count"],
+  ["contract-labor-billing-periods"],
+  ["contract-labor"],
+] as const;
+
+function expectPrefixInvalidated(prefix: readonly unknown[]) {
+  const queries = queryClient.getQueryCache().findAll({ queryKey: prefix });
+  expect(queries.length).toBeGreaterThan(0);
+  for (const query of queries) {
+    expect(query.state.isInvalidated).toBe(true);
+  }
+}
+
+describe("ContractLaborEdit delete (U-683a)", () => {
+  beforeEach(() => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockDel.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("confirm → DELETE → cache reconciled → toast → navigate", async () => {
+    queryClient.setQueryData(["cl-entry", PUBLIC_ID], sampleEntry());
+    queryClient.setQueryData(["cl-line-items", PUBLIC_ID], [sampleLineItem()]);
+    queryClient.setQueryData(["cl-daily-summary", PUBLIC_ID], {});
+    queryClient.setQueryData(["contract-labor-list", "status=draft"], [{ public_id: PUBLIC_ID }]);
+    queryClient.setQueryData(["contract-labor-count", "status=draft"], { count: 1 });
+    queryClient.setQueryData(["contract-labor-billing-periods"], ["2026-01"]);
+    queryClient.setQueryData(["contract-labor", "by-status", "draft"], [{ public_id: PUBLIC_ID }]);
+
+    renderEdit();
+    await waitForLineForm();
+
+    expect(deleteButton()).toBeDefined();
+    await act(async () => {
+      deleteButton()!.click();
+    });
+
+    await flushUntil(() => mockDel.mock.calls.some((c) => c[0] === CL_PATH));
+    expect(mockDel).toHaveBeenCalledWith(CL_PATH);
+    expect(queryClient.getQueryData(["cl-entry", PUBLIC_ID])).toBeUndefined();
+    expect(queryClient.getQueryData(["cl-line-items", PUBLIC_ID])).toBeUndefined();
+    expect(queryClient.getQueryData(["cl-daily-summary", PUBLIC_ID])).toBeUndefined();
+    for (const key of CL_DELETE_INVALIDATION_KEYS) {
+      expectPrefixInvalidated(key);
+    }
+    expect(mockToast).toHaveBeenCalledWith("Entry deleted.");
+    expect(mockNavigate).toHaveBeenCalledWith("/contract-labor/list");
+  });
+
+  it("on delete error shows toast and does not navigate", async () => {
+    const { ApiError } = await import("../../api/client");
+    mockDel.mockRejectedValue(new ApiError(409, "Entry is locked"));
+
+    renderEdit();
+    await waitForLineForm();
+
+    await act(async () => {
+      deleteButton()!.click();
+    });
+
+    await flushUntil(() => mockToast.mock.calls.length > 0);
+    expect(mockToast).toHaveBeenCalledWith("Entry is locked", "error");
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("hides Delete when entry is billed", async () => {
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === CL_PATH) return Promise.resolve(sampleEntry({ status: "billed" }));
+      if (path === `${CL_PATH}/daily-summary`) return Promise.resolve({});
+      if (path === "/api/v1/contract-labor/vendor-config") return Promise.resolve(vendorConfig);
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+
+    renderEdit();
+    await waitForLineForm();
+
+    expect(deleteButton()).toBeUndefined();
   });
 });

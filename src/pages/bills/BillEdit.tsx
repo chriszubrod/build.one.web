@@ -2,7 +2,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEntityItem, deleteEntity, entityItemKey } from "../../hooks/useEntity";
+import { useEntityItem, entityItemKey } from "../../hooks/useEntity";
+import { useDeleteDocument } from "../../hooks/useDeleteDocument";
 import { useAutoSave } from "../../hooks/useAutoSave";
 import { useSyncedToken } from "../../hooks/useSyncedToken";
 import { useServerOwnedRebase } from "../../hooks/useServerOwnedRebase";
@@ -200,7 +201,6 @@ export default function BillEdit() {
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [projectHintForSuggest, setProjectHintForSuggest] = useState<string | undefined>();
   const [lineUserEditEpoch, setLineUserEditEpoch] = useState(0);
@@ -415,6 +415,18 @@ export default function BillEdit() {
   useEffect(() => {
     if (!actions.canEdit) cancelAutoSave();
   }, [actions.canEdit, cancelAutoSave]);
+
+  const { deleting, runDelete: runDeleteBill } = useDeleteDocument({
+    deletePath: publicId ? `/api/v1/delete/bill/${publicId}` : "",
+    confirmText: "Delete this bill? This cannot be undone.",
+    successToast: "Bill deleted.",
+    errorFallback: "Could not delete bill.",
+    navigateTo: "/bill/list",
+    beforeDelete: cancelAutoSave,
+    removeQueryKeys: publicId
+      ? [entityItemKey(billItemPath), ["bill-intake-prediction", publicId] as const]
+      : [],
+  });
 
   const codingSuggestEnabled =
     !!item?.is_draft &&
@@ -751,25 +763,8 @@ export default function BillEdit() {
       }
     : null;
 
-  const deleteBill = async (opts: { confirmText: string; successToast: string }) => {
-    if (!window.confirm(opts.confirmText)) return;
-    cancelAutoSave();
-    setDeleting(true);
-    try {
-      await deleteEntity(`/api/v1/delete/bill/${publicId}`);
-      queryClient.removeQueries({ queryKey: entityItemKey(billItemPath) });
-      queryClient.removeQueries({ queryKey: ["bill-intake-prediction", publicId] });
-      toast(opts.successToast);
-      navigate("/bill/list");
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Could not delete bill.";
-      toast(message, "error");
-      setDeleting(false);
-    }
-  };
-
   const handleDiscardDraft = () =>
-    void deleteBill({
+    void runDeleteBill({
       confirmText: "Discard this draft bill? This cannot be undone.",
       successToast: "Draft discarded.",
     });
@@ -880,12 +875,7 @@ export default function BillEdit() {
               type="button"
               className="btn btn-danger"
               disabled={saving || completing || submitting || deleting}
-              onClick={() =>
-                void deleteBill({
-                  confirmText: "Delete this bill? This cannot be undone.",
-                  successToast: "Bill deleted.",
-                })
-              }
+              onClick={() => void runDeleteBill()}
             >
               {deleting ? "Deleting..." : "Delete"}
             </button>
