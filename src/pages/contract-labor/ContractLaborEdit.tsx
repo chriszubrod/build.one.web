@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, getList, getOne, post, put } from "../../api/client";
@@ -153,6 +153,45 @@ export default function ContractLaborEdit() {
   const [saving, setSaving] = useState(false);
   const [submittingReview, setSubmittingReview] = useState(false);
   const [saveStatus, setSaveStatus] = useState<{ tone: "success" | "error"; msg: string } | null>(null);
+  /** Latest in-flight effective-rate lookup generation per line uid (supersedes older requests). */
+  const rateLookupGenRef = useRef<Map<string, number>>(new Map());
+  const [pendingRateLookupUids, setPendingRateLookupUids] = useState<Set<string>>(() => new Set());
+  const rateLookupPending = pendingRateLookupUids.size > 0;
+
+  function beginRateLookup(uid: string): number {
+    const gen = (rateLookupGenRef.current.get(uid) ?? 0) + 1;
+    rateLookupGenRef.current.set(uid, gen);
+    setPendingRateLookupUids((prev) => {
+      if (prev.has(uid)) return prev;
+      const next = new Set(prev);
+      next.add(uid);
+      return next;
+    });
+    return gen;
+  }
+
+  function clearPendingRateLookup(uid: string) {
+    setPendingRateLookupUids((prev) => {
+      if (!prev.has(uid)) return prev;
+      const next = new Set(prev);
+      next.delete(uid);
+      return next;
+    });
+  }
+
+  function finishRateLookup(uid: string, gen: number) {
+    // Only the latest lookup for this line clears it. The generation is never reset
+    // (no delete here): a reset would let an older in-flight lookup match a newer one's
+    // number and unblock Save while the newer rate is still loading (U-687 review).
+    if (rateLookupGenRef.current.get(uid) !== gen) return;
+    clearPendingRateLookup(uid);
+  }
+
+  function cancelRateLookupForRow(uid: string) {
+    // The row is gone and its uid never returns, so dropping its counter is safe.
+    rateLookupGenRef.current.delete(uid);
+    clearPendingRateLookup(uid);
+  }
 
   // Lookups
   const { items: vendors } = useEntityList<Vendor>("/api/v1/get/vendors");
@@ -335,6 +374,7 @@ export default function ContractLaborEdit() {
       const vendorId = entry.vendor_id;
       const projectId = Number(patch.project_id);
       const projectIdAtRequest = patch.project_id;
+      const lookupGen = beginRateLookup(uid);
       void queryClient
         .fetchQuery({
           queryKey: ["cl-effective-rate", vendorId, projectId],
@@ -363,6 +403,9 @@ export default function ContractLaborEdit() {
         })
         .catch((err) => {
           console.error("Effective-rate lookup failed", err);
+        })
+        .finally(() => {
+          finishRateLookup(uid, lookupGen);
         });
     }
   }
@@ -380,6 +423,7 @@ export default function ContractLaborEdit() {
   }
 
   function removeLine(uid: string) {
+    cancelRateLookupForRow(uid);
     setLines((prev) => prev.filter((row) => row.uid !== uid));
   }
 
@@ -400,6 +444,7 @@ export default function ContractLaborEdit() {
 
   async function save(markAsReady: boolean) {
     if (!entry || !publicId) return;
+    if (rateLookupPending) return;
     if (markAsReady) {
       const err = validateForMarkReady();
       if (err) {
@@ -478,6 +523,7 @@ export default function ContractLaborEdit() {
   // refetch (it polls on mount + after its own action calls).
   async function saveAndSubmitForReview(): Promise<boolean> {
     if (!publicId || !entry) return false;
+    if (rateLookupPending) return false;
     // Persist line-item edits first so reviewers see what they're approving.
     setSubmittingReview(true);
     try {
@@ -834,8 +880,13 @@ export default function ContractLaborEdit() {
       </section>
 
       <div className="cl-form-actions">
-        <div style={{ display: "flex", gap: 8 }}>
-          <button type="button" className="btn btn-primary" onClick={() => save(false)} disabled={saving || deleting || isBilled}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => save(false)}
+            disabled={saving || deleting || isBilled || rateLookupPending}
+          >
             {saving ? "Saving..." : "Save Changes"}
           </button>
           <button
@@ -846,10 +897,15 @@ export default function ContractLaborEdit() {
                 /* in-place re-render via reviewTimelineRefreshKey */
               }
             }}
-            disabled={saving || deleting || submittingReview || isBilled || !actions.canSubmit}
+            disabled={
+              saving || deleting || submittingReview || isBilled || !actions.canSubmit || rateLookupPending
+            }
           >
             {submittingReview ? "Submitting…" : "Submit For Review"}
           </button>
+          {rateLookupPending && (
+            <span role="status">Loading rate…</span>
+          )}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <Link to="/contract-labor/list" className="btn btn-secondary">Cancel</Link>

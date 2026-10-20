@@ -660,6 +660,27 @@ function resolveEffectiveRate(projectId: number) {
   next.def.resolve();
 }
 
+function rejectEffectiveRate(projectId: number, err: Error = new Error("effective-rate failed")) {
+  const list = effectiveRateWaiters.get(projectId);
+  const next = list?.shift();
+  if (!next) throw new Error(`no pending effective-rate for project ${projectId}`);
+  next.def.reject(err);
+}
+
+function submitForReviewButton(): HTMLButtonElement | undefined {
+  return buttonByText("Submit For Review");
+}
+
+function loadingRateHint(): HTMLElement | null {
+  return container.querySelector('[role="status"]');
+}
+
+async function assertSaveActionsBlockedWhileRateLoading() {
+  expect(saveChangesButton()?.disabled).toBe(true);
+  expect(submitForReviewButton()?.disabled).toBe(true);
+  expect(loadingRateHint()?.textContent?.trim()).toBe("Loading rate…");
+}
+
 function pendingEffectiveRateCount(): number {
   let n = 0;
   for (const list of effectiveRateWaiters.values()) n += list.length;
@@ -794,7 +815,7 @@ describe("ContractLaborEdit line uid identity (U-683c)", () => {
     expect(labeledControlInCard(line2, "Markup (%)", "input").value).toBe("14");
   });
 
-  it("saved line keeps card DOM identity across Save Changes; in-flight effective-rate lands after re-fetch", async () => {
+  it("saved line keeps card DOM identity across Save Changes (rate resolved before Save, U-687)", async () => {
     const initialRows = [
       sampleLineItem({
         id: 10,
@@ -810,7 +831,7 @@ describe("ContractLaborEdit line uid identity (U-683c)", () => {
       public_id: "cli-1",
       row_version: "li-rv-2",
       project_id: 7,
-      rate: "10",
+      rate: "55",
       markup: "0.05",
     });
     let lineItemsReads = 0;
@@ -838,6 +859,11 @@ describe("ContractLaborEdit line uid identity (U-683c)", () => {
     });
     expect(pendingEffectiveRateCount()).toBe(1);
 
+    await act(async () => {
+      resolveEffectiveRate(7);
+    });
+    await flushUntil(() => rateInput.value === "55");
+
     mockPut.mockClear();
     await act(async () => {
       saveChangesButton()!.click();
@@ -847,13 +873,7 @@ describe("ContractLaborEdit line uid identity (U-683c)", () => {
 
     const rateAfterSave = labeledControlInCard(lineCardByNumber(1), "Rate (per hour)", "input");
     expect(rateAfterSave).toBe(rateInput);
-
-    await act(async () => {
-      resolveEffectiveRate(7);
-    });
-    await flushUntil(() => rateAfterSave.value === "55");
     expect(rateAfterSave.value).toBe("55");
-    expect(rateAfterSave).toBe(rateInput);
   });
 
   // Regression guard — passes on origin/main too (controlled inputs); still worth
@@ -928,5 +948,224 @@ describe("ContractLaborEdit line uid identity (U-683c)", () => {
         "sub_cost_code_id",
       ].sort(),
     );
+  });
+});
+
+describe("ContractLaborEdit pending effective-rate blocks save (U-687)", () => {
+  beforeEach(() => {
+    mockEntityItems["/api/v1/get/vendors"] = [sampleVendor()];
+    mockEntityItems["/api/v1/get/projects"] = [
+      sampleProject({ id: 7, name: "Proj A" }),
+      sampleProject({ id: 8, public_id: "p-8", name: "Proj B" }),
+    ];
+  });
+
+  it("held lookup disables save actions, shows Loading rate…, and Save sends no PUT", async () => {
+    lineItems = [sampleLineItem({ id: 10, public_id: "cli-1", rate: "10", markup: null })];
+    armDeferredEffectiveRate({
+      7: { hourly_rate: "42", markup: "0.07", rate_source: "vendor_project" },
+    });
+
+    renderEdit();
+    await waitForLineCount(1);
+
+    const card = lineCardByNumber(1);
+    await act(async () => {
+      setSelectValue(labeledControlInCard(card, "Project", "select"), "7");
+    });
+    expect(pendingEffectiveRateCount()).toBe(1);
+    await assertSaveActionsBlockedWhileRateLoading();
+
+    mockPut.mockClear();
+    await act(async () => {
+      saveChangesButton()!.click();
+    });
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    expect(mockPut.mock.calls.some((c) => c[0] === `${CL_PATH}/bill`)).toBe(false);
+
+    // The handler-level guard in save() is defence-in-depth only: React drops clicks on a
+    // disabled button, so no jsdom test can reach it.
+  });
+
+  it("after lookup resolves, save actions enable and Save PUT includes looked-up rate/markup", async () => {
+    lineItems = [sampleLineItem({ id: 10, public_id: "cli-1", rate: "10", markup: null })];
+    armDeferredEffectiveRate({
+      7: { hourly_rate: "42", markup: "0.07", rate_source: "vendor_project" },
+    });
+
+    renderEdit();
+    await waitForLineCount(1);
+
+    const card = lineCardByNumber(1);
+    await act(async () => {
+      setSelectValue(labeledControlInCard(card, "Project", "select"), "7");
+    });
+    await assertSaveActionsBlockedWhileRateLoading();
+
+    await act(async () => {
+      resolveEffectiveRate(7);
+    });
+    await flushUntil(() => labeledControlInCard(card, "Rate (per hour)", "input").value === "42");
+    expect(loadingRateHint()).toBeNull();
+    expect(saveChangesButton()?.disabled).toBe(false);
+    expect(submitForReviewButton()?.disabled).toBe(false);
+
+    mockPut.mockClear();
+    await act(async () => {
+      saveChangesButton()!.click();
+    });
+    await flushUntil(() => mockPut.mock.calls.some((c) => c[0] === `${CL_PATH}/bill`));
+    const body = mockPut.mock.calls.find((c) => c[0] === `${CL_PATH}/bill`)![1] as {
+      line_items: { rate: number | null; markup: number | null }[];
+    };
+    expect(body.line_items[0].rate).toBe(42);
+    expect(body.line_items[0].markup).toBeCloseTo(0.07);
+  });
+
+  it("lookup reject re-enables save actions and Save persists typed/default rate", async () => {
+    lineItems = [sampleLineItem({ id: 10, public_id: "cli-1", rate: "10", markup: "0.05" })];
+    armDeferredEffectiveRate({
+      7: { hourly_rate: "99", markup: "0.5", rate_source: "vendor_project" },
+    });
+
+    renderEdit();
+    await waitForLineCount(1);
+
+    const card = lineCardByNumber(1);
+    await act(async () => {
+      setSelectValue(labeledControlInCard(card, "Project", "select"), "7");
+    });
+    await assertSaveActionsBlockedWhileRateLoading();
+
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await act(async () => {
+      rejectEffectiveRate(7);
+    });
+    await flushUntil(() => saveChangesButton()?.disabled === false);
+    errSpy.mockRestore();
+    expect(loadingRateHint()).toBeNull();
+
+    mockPut.mockClear();
+    await act(async () => {
+      saveChangesButton()!.click();
+    });
+    await flushUntil(() => mockPut.mock.calls.some((c) => c[0] === `${CL_PATH}/bill`));
+    const body = mockPut.mock.calls.find((c) => c[0] === `${CL_PATH}/bill`)![1] as {
+      line_items: { rate: number | null; markup: number | null }[];
+    };
+    expect(body.line_items[0].rate).toBe(10);
+    expect(body.line_items[0].markup).toBeCloseTo(0.05);
+  });
+
+  it("two lookups on one line stay blocked until the latest project lookup settles", async () => {
+    lineItems = [sampleLineItem({ id: 10, public_id: "cli-1", rate: "10", markup: null })];
+    armDeferredEffectiveRate({
+      7: { hourly_rate: "77", markup: "0.07", rate_source: "vendor_project" },
+      8: { hourly_rate: "88", markup: "0.14", rate_source: "vendor_project" },
+    });
+
+    renderEdit();
+    await waitForLineCount(1);
+
+    const card = lineCardByNumber(1);
+    await act(async () => {
+      setSelectValue(labeledControlInCard(card, "Project", "select"), "7");
+    });
+    await act(async () => {
+      setSelectValue(labeledControlInCard(card, "Project", "select"), "8");
+    });
+    expect(pendingEffectiveRateCount()).toBe(2);
+
+    await act(async () => {
+      resolveEffectiveRate(7);
+    });
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    await assertSaveActionsBlockedWhileRateLoading();
+
+    await act(async () => {
+      resolveEffectiveRate(8);
+    });
+    await flushUntil(() => saveChangesButton()?.disabled === false);
+    expect(loadingRateHint()).toBeNull();
+  });
+
+  it("an older lookup settling after a newer one started cannot unblock save (generation never resets)", async () => {
+    lineItems = [sampleLineItem({ id: 10, public_id: "cli-1", rate: "10", markup: null })];
+    mockEntityItems["/api/v1/get/projects"] = [
+      sampleProject({ id: 7, name: "Proj A" }),
+      sampleProject({ id: 8, public_id: "p-8", name: "Proj B" }),
+      sampleProject({ id: 9, public_id: "p-9", name: "Proj C" }),
+    ];
+    armDeferredEffectiveRate({
+      7: { hourly_rate: "77", markup: "0.07", rate_source: "vendor_project" },
+      8: { hourly_rate: "88", markup: "0.08", rate_source: "vendor_project" },
+      9: { hourly_rate: "99", markup: "0.09", rate_source: "vendor_project" },
+    });
+
+    renderEdit();
+    await waitForLineCount(1);
+    const card = lineCardByNumber(1);
+    await act(async () => {
+      setSelectValue(labeledControlInCard(card, "Project", "select"), "7");
+    });
+    await act(async () => {
+      setSelectValue(labeledControlInCard(card, "Project", "select"), "8");
+    });
+    await act(async () => {
+      resolveEffectiveRate(8);
+    });
+    await flushUntil(() => saveChangesButton()?.disabled === false);
+    expect(saveChangesButton()!.disabled).toBe(false);
+
+    await act(async () => {
+      setSelectValue(labeledControlInCard(card, "Project", "select"), "9");
+    });
+    await assertSaveActionsBlockedWhileRateLoading();
+
+    // The stale lookup for project 7 settles while 9 is still loading.
+    await act(async () => {
+      resolveEffectiveRate(7);
+    });
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    await assertSaveActionsBlockedWhileRateLoading();
+
+    await act(async () => {
+      resolveEffectiveRate(9);
+    });
+    await flushUntil(() => saveChangesButton()?.disabled === false);
+    expect(loadingRateHint()).toBeNull();
+    expect((labeledControlInCard(lineCardByNumber(1), "Rate (per hour)", "input") as HTMLInputElement).value).toBe("99");
+  });
+
+  it("removing the line while its lookup is pending re-enables save actions", async () => {
+    lineItems = [
+      sampleLineItem({ id: 10, public_id: "cli-1", rate: "10", markup: null }),
+      sampleLineItem({ id: 11, public_id: "cli-2", rate: "20", markup: null }),
+    ];
+    armDeferredEffectiveRate({
+      7: { hourly_rate: "99", markup: "0.07", rate_source: "vendor_project" },
+    });
+
+    renderEdit();
+    await waitForLineCount(2);
+
+    const line2 = lineCardByNumber(2);
+    await act(async () => {
+      setSelectValue(labeledControlInCard(line2, "Project", "select"), "7");
+    });
+    await assertSaveActionsBlockedWhileRateLoading();
+
+    await act(async () => {
+      removeButtonInCard(line2).click();
+    });
+    await waitForLineCount(1);
+    await flushUntil(() => saveChangesButton()?.disabled === false);
+    expect(loadingRateHint()).toBeNull();
   });
 });
