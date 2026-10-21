@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { ReadAttachmentResult } from "../../types/api";
-import { applyReadAttachmentResult } from "./readAttachment";
+import { applyReadAttachmentResult, summarizeReplacedFromPdf } from "./readAttachment";
 import { createEmptyHeaderPrefill, createEmptyLine1Prefill } from "./headerPrefill";
 
 const vendors = [{ public_id: "v-1", name: "Acme" }];
@@ -675,5 +675,371 @@ describe("applyReadAttachmentResult — file pair vs hook suggestions (U-676h r2
     );
     expect(out.project_public_id).toBe("p-9");
     expect(out.sub_cost_code_id).toBe("20");
+  });
+});
+
+describe("applyReadAttachmentResult — editReread (U-704)", () => {
+  const baseForm = {
+    vendor_public_id: "v-1",
+    payment_term_public_id: "",
+    bill_date: "2026-01-01",
+    bill_number: "INV-1",
+    memo: "Keep memo",
+  };
+
+  it("replaces populated header fields when the read returned values", () => {
+    const result: ReadAttachmentResult = {
+      status: "ok",
+      message: null,
+      fields: {
+        ...emptyFields(),
+        vendor: {
+          value: { public_id: "v-1", name: "Acme" },
+          extracted_name: "Acme",
+          confidence: "0.9",
+        },
+        bill_number: { value: "NEW-99", confidence: "0.9" },
+        bill_date: { value: "2026-03-01", confidence: "0.9" },
+        total_amount: { value: "88.00", confidence: "0.9" },
+      },
+      coding: null,
+      model: null,
+    };
+    const outcome = applyReadAttachmentResult({
+      result,
+      form: baseForm,
+      headerPrefill: createEmptyHeaderPrefill(),
+      line1Prefill: createEmptyLine1Prefill(),
+      lines: [{ ...baseLine(), rate: "10.00" }],
+      vendors,
+      sccCatalog,
+      applyMode: "editReread",
+    });
+    expect(outcome.form.vendor_public_id).toBe("v-1");
+    expect(outcome.form.bill_number).toBe("NEW-99");
+    expect(outcome.form.bill_date).toBe("2026-03-01");
+    expect(outcome.form.memo).toBe("Keep memo");
+    expect(outcome.lines[0].rate).toBe("88.00");
+    expect(outcome.replacedFieldLabels).toEqual(expect.arrayContaining(["bill number", "date", "amount"]));
+  });
+
+  it("keeps fields the read did not return", () => {
+    const result: ReadAttachmentResult = {
+      status: "ok",
+      message: null,
+      fields: {
+        ...emptyFields(),
+        bill_date: { value: "2026-03-01", confidence: "0.9" },
+      },
+      coding: null,
+      model: null,
+    };
+    const outcome = applyReadAttachmentResult({
+      result,
+      form: baseForm,
+      headerPrefill: createEmptyHeaderPrefill(),
+      line1Prefill: createEmptyLine1Prefill(),
+      lines: [{ ...baseLine(), rate: "50.00", description: "Old desc" }],
+      vendors,
+      sccCatalog,
+      applyMode: "editReread",
+    });
+    expect(outcome.form.bill_number).toBe("INV-1");
+    expect(outcome.lines[0].rate).toBe("50.00");
+    expect(outcome.lines[0].description).toBe("Old desc");
+  });
+
+  it("replaces project and SCC on an already-coded single line when the read maps both", () => {
+    const sccCatalogWide = [
+      { id: 10, public_id: "scc-pub" },
+      { id: 20, public_id: "scc-old" },
+    ];
+    const result: ReadAttachmentResult = {
+      status: "ok",
+      message: null,
+      fields: emptyFields(),
+      coding: {
+        project_public_id: "p-new",
+        project_name: "New",
+        sub_cost_code_public_id: "scc-pub",
+        sub_cost_code_number: "01",
+        sub_cost_code_name: "Ten",
+        source: "llm",
+        reason: "from invoice",
+        confidence: 0.9,
+        model_version: "v1",
+        budget_check: null,
+        budget_remaining: null,
+      },
+      model: null,
+    };
+    const outcome = applyReadAttachmentResult({
+      result,
+      form: baseForm,
+      headerPrefill: createEmptyHeaderPrefill(),
+      line1Prefill: createEmptyLine1Prefill(),
+      lines: [
+        {
+          ...baseLine(),
+          project_public_id: "p-old",
+          sub_cost_code_id: "20",
+          rate: "10.00",
+        },
+      ],
+      vendors,
+      sccCatalog: sccCatalogWide,
+      applyMode: "editReread",
+    });
+    expect(outcome.lines[0].project_public_id).toBe("p-new");
+    expect(outcome.lines[0].sub_cost_code_id).toBe("10");
+    expect(outcome.replacedFieldLabels).toEqual(
+      expect.arrayContaining(["project", "cost code"]),
+    );
+  });
+
+  it("keeps SCC when the read coding is not mappable in the catalog", () => {
+    const result: ReadAttachmentResult = {
+      status: "ok",
+      message: null,
+      fields: emptyFields(),
+      coding: {
+        project_public_id: "p-new",
+        project_name: "New",
+        sub_cost_code_public_id: "scc-missing",
+        sub_cost_code_number: "99",
+        sub_cost_code_name: "Missing",
+        source: "llm",
+        reason: "from invoice",
+        confidence: 0.9,
+        model_version: "v1",
+        budget_check: null,
+        budget_remaining: null,
+      },
+      model: null,
+    };
+    const outcome = applyReadAttachmentResult({
+      result,
+      form: baseForm,
+      headerPrefill: createEmptyHeaderPrefill(),
+      line1Prefill: createEmptyLine1Prefill(),
+      lines: [
+        {
+          ...baseLine(),
+          project_public_id: "p-old",
+          sub_cost_code_id: "20",
+        },
+      ],
+      vendors,
+      sccCatalog: [{ id: 20, public_id: "scc-old" }],
+      applyMode: "editReread",
+    });
+    expect(outcome.lines[0].project_public_id).toBe("p-new");
+    expect(outcome.lines[0].sub_cost_code_id).toBe("20");
+  });
+
+  it("SCC-only read keeps an unaccepted hook project on the line", () => {
+    const hookPrefilled = {
+      ...baseLine(),
+      project_public_id: "p-hook",
+      sub_cost_code_id: "",
+      coding_prefill_state: "prefilled" as const,
+      coding_suggested_project_public_id: "p-hook",
+      coding_suggestion_source: "llm" as const,
+    };
+    const result: ReadAttachmentResult = {
+      status: "ok",
+      message: null,
+      fields: emptyFields(),
+      coding: {
+        project_public_id: null,
+        project_name: null,
+        sub_cost_code_public_id: "scc-pub",
+        sub_cost_code_number: "01",
+        sub_cost_code_name: "Ten",
+        source: "llm",
+        reason: "from invoice",
+        confidence: 0.8,
+        model_version: "v1",
+        budget_check: null,
+        budget_remaining: null,
+      },
+      model: null,
+    };
+    const outcome = applyReadAttachmentResult({
+      result,
+      form: baseForm,
+      headerPrefill: createEmptyHeaderPrefill(),
+      line1Prefill: createEmptyLine1Prefill(),
+      lines: [hookPrefilled],
+      vendors,
+      sccCatalog,
+      applyMode: "editReread",
+    });
+    expect(outcome.lines[0].project_public_id).toBe("p-hook");
+    expect(outcome.lines[0].sub_cost_code_id).toBe("10");
+  });
+
+  it("project-only read keeps an unaccepted hook SCC on the line", () => {
+    const hookPrefilled = {
+      ...baseLine(),
+      project_public_id: "",
+      sub_cost_code_id: "10",
+      coding_prefill_state: "prefilled" as const,
+      coding_suggested_sub_cost_code_id: "10",
+      coding_suggestion_source: "vendor_history" as const,
+    };
+    const result: ReadAttachmentResult = {
+      status: "ok",
+      message: null,
+      fields: emptyFields(),
+      coding: {
+        project_public_id: "p-new",
+        project_name: "New",
+        sub_cost_code_public_id: "scc-unknown",
+        sub_cost_code_number: "99",
+        sub_cost_code_name: "Missing",
+        source: "llm",
+        reason: "from invoice",
+        confidence: 0.8,
+        model_version: "v1",
+        budget_check: null,
+        budget_remaining: null,
+      },
+      model: null,
+    };
+    const outcome = applyReadAttachmentResult({
+      result,
+      form: baseForm,
+      headerPrefill: createEmptyHeaderPrefill(),
+      line1Prefill: createEmptyLine1Prefill(),
+      lines: [hookPrefilled],
+      vendors,
+      sccCatalog,
+      applyMode: "editReread",
+    });
+    expect(outcome.lines[0].project_public_id).toBe("p-new");
+    expect(outcome.lines[0].sub_cost_code_id).toBe("10");
+  });
+
+  it("leaves unresolved_project_id lines unchanged by coding re-read", () => {
+    const unresolved = {
+      ...baseLine(),
+      project_public_id: "",
+      sub_cost_code_id: "20",
+      unresolved_project_id: 144,
+    };
+    const result: ReadAttachmentResult = {
+      status: "ok",
+      message: null,
+      fields: emptyFields(),
+      coding: {
+        project_public_id: "p-new",
+        project_name: "New",
+        sub_cost_code_public_id: "scc-pub",
+        sub_cost_code_number: "01",
+        sub_cost_code_name: "Ten",
+        source: "llm",
+        reason: "from invoice",
+        confidence: 0.9,
+        model_version: "v1",
+        budget_check: null,
+        budget_remaining: null,
+      },
+      model: null,
+    };
+    const outcome = applyReadAttachmentResult({
+      result,
+      form: baseForm,
+      headerPrefill: createEmptyHeaderPrefill(),
+      line1Prefill: createEmptyLine1Prefill(),
+      lines: [unresolved],
+      vendors,
+      sccCatalog: [{ id: 20, public_id: "scc-old" }],
+      applyMode: "editReread",
+    });
+    expect(outcome.lines[0].project_public_id).toBe("");
+    expect(outcome.lines[0].sub_cost_code_id).toBe("20");
+    expect(outcome.replacedFieldLabels ?? []).not.toContain("project");
+    expect(outcome.replacedFieldLabels ?? []).not.toContain("cost code");
+  });
+
+  it("does not apply coding on multi-line input (defence in depth)", () => {
+    const line2 = { ...baseLine(), uid: "li-2", project_public_id: "p-2", sub_cost_code_id: "20" };
+    const result: ReadAttachmentResult = {
+      status: "ok",
+      message: null,
+      fields: emptyFields(),
+      coding: {
+        project_public_id: "p-new",
+        project_name: "New",
+        sub_cost_code_public_id: "scc-pub",
+        sub_cost_code_number: "01",
+        sub_cost_code_name: "Ten",
+        source: "llm",
+        reason: "from invoice",
+        confidence: 0.9,
+        model_version: "v1",
+        budget_check: null,
+        budget_remaining: null,
+      },
+      model: null,
+    };
+    const before = {
+      ...baseLine(),
+      project_public_id: "p-old",
+      sub_cost_code_id: "20",
+    };
+    const outcome = applyReadAttachmentResult({
+      result,
+      form: baseForm,
+      headerPrefill: createEmptyHeaderPrefill(),
+      line1Prefill: createEmptyLine1Prefill(),
+      lines: [before, line2],
+      vendors,
+      sccCatalog: [{ id: 20, public_id: "scc-old" }],
+      applyMode: "editReread",
+      replaceLine1: true,
+    });
+    expect(outcome.lines[0].project_public_id).toBe("p-old");
+    expect(outcome.lines[0].sub_cost_code_id).toBe("20");
+    expect(outcome.lines[1].project_public_id).toBe("p-2");
+  });
+
+  it("skips line updates when replaceLine1 is false", () => {
+    const line2 = { ...baseLine(), uid: "li-2", rate: "5.00" };
+    const result: ReadAttachmentResult = {
+      status: "ok",
+      message: null,
+      fields: {
+        ...emptyFields(),
+        total_amount: { value: "99.00", confidence: "0.9" },
+      },
+      coding: null,
+      model: null,
+    };
+    const outcome = applyReadAttachmentResult({
+      result,
+      form: baseForm,
+      headerPrefill: createEmptyHeaderPrefill(),
+      line1Prefill: createEmptyLine1Prefill(),
+      lines: [{ ...baseLine(), rate: "10.00" }, line2],
+      vendors,
+      sccCatalog,
+      applyMode: "editReread",
+      replaceLine1: false,
+    });
+    expect(outcome.lines[0].rate).toBe("10.00");
+    expect(outcome.lines[1].rate).toBe("5.00");
+  });
+});
+
+describe("summarizeReplacedFromPdf", () => {
+  it("lists replaced labels and notes unchanged lines", () => {
+    expect(summarizeReplacedFromPdf(["vendor", "date"], false)).toBe(
+      "Replaced vendor, date from the PDF and saved.",
+    );
+    expect(summarizeReplacedFromPdf(["vendor"], true)).toBe(
+      "Replaced vendor from the PDF and saved. Line items were left unchanged.",
+    );
   });
 });

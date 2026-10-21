@@ -41,6 +41,14 @@ import {
 } from "./codingSuggestion";
 import { useBillCodingSuggestion } from "./useBillCodingSuggestion";
 import { documentStatus } from "../../shared/documentLifecycle";
+import { createEmptyHeaderPrefill, createEmptyLine1Prefill } from "./headerPrefill";
+import {
+  applyReadAttachmentResult,
+  GENERIC_READ_ERROR,
+  memoBodyFromPdfRead,
+  rereadBillAttachment,
+  summarizeReplacedFromPdf,
+} from "./readAttachment";
 
 /** Debounced memo for coding suggest; syncs immediately once draft lines have loaded. */
 function useDebouncedMemoAfterBaseline(
@@ -183,6 +191,8 @@ export default function BillEdit() {
   const formRef = useRef(form);
   formRef.current = form;
   const [lineItems, setLineItems] = useState<LineItemRow[]>([]);
+  const lineItemsRef = useRef(lineItems);
+  lineItemsRef.current = lineItems;
   const [lineItemsLoaded, setLineItemsLoaded] = useState(false);
   const persistedLineTotalRef = useRef<number | null>(null);
   const headerDirtyRef = useRef(false);
@@ -195,6 +205,17 @@ export default function BillEdit() {
   } | null>(null);
   const [origLineItemPublicIds, setOrigLineItemPublicIds] = useState<string[]>([]);
   const [attachmentPublicId, setAttachmentPublicId] = useState<string | null>(null);
+  const [rereadingAttachment, setRereadingAttachment] = useState(false);
+  const rereadInFlightRef = useRef(false);
+  const mountedRef = useRef(true);
+  const publicIdRef = useRef(publicId);
+  publicIdRef.current = publicId;
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const { objectUrl: attachmentBlobUrl, loading: attachmentLoading, loadError: attachmentLoadError } =
     useViewAttachmentObjectUrl(attachmentPublicId);
   const { toast } = useToast();
@@ -353,7 +374,8 @@ export default function BillEdit() {
 
   // Auto-save header on changes (300ms debounce)
   const autoSaveHeader = useCallback(async () => {
-    if (!form || !publicId) return;
+    const headerForm = formRef.current;
+    if (!headerForm || !publicId) return;
     // flush() ignores the enabled gate — must not PUT until line items have loaded.
     if (persistedLineTotalRef.current == null) return;
     if (!headerDirtyRef.current) return;
@@ -363,14 +385,14 @@ export default function BillEdit() {
       // matches server lines; live UI sums only go up with explicit saveAll.
       const updated = await put<Bill>(`/api/v1/update/bill/${publicId}`, {
         row_version: rowVersion.read(),
-        vendor_public_id: form.vendor_public_id || undefined,
-        payment_term_public_id: form.payment_term_public_id || undefined,
-        bill_date: form.bill_date,
-        due_date: form.bill_date, // DueDate = BillDate (U-681)
-        bill_number: form.bill_number,
+        vendor_public_id: headerForm.vendor_public_id || undefined,
+        payment_term_public_id: headerForm.payment_term_public_id || undefined,
+        bill_date: headerForm.bill_date,
+        due_date: headerForm.bill_date, // DueDate = BillDate (U-681)
+        bill_number: headerForm.bill_number,
         total_amount: persistedLineTotalRef.current,
-        memo: form.memo || null,
-        is_draft: form.is_draft,
+        memo: headerForm.memo || null,
+        is_draft: headerForm.is_draft,
       });
       rowVersion.set(updated.row_version);
       ++headerWriteSeqRef.current;
@@ -381,7 +403,7 @@ export default function BillEdit() {
       // Silent fail for auto-save — stale-token loop is prevented by useSyncedToken;
       // manual Save / Complete / Submit-for-Review still surface errors via saveAll.
     }
-  }, [form, publicId, rowVersion, acceptBaseline]);
+  }, [publicId, rowVersion, acceptBaseline]);
 
   // Line items intentionally omitted from deps — a coalesced follow-up could run
   // before React commits a just-created row's public_id and duplicate-CREATE it.
@@ -399,7 +421,13 @@ export default function BillEdit() {
     300,
     // auto-save total is computed from lineItems — must not run before they load;
     // auto-save PUTs the can_update-guarded /update/bill route — must not arm without canEdit
-    !!form && !!item && lineItemsLoaded && form.is_draft && !completing && actions.canEdit,
+    !!form &&
+      !!item &&
+      lineItemsLoaded &&
+      form.is_draft &&
+      !completing &&
+      !rereadingAttachment &&
+      actions.canEdit,
   );
 
   // A debounce armed on the previous bill must not fire after a /bill/:id/edit param
@@ -479,6 +507,118 @@ export default function BillEdit() {
     setForm((prev: any) => ({ ...prev, [name]: value }));
   };
 
+  const showRereadPdf =
+    !!item &&
+    documentStatus(item) === "draft" &&
+    lineItemsLoaded &&
+    attachmentPublicId != null &&
+    actions.canEdit;
+
+  const formLocked = rereadingAttachment;
+
+  const REREAD_CONFIRM =
+    "Replace this draft's vendor, bill number, date, memo, amount, description and coding with what the PDF says?";
+
+  const handleRereadPdf = async () => {
+    if (!publicId || rereadingAttachment || rereadInFlightRef.current || !showRereadPdf) return;
+    if (!confirm(REREAD_CONFIRM)) return;
+    rereadInFlightRef.current = true;
+    const billPublicIdAtClick = publicId;
+    await flushAutoSave();
+    setRereadingAttachment(true);
+    try {
+      const result = await rereadBillAttachment(billPublicIdAtClick);
+      if (!mountedRef.current || publicIdRef.current !== billPublicIdAtClick) {
+        return;
+      }
+      if (result.status === "ai_unavailable") {
+        toast(result.message?.trim() || "AI suggestions are paused for today", "info");
+        return;
+      }
+      if (result.status === "disabled") {
+        return;
+      }
+      if (
+        result.status !== "ok" &&
+        result.status !== "partial"
+      ) {
+        toast(result.message?.trim() || GENERIC_READ_ERROR, "error");
+        return;
+      }
+      const latestForm = formRef.current;
+      const latestLines = lineItemsRef.current;
+      if (!latestForm) return;
+      const replaceLine1 = latestLines.length === 1;
+      const vendors = fullVendors.map((v) => ({ public_id: v.public_id, name: v.name }));
+      const sccCatalog = fullSubCostCodes.map((s) => ({ id: s.id, public_id: s.public_id }));
+      const outcome = applyReadAttachmentResult({
+        result,
+        form: {
+          vendor_public_id: latestForm.vendor_public_id ?? "",
+          payment_term_public_id: latestForm.payment_term_public_id ?? "",
+          bill_date: latestForm.bill_date ?? "",
+          due_date: latestForm.due_date ?? "",
+          bill_number: latestForm.bill_number ?? "",
+          memo: latestForm.memo ?? "",
+        },
+        headerPrefill: createEmptyHeaderPrefill(),
+        line1Prefill: createEmptyLine1Prefill(),
+        lines: latestLines,
+        vendors,
+        sccCatalog,
+        applyMode: "editReread",
+        replaceLine1,
+      });
+      if (outcome.inlineMessage) {
+        toast(outcome.inlineMessage, "error");
+        return;
+      }
+      let replacedLabels = [...(outcome.replacedFieldLabels ?? [])];
+      let nextForm = { ...latestForm, ...outcome.form };
+      if (outcome.memoSource) {
+        const memoFromRead = memoBodyFromPdfRead(
+          outcome.memoSource.longDescription,
+          outcome.memoSource.reference,
+        );
+        if (memoFromRead.trim() !== "") {
+          nextForm = { ...nextForm, memo: memoFromRead };
+          if (!replacedLabels.includes("memo")) {
+            replacedLabels.push("memo");
+          }
+        }
+      }
+      const nextLines = replaceLine1 ? outcome.lines : latestLines;
+      formRef.current = nextForm;
+      lineItemsRef.current = nextLines;
+      setForm(nextForm);
+      if (replaceLine1) {
+        setLineItems(nextLines);
+      }
+      const saved = await saveAll();
+      if (saved) {
+        toast(
+          summarizeReplacedFromPdf(replacedLabels, !replaceLine1),
+          "success",
+        );
+      }
+    } catch (err) {
+      if (err instanceof ApiError) {
+        const msg =
+          err.status === 404
+            ? "No attachment on this bill or you don't have access."
+            : err.status === 409
+              ? "Re-read PDF is only available for draft bills."
+              : err.detail || GENERIC_READ_ERROR;
+        toast(msg, "error");
+      } else {
+        toast(GENERIC_READ_ERROR, "error");
+      }
+    } finally {
+      rereadInFlightRef.current = false;
+      setRereadingAttachment(false);
+    }
+  };
+
   const saveAll = async (opts?: { recordReviewedPrefill?: boolean }): Promise<boolean> => {
     const wireIntent = opts?.recordReviewedPrefill ? ("submit" as const) : ("draft" as const);
     const inFlight = saveAllInFlightRef.current;
@@ -509,13 +649,14 @@ export default function BillEdit() {
       // U-171: re-home the shared attachment BEFORE the header PUT and any line delete —
       // create-before-delete, so the document is never orphaned, and an abort here leaves
       // the header and the deletes untouched (nothing written, the line not removed).
-      const survivingIds = lineItems.filter((li) => li.public_id).map((li) => li.public_id!);
+      const linesToSave = lineItemsRef.current;
+      const survivingIds = linesToSave.filter((li) => li.public_id).map((li) => li.public_id!);
       const currentIds = new Set(survivingIds);
       const removedIds = origLineItemPublicIds.filter((id) => !currentIds.has(id));
       await rehomeAttachmentsBeforeLineDeletes(removedIds, survivingIds);
 
       // Save header — total_amount computed from line items
-      const computedTotal = sumLineAmounts(lineItems);
+      const computedTotal = sumLineAmounts(linesToSave);
       const itemCacheRowVersion = () =>
         queryClient.getQueryData<Bill>(entityItemKey(billItemPath))?.row_version;
       const itemTokenAtSend = itemCacheRowVersion();
@@ -559,7 +700,7 @@ export default function BillEdit() {
       const stampRow = (uid: string, patch: Partial<LineItemRow>) =>
         setLineItems((prev) => prev.map((r) => (r.uid === uid ? { ...r, ...patch } : r)));
 
-      for (const li of lineItems) {
+      for (const li of linesToSave) {
         const body = {
           bill_public_id: publicId!,
           sub_cost_code_id: li.sub_cost_code_id !== "" ? Number(li.sub_cost_code_id) : null,
@@ -790,7 +931,7 @@ export default function BillEdit() {
           <button
             type="button"
             className="btn btn-danger"
-            disabled={saving || completing || submitting || deleting}
+            disabled={formLocked || saving || completing || submitting || deleting}
             onClick={() => void handleDiscardDraft()}
           >
             {deleting ? "Discarding…" : "Discard draft"}
@@ -801,6 +942,7 @@ export default function BillEdit() {
         {diverged && <RecordChangedBanner entity="bill" />}
         {saveError && <div className="form-error">{saveError}</div>}
 
+        <fieldset disabled={formLocked} style={{ border: "none", margin: 0, padding: 0, minWidth: 0 }}>
         {publicId && (
           <ReviewTimeline
             parentType="bill"
@@ -846,6 +988,7 @@ export default function BillEdit() {
               onProjectHintChange: setProjectHintForSuggest,
             })}
             items={lineItems}
+            addDisabled={formLocked}
             onEdit={onLineEdit}
             onAdd={addLineItem}
             onRemove={removeLineItem}
@@ -869,13 +1012,14 @@ export default function BillEdit() {
             }
           />
         </div>
+        </fieldset>
 
         <div className="form-actions">
           {actions.canDelete && !showHeaderDiscard && (
             <button
               type="button"
               className="btn btn-danger"
-              disabled={saving || completing || submitting || deleting}
+              disabled={formLocked || saving || completing || submitting || deleting}
               onClick={() => void runDeleteBill()}
             >
               {deleting ? "Deleting..." : "Delete"}
@@ -883,7 +1027,7 @@ export default function BillEdit() {
           )}
           <div className="page-header-spacer" />
           <button type="button" className="btn btn-secondary" onClick={() => navigate(`/bill/${publicId}`)}>Cancel</button>
-          <button type="submit" className="btn btn-primary" disabled={saving || completing || submitting || deleting || !lineItemsLoaded}>
+          <button type="submit" className="btn btn-primary" disabled={formLocked || saving || completing || submitting || deleting || !lineItemsLoaded}>
             {saving ? "Saving..." : "Save"}
           </button>
           {form.is_draft && actions.canSubmitForReview && (
@@ -891,7 +1035,7 @@ export default function BillEdit() {
               type="button"
               className="btn btn-primary"
               onClick={handleSubmitForReview}
-              disabled={saving || completing || submitting || deleting || !lineItemsLoaded || !hasProjectOnLineItem}
+              disabled={formLocked || saving || completing || submitting || deleting || !lineItemsLoaded || !hasProjectOnLineItem}
               title={
                 !hasProjectOnLineItem
                   ? SUBMIT_REQUIRES_PROJECT_MSG
@@ -906,7 +1050,7 @@ export default function BillEdit() {
               type="button"
               className="btn btn-success"
               onClick={handleComplete}
-              disabled={saving || completing || submitting || deleting || !lineItemsLoaded}
+              disabled={formLocked || saving || completing || submitting || deleting || !lineItemsLoaded}
             >
               {completing ? "Completing..." : "Complete Bill"}
             </button>
@@ -924,7 +1068,22 @@ export default function BillEdit() {
 
       {attachmentPublicId && (
         <div className="pdf-viewer">
-          <h3 className="line-items-heading">Attachment</h3>
+          <div className="page-header" style={{ marginBottom: 8 }}>
+            <h3 className="line-items-heading" style={{ margin: 0 }}>
+              Attachment
+            </h3>
+            <div className="page-header-spacer" />
+            {showRereadPdf && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={formLocked || saving || completing || submitting}
+                onClick={() => void handleRereadPdf()}
+              >
+                {rereadingAttachment ? "Reading…" : "Re-read PDF"}
+              </button>
+            )}
+          </div>
           {attachmentLoading && <p className="text-muted">Loading attachment…</p>}
           {attachmentLoadError && <p className="page-error">Could not load attachment.</p>}
           {attachmentBlobUrl && (
