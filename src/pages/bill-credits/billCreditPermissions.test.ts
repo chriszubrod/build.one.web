@@ -63,6 +63,7 @@ describe("resolveBillCreditEditActions", () => {
     expect(resolveBillCreditEditActions(me)).toEqual({
       canEdit: true,
       canComplete: false,
+      canDelete: false,
     });
   });
 
@@ -75,6 +76,18 @@ describe("resolveBillCreditEditActions", () => {
     expect(resolveBillCreditEditActions(me)).toEqual({
       canEdit: true,
       canComplete: true,
+      canDelete: false,
+    });
+  });
+
+  it("grants delete when Bill Credits row has can_delete", () => {
+    const me = makeUser({
+      modules: [makeModule(Modules.BILL_CREDITS, { can_delete: true })],
+    });
+    expect(resolveBillCreditEditActions(me)).toEqual({
+      canEdit: false,
+      canComplete: false,
+      canDelete: true,
     });
   });
 
@@ -85,6 +98,7 @@ describe("resolveBillCreditEditActions", () => {
     expect(resolveBillCreditEditActions(me)).toEqual({
       canEdit: false,
       canComplete: false,
+      canDelete: false,
     });
   });
 
@@ -93,6 +107,7 @@ describe("resolveBillCreditEditActions", () => {
     expect(resolveBillCreditEditActions(me)).toEqual({
       canEdit: true,
       canComplete: true,
+      canDelete: true,
     });
   });
 
@@ -100,6 +115,7 @@ describe("resolveBillCreditEditActions", () => {
     expect(resolveBillCreditEditActions(undefined)).toEqual({
       canEdit: false,
       canComplete: false,
+      canDelete: false,
     });
   });
 });

@@ -15,6 +15,7 @@ export function hasBillCreditPermission(
 export interface BillCreditEditActions {
   canEdit: boolean;
   canComplete: boolean;
+  canDelete: boolean;
 }
 
 /**
@@ -25,9 +26,8 @@ export interface BillCreditEditActions {
  * Complete pre-save — so Complete requires can_update IN ADDITION to
  * POST /api/v1/complete/bill-credit/{public_id} (can_complete).
  *
- * The bill credit surface has no entity-level Delete or Submit-for-Review buttons,
- * so deliberately no canDelete/canSubmit members; ReviewTimeline gates its own
- * actions (U-108).
+ * canDelete mirrors DELETE /api/v1/delete/bill-credit/{public_id} (can_delete).
+ * ReviewTimeline gates its own actions (U-108); no canSubmit here.
  */
 export function resolveBillCreditEditActions(
   me: CurrentUser | undefined | null,
@@ -36,5 +36,6 @@ export function resolveBillCreditEditActions(
   return {
     canEdit,
     canComplete: canEdit && hasBillCreditPermission(me, "can_complete"),
+    canDelete: hasBillCreditPermission(me, "can_delete"),
   };
 }

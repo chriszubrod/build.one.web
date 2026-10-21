@@ -2,7 +2,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState, useRef } from "react";
 import { useServerOwnedRebase } from "../../hooks/useServerOwnedRebase";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEntityItem, invalidateEntity } from "../../hooks/useEntity";
+import { useEntityItem, invalidateEntity, entityItemKey, entityListKey } from "../../hooks/useEntity";
+import { useDeleteDocument } from "../../hooks/useDeleteDocument";
 import { put, post, del, getList } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
@@ -15,6 +16,11 @@ import ReviewTimeline from "../../components/ReviewTimeline";
 import RecordChangedBanner from "../../components/RecordChangedBanner";
 import type { BillCredit, BillCreditLineItem } from "../../types/api";
 import { existingUidsByPublicId, newLineItemUid, persistedLineItemUid } from "../../shared/lineItemUid";
+
+function hasNoQboIdentity(item: { qbo_id?: string | null }): boolean {
+  const q = item.qbo_id;
+  return q == null || q === "";
+}
 
 interface LineItemRow {
   uid: string;
@@ -56,6 +62,16 @@ export default function BillCreditEdit() {
   const { data: lookups } = useLookups("vendors");
   const { data: me, isLoading: meLoading } = useCurrentUser();
   const actions = resolveBillCreditEditActions(me);
+  const billCreditItemPath = id ? `/api/v1/get/bill-credit/${id}` : "";
+  const { deleting, runDelete: runDiscardDraft } = useDeleteDocument({
+    deletePath: id ? `/api/v1/delete/bill-credit/${id}` : "",
+    confirmText: "Discard this draft bill credit? This cannot be undone.",
+    successToast: "Draft discarded.",
+    errorFallback: "Could not discard draft.",
+    navigateTo: "/bill-credit/list",
+    removeQueryKeys: id ? [entityItemKey(billCreditItemPath)] : [],
+    invalidateQueryKeys: [entityListKey("/api/v1/get/bill-credits")],
+  });
   const [form, setForm] = useState<Record<string, any> | null>(null);
   const [lineItems, setLineItems] = useState<LineItemRow[]>([]);
   const [origLineItemPublicIds, setOrigLineItemPublicIds] = useState<string[]>([]);
@@ -237,9 +253,25 @@ export default function BillCreditEdit() {
     }
   };
 
+  const showHeaderDiscard =
+    !!item && form.is_draft && actions.canDelete && hasNoQboIdentity(item);
+
   return (
     <div className="page form-page-wide">
-      <div className="page-header"><h1>Edit Bill Credit {item?.credit_number}</h1></div>
+      <div className="page-header">
+        <h1>Edit Bill Credit {item?.credit_number}</h1>
+        <div className="page-header-spacer" />
+        {showHeaderDiscard && (
+          <button
+            type="button"
+            className="btn btn-danger"
+            disabled={saving || completing || deleting}
+            onClick={() => void runDiscardDraft()}
+          >
+            {deleting ? "Discarding…" : "Discard draft"}
+          </button>
+        )}
+      </div>
       <form className="form-card" onSubmit={handleSubmit}>
         {diverged && <RecordChangedBanner entity="bill credit" />}
         {saveError && <div className="form-error">{saveError}</div>}
@@ -266,7 +298,7 @@ export default function BillCreditEdit() {
         />
 
         <div className="form-actions">
-          <button type="submit" className="btn btn-primary" disabled={saving || completing}>
+          <button type="submit" className="btn btn-primary" disabled={saving || completing || deleting}>
             {saving ? "Saving..." : "Save"}
           </button>
           <button type="button" className="btn btn-secondary" onClick={() => navigate(`/bill-credit/${id}`)}>Cancel</button>
@@ -278,7 +310,7 @@ export default function BillCreditEdit() {
               type="button"
               className="btn btn-success"
               onClick={handleComplete}
-              disabled={saving || completing}
+              disabled={saving || completing || deleting}
             >
               {completing ? "Completing..." : "Complete Bill Credit"}
             </button>

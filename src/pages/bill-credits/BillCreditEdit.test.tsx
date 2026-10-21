@@ -8,7 +8,7 @@ import { Modules } from "../../shared/modules";
 import type { BillCredit, CurrentUser, CurrentUserModule } from "../../types/api";
 import { flushUntil } from "../../__testutils__/flush";
 import { setTextareaValue } from "../../__testutils__/domEvents";
-import { entityItemKey } from "../../hooks/useEntity";
+import { entityItemKey, entityListKey } from "../../hooks/useEntity";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -20,6 +20,7 @@ const mockPost = vi.fn();
 const mockPut = vi.fn();
 const mockDel = vi.fn();
 const mockNavigate = vi.fn();
+const mockToast = vi.fn();
 
 vi.mock("react-router-dom", async (importOriginal) => {
   const mod = await importOriginal<typeof import("react-router-dom")>();
@@ -99,6 +100,10 @@ const mockUseCurrentUser = vi.fn(() => ({
 
 vi.mock("../../hooks/useCurrentUser", () => ({
   useCurrentUser: () => mockUseCurrentUser(),
+}));
+
+vi.mock("../../components/Toast", () => ({
+  useToast: () => ({ toast: (...args: unknown[]) => mockToast(...args) }),
 }));
 
 function sampleBillCredit(overrides: Partial<BillCredit> = {}): BillCredit {
@@ -467,6 +472,148 @@ describe("BillCreditEdit token rebase (U-471)", () => {
     });
     await flushUntil(() => cached()?.memo === "saved via saveAll");
     expect(container.textContent).not.toContain("This bill credit was changed in another window.");
+  });
+});
+
+const BILL_CREDIT_LIST_PATH = "/api/v1/get/bill-credits";
+
+function discardDraftButton(): HTMLButtonElement | undefined {
+  return Array.from(container.querySelectorAll("button")).find((b) =>
+    b.textContent?.includes("Discard draft"),
+  ) as HTMLButtonElement | undefined;
+}
+
+async function waitForDiscardButton() {
+  await waitForCondition(() => discardDraftButton() !== undefined);
+}
+
+describe("BillCreditEdit discard draft (U-684b)", () => {
+  let queryClient: QueryClient;
+
+  function renderWithClient() {
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    act(() => {
+      root.render(
+        createElement(
+          MemoryRouter,
+          { initialEntries: ["/bill-credit/bc-1/edit"] },
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(
+              Routes,
+              null,
+              createElement(Route, {
+                path: "/bill-credit/:publicId/edit",
+                element: createElement(BillCreditEdit),
+              }),
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  beforeEach(() => {
+    mockToast.mockClear();
+    mockDel.mockResolvedValue({});
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === BILL_CREDIT_GET_PATH) {
+        return Promise.resolve(sampleBillCredit({ is_draft: true }));
+      }
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+  });
+
+  it("shows Discard draft for draft with canDelete and no qbo_id", async () => {
+    renderWithClient();
+    await waitForDiscardButton();
+    expect(discardDraftButton()).toBeDefined();
+  });
+
+  it("hides Discard draft when not draft", async () => {
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === BILL_CREDIT_GET_PATH) {
+        return Promise.resolve(sampleBillCredit({ is_draft: false }));
+      }
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+    renderWithClient();
+    await waitForCondition(() => findSaveButton(container) !== undefined);
+    expect(discardDraftButton()).toBeUndefined();
+  });
+
+  it("hides Discard draft without can_delete", async () => {
+    mockUseCurrentUser.mockReturnValue({
+      data: {
+        ...adminUser(),
+        is_admin: false,
+        modules: [
+          makeModule(Modules.BILL_CREDITS, { can_read: true, can_update: true, can_delete: false }),
+        ],
+      },
+      isLoading: false,
+    });
+    renderWithClient();
+    await waitForCondition(() => findSaveButton(container) !== undefined);
+    expect(discardDraftButton()).toBeUndefined();
+  });
+
+  it("hides Discard draft when qbo_id is set", async () => {
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === BILL_CREDIT_GET_PATH) {
+        return Promise.resolve(sampleBillCredit({ is_draft: true, qbo_id: "qbo-99" }));
+      }
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+    renderWithClient();
+    await waitForCondition(() => findSaveButton(container) !== undefined);
+    expect(discardDraftButton()).toBeUndefined();
+  });
+
+  it("does not DELETE when confirm is declined", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderWithClient();
+    await waitForDiscardButton();
+    await act(async () => {
+      discardDraftButton()!.click();
+    });
+    expect(mockDel).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it("DELETE on confirm shows toast, navigates, and removes item cache", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderWithClient();
+    queryClient.setQueryData(entityItemKey(BILL_CREDIT_GET_PATH), sampleBillCredit());
+    queryClient.setQueryData(entityListKey(BILL_CREDIT_LIST_PATH), { items: [] });
+    await waitForDiscardButton();
+    await act(async () => {
+      discardDraftButton()!.click();
+    });
+    await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill-credit/list"));
+    expect(mockDel).toHaveBeenCalledWith("/api/v1/delete/bill-credit/bc-1");
+    expect(mockToast).toHaveBeenCalledWith("Draft discarded.");
+    expect(queryClient.getQueryState(entityListKey(BILL_CREDIT_LIST_PATH))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryData(entityItemKey(BILL_CREDIT_GET_PATH))).toBeUndefined();
+    confirmSpy.mockRestore();
+  });
+
+  it("shows API refusal message and re-enables without navigate", async () => {
+    const { ApiError } = await import("../../api/client");
+    const refusal = "Cannot delete this bill credit: invoice X still cites one of its line items.";
+    mockDel.mockRejectedValueOnce(new ApiError(422, refusal));
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderWithClient();
+    await waitForDiscardButton();
+    await act(async () => {
+      discardDraftButton()!.click();
+    });
+    await flushUntil(() => mockToast.mock.calls.some((c) => c[0] === refusal));
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockToast).toHaveBeenCalledWith(refusal, "error");
+    expect(discardDraftButton()?.disabled).toBe(false);
+    confirmSpy.mockRestore();
   });
 });
 

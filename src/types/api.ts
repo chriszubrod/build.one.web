@@ -953,6 +953,7 @@ export interface BillCredit {
   total_amount: string | null;
   memo: string | null;
   is_draft: boolean;
+  qbo_id?: string | null;
 }
 
 export interface BillCreditLineItem {
@@ -988,6 +989,7 @@ export interface Invoice {
   total_amount: string | null;
   memo: string | null;
   is_draft: boolean;
+  qbo_id?: string | null;
 }
 
 export interface InvoiceLineItem {

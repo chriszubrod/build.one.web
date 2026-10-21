@@ -88,7 +88,8 @@ vi.mock("../../hooks/useCurrentUser", () => ({
   useCurrentUser: () => mockUseCurrentUser(),
 }));
 
-vi.mock("../../hooks/useEntity", () => ({
+vi.mock("../../hooks/useEntity", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../hooks/useEntity")>()),
   useEntityItem: (path: string) => mockUseEntityItem(path),
   invalidateEntity: (...args: unknown[]) => mockInvalidateEntity(...args),
   removeEntity: (...args: unknown[]) => mockRemoveEntity(...args),
