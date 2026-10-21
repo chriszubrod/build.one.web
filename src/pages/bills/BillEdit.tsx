@@ -12,7 +12,6 @@ import { put, post, del, getList, getOne, ApiError } from "../../api/client";
 import { useCompletionPolling } from "../../hooks/useCompletionPolling";
 import CompletionStatusBar from "../../components/CompletionStatusBar";
 import { useViewAttachmentObjectUrl } from "../../hooks/useViewAttachmentObjectUrl";
-import { useLookups } from "../../hooks/useLookups";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { resolveBillEditActions } from "./billPermissions";
 import { useEntityList } from "../../hooks/useEntity";
@@ -172,9 +171,10 @@ export default function BillEdit() {
   const queryClient = useQueryClient();
   const billItemPath = `/api/v1/get/bill/${publicId}`;
   const { item, loading, error } = useEntityItem<Bill>(billItemPath);
-  const { data: lookups } = useLookups("vendors,payment_terms,sub_cost_codes,projects");
   const { items: fullVendors } = useEntityList<FullVendor>("/api/v1/get/vendors");
-  const { items: fullPaymentTerms } = useEntityList<{ id: number; public_id: string }>("/api/v1/get/payment-terms");
+  const { items: fullPaymentTerms } = useEntityList<{ id: number; public_id: string; name: string }>(
+    "/api/v1/get/payment-terms",
+  );
   const { items: fullSubCostCodes } = useEntityList<SubCostCode>("/api/v1/get/sub-cost-codes");
   const { items: fullProjects } = useEntityList<Project>("/api/v1/get/projects");
   const { data: me, isLoading: meLoading } = useCurrentUser();
@@ -678,7 +678,7 @@ export default function BillEdit() {
     try {
       await post(`/api/v1/submit/review/bill/${publicId}`, {});
       toast("Submitted for review — notification queued.");
-      navigate(`/bill/${publicId}`);
+      navigate("/bill/list");
     } catch (err: any) {
       setSaveError(err.message);
       setSubmitting(false);
@@ -806,6 +806,7 @@ export default function BillEdit() {
             parentType="bill"
             parentPublicId={publicId}
             onBeforeAction={beforeReviewAction}
+            onAfterSubmit={() => navigate("/bill/list")}
           />
         )}
 
@@ -813,8 +814,8 @@ export default function BillEdit() {
           mode="edit"
           form={form as BillHeaderFormValues}
           onChange={onChange}
-          vendorOptions={(lookups.vendors ?? []).map((v) => ({ value: v.public_id, label: v.name }))}
-          paymentTermOptions={(lookups.payment_terms ?? []).map((pt) => ({
+          vendorOptions={fullVendors.map((v) => ({ value: v.public_id, label: v.name }))}
+          paymentTermOptions={fullPaymentTerms.map((pt) => ({
             value: pt.public_id,
             label: pt.name,
           }))}

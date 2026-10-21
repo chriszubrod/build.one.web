@@ -744,7 +744,7 @@ export default function BillCreate() {
       }
       // Save For Later stays on /edit so the user can keep working the
       // draft. Submit and Complete return to /bill/list (plain path — the
-      // list defaults to In Review). A completed bill will not be on that
+      // list defaults to Draft). A completed bill will not be on that
       // tab (status becomes completed, and asynchronously at that), so the
       // toast is the confirmation Complete gets.
       if (action === "complete") {

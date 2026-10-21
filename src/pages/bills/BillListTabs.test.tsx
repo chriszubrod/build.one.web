@@ -77,8 +77,13 @@ describe("BillList status tabs reach the API (U-451)", () => {
     setPageSpy.mockClear();
   });
 
-  it("defaults to in_review when the URL carries no status", async () => {
+  it("defaults to draft when the URL carries no status (U-700)", async () => {
     await mountAt("/bills");
+    expect(requestedUrls.at(-1)).toBe("/api/v1/get/bills?status=draft");
+  });
+
+  it("honours explicit ?status=in_review", async () => {
+    await mountAt("/bills?status=in_review");
     expect(requestedUrls.at(-1)).toBe("/api/v1/get/bills?status=in_review");
   });
 
@@ -92,7 +97,7 @@ describe("BillList status tabs reach the API (U-451)", () => {
     // links carry it. The API 422s anything unknown, so forwarding it would
     // break the page rather than degrade it.
     await mountAt("/bills?status=finalized");
-    expect(requestedUrls.at(-1)).toBe("/api/v1/get/bills?status=in_review");
+    expect(requestedUrls.at(-1)).toBe("/api/v1/get/bills?status=draft");
   });
 
   it("NEVER queries is_draft", async () => {

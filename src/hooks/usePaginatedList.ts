@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { rawRequest, ApiError } from "../api/client";
 
 interface PaginatedResponse<T> {
@@ -107,6 +107,7 @@ export function usePaginatedList<T>(
     return !paginatedListCache.has(paginatedListCacheKey(basePath, p, pageSize, s));
   });
   const [error, setError] = useState("");
+  const loadSeqRef = useRef(0);
 
   const setPage = useCallback(
     (p: number) => {
@@ -162,8 +163,10 @@ export function usePaginatedList<T>(
       }
       setError("");
 
+      const seq = ++loadSeqRef.current;
       rawRequest<PaginatedResponse<T>>(url)
         .then((res) => {
+          if (seq !== loadSeqRef.current) return;
           setItems(res.data);
           setTotal(res.count);
           if (staleWhileRevalidate) {
@@ -171,6 +174,7 @@ export function usePaginatedList<T>(
           }
         })
         .catch((err) => {
+          if (seq !== loadSeqRef.current) return;
           if (err instanceof ApiError && err.status === 404) {
             setItems([]);
             setTotal(0);
@@ -181,7 +185,9 @@ export function usePaginatedList<T>(
             setError(err.message);
           }
         })
-        .finally(() => setLoading(false));
+        .finally(() => {
+          if (seq === loadSeqRef.current) setLoading(false);
+        });
     },
     [basePath, page, pageSize, search, staleWhileRevalidate],
   );

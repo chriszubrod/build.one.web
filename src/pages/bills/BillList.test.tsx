@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { flushUntil } from "../../__testutils__/flush";
+import { setInputValue } from "../../__testutils__/domEvents";
 import BillList, { draftAttachmentErrorMessage } from "./BillList";
 import { ApiError, OfflineError } from "../../api/client";
 
@@ -17,7 +18,9 @@ const mockToast = vi.fn();
 
 const mockListState = vi.hoisted(() => ({
   items: [] as Array<Record<string, unknown>>,
+  search: "",
 }));
+const mockSetSearch = vi.hoisted(() => vi.fn());
 
 vi.mock("react-router-dom", async (importOriginal) => {
   const mod = await importOriginal<typeof import("react-router-dom")>();
@@ -46,8 +49,11 @@ vi.mock("../../hooks/usePaginatedList", () => ({
     loading: false,
     error: "",
     setPage: vi.fn(),
-    setSearch: vi.fn(),
-    search: "",
+    setSearch: (s: string) => {
+      mockListState.search = s;
+      mockSetSearch(s);
+    },
+    search: mockListState.search,
     reload: mockReload,
   }),
 }));
@@ -68,6 +74,8 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   mockListState.items = [];
+  mockListState.search = "";
+  mockSetSearch.mockClear();
   mockUploadFile.mockImplementation(async () => ({ public_id: "att-1" }));
   mockPost.mockImplementation(async () => ({
     bill_public_id: "bill-new",
@@ -493,5 +501,26 @@ describe("BillList PDF draft intake", () => {
       "up-second.pdf",
       "post-att-second.pdf",
     ]);
+  });
+});
+
+describe("BillList search debounce (U-700)", () => {
+  it("debounces search input (~300ms) before updating the list query", async () => {
+    await mountList();
+    const search = container.querySelector('input[aria-label="Search bills by vendor, bill number or memo"]') as HTMLInputElement;
+    expect(search).toBeTruthy();
+
+    await act(async () => {
+      setInputValue(search, "a");
+      setInputValue(search, "ab");
+      setInputValue(search, "abc");
+    });
+    expect(mockSetSearch).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(mockSetSearch).toHaveBeenCalledTimes(1);
+    expect(mockSetSearch).toHaveBeenCalledWith("abc");
   });
 });

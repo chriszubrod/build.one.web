@@ -61,6 +61,7 @@ function render(
       action?: ReviewActionKind,
       canSubmit?: boolean,
     ) => Promise<boolean>;
+    onAfterSubmit?: () => void;
   } = {},
 ) {
   act(() => {
@@ -115,6 +116,67 @@ async function submitForReview() {
   });
   await flushUntil(() => mockPost.mock.calls.length > 0);
 }
+
+describe("ReviewTimeline — onAfterSubmit (U-700)", () => {
+  it("calls onAfterSubmit only after a successful submit-for-review", async () => {
+    const onAfterSubmit = vi.fn();
+    render("bill", "bill-1", { onAfterSubmit });
+    await submitForReview();
+    expect(onAfterSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call onAfterSubmit when the submit POST fails", async () => {
+    mockPost.mockRejectedValue(new Error("boom"));
+    const onAfterSubmit = vi.fn();
+    render("bill", "bill-1", { onAfterSubmit });
+    await submitForReview();
+    expect(onAfterSubmit).not.toHaveBeenCalled();
+  });
+
+  it("does not call onAfterSubmit for advance when only submit is wired", async () => {
+    const review = {
+      id: 1,
+      public_id: "rv-1",
+      row_version: "x",
+      created_datetime: "2026-09-15 10:00:00",
+      modified_datetime: null,
+      review_status_id: 2,
+      user_id: 1,
+      comments: null,
+      bill_id: 1,
+      expense_id: null,
+      bill_credit_id: null,
+      invoice_id: null,
+      status_name: "In Review",
+      status_sort_order: 2,
+      status_is_final: false,
+      status_is_declined: false,
+      status_color: null,
+      status_is_initial: false,
+      review_kind: "in_review",
+      user_firstname: "A",
+      user_lastname: "D",
+    };
+    mockGetList.mockResolvedValue({ data: [review], count: 1 });
+    const onAfterSubmit = vi.fn();
+    render("bill", "bill-1", { onAfterSubmit });
+
+    await flushUntil(() => buttonWithText("Advance →") !== undefined);
+    await act(async () => {
+      buttonWithText("Advance →")!.click();
+    });
+    await flushUntil(() => buttonWithText("Advance Review") !== undefined);
+    const advanceButtons = Array.from(container.querySelectorAll("button")).filter(
+      (b) => b.textContent?.trim() === "Advance Review",
+    );
+    await act(async () => {
+      advanceButtons[advanceButtons.length - 1].click();
+    });
+    await flushUntil(() => mockPost.mock.calls.length > 0);
+
+    expect(onAfterSubmit).not.toHaveBeenCalled();
+  });
+});
 
 describe("ReviewTimeline — onBeforeAction (U-487)", () => {
   it("POSTs without onBeforeAction — same behaviour as before the prop existed", async () => {

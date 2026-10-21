@@ -23,7 +23,7 @@ describe("bills status tabs (U-451)", () => {
   it("has no 'All' tab", () => {
     // Deliberate (Chris, 2026-09-11). Pinned because re-adding it is a product
     // decision, not a tidy-up — with no All tab there is no single view of
-    // every in-flight bill, which is why the default moved to in_review.
+    // every in-flight bill; U-700 defaults the list to the draft tab instead.
     expect(STATUS_TABS.some((t) => t.value === ("" as string))).toBe(false);
     expect(STATUS_TABS.some((t) => /all/i.test(t.label))).toBe(false);
   });
@@ -36,24 +36,24 @@ describe("bills status tabs (U-451)", () => {
     }
   });
 
-  it("defaults to in_review, not to the empty draft tab", () => {
-    // The previous default was named "draft" but meant `?is_draft=true` — every
-    // in-flight bill. `status='draft'` means something much narrower: 0 bills in
-    // production, because a bill acquires a Review as soon as it is created.
-    // Keeping the old name would have opened this page on an empty table.
-    expect(DEFAULT_STATUS_TAB).toBe("in_review");
-    expect(resolveStatusTab(null)).toBe("in_review");
-    expect(resolveStatusTab(undefined)).toBe("in_review");
-    expect(resolveStatusTab("")).toBe("in_review");
+  it("defaults to draft when the URL carries no status (U-700)", () => {
+    expect(DEFAULT_STATUS_TAB).toBe("draft");
+    expect(resolveStatusTab(null)).toBe("draft");
+    expect(resolveStatusTab(undefined)).toBe("draft");
+    expect(resolveStatusTab("")).toBe("draft");
+  });
+
+  it("respects an explicit ?status=in_review", () => {
+    expect(resolveStatusTab("in_review")).toBe("in_review");
   });
 
   it("falls back rather than forwarding junk the API would reject", () => {
     // The API 422s an unknown status (U-445) instead of silently returning
     // everything, so a stale or hand-edited URL must be normalised here.
-    expect(resolveStatusTab("billed")).toBe("in_review");
-    expect(resolveStatusTab("Draft")).toBe("in_review"); // case matters
-    expect(resolveStatusTab("finalized")).toBe("in_review"); // the OLD value
-    expect(resolveStatusTab("'; DROP TABLE Bill--")).toBe("in_review");
+    expect(resolveStatusTab("billed")).toBe("draft");
+    expect(resolveStatusTab("Draft")).toBe("draft"); // case matters
+    expect(resolveStatusTab("finalized")).toBe("draft"); // the OLD value
+    expect(resolveStatusTab("'; DROP TABLE Bill--")).toBe("draft");
   });
 
   it("round-trips every legal tab", () => {

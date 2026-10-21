@@ -28,17 +28,15 @@ export const STATUS_TABS: { value: BillStatusTab; label: string }[] = [
 ];
 
 /**
- * There is deliberately no "All" tab (Chris, 2026-09-11), and that has a
- * consequence worth stating: before U-451 this page defaulted to
- * `?is_draft=true`, which showed every in-flight bill in ONE view. Those now
- * split across Submitted / In Review / Declined.
+ * There is deliberately no "All" tab (Chris, 2026-09-11). Before U-451 the page
+ * defaulted to `?is_draft=true`, which showed every in-flight bill in one view;
+ * U-451 split that across Submitted / In Review / Declined / etc.
  *
- * So the default is `in_review` — the largest in-flight queue and the one AP
- * actions. Defaulting to `draft` (the previous default's name) would open an
- * EMPTY page: a bill acquires a Review the moment it is created, so nothing
- * rests at `draft` in production.
+ * The default tab is `draft` (U-700): bills the user is still editing before
+ * submit-for-review. An explicit `?status=` in the URL still wins via
+ * `resolveStatusTab`.
  */
-export const DEFAULT_STATUS_TAB: BillStatusTab = "in_review";
+export const DEFAULT_STATUS_TAB: BillStatusTab = "draft";
 
 export function isStatusTab(value: string | null | undefined): value is BillStatusTab {
   return STATUS_TABS.some((o) => o.value === value);
@@ -79,7 +77,7 @@ export const SECTION_LABEL: Record<BillStatusTab, string> = {
  * empty most of the time.
  */
 export const EMPTY_COPY: Record<BillStatusTab, string> = {
-  draft: "No draft bills. A bill enters review as soon as it is created, so this is normally empty.",
+  draft: "No draft bills.",
   submitted: "Nothing awaiting a first review.",
   in_review: "Nothing in review.",
   approved: "Nothing approved and waiting to be completed.",

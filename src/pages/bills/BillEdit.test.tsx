@@ -29,6 +29,7 @@ const mockUseViewAttachmentObjectUrl = vi.fn(() => ({
   loadError: null,
 }));
 const mockSuggestCoding = vi.fn();
+const lookupHookCalls = vi.hoisted(() => ({ n: 0 }));
 
 vi.mock("react-router-dom", async (importOriginal) => {
   const mod = await importOriginal<typeof import("react-router-dom")>();
@@ -56,18 +57,11 @@ vi.mock("../../api/client", () => ({
 }));
 
 vi.mock("../../hooks/useLookups", () => ({
-  useLookups: () => ({
-    data: {
-      vendors: [
-        { public_id: "v-1", id: 1, name: "V" },
-        { public_id: "v-2", id: 2, name: "V2" },
-      ],
-      payment_terms: [{ public_id: "pt-1", id: 1, name: "Net 30" }],
-      sub_cost_codes: [{ id: 1, public_id: "scc-1", name: "SCC", number: "01" }],
-      projects: [{ public_id: "p-1", id: 1, name: "P" }],
-    },
-    loading: false,
-  }),
+  useLookups: (include: string) => {
+    lookupHookCalls.n += 1;
+    void include;
+    return { data: {}, loading: false };
+  },
 }));
 
 vi.mock("../../components/Toast", () => ({
@@ -209,10 +203,16 @@ function setupMocks(lineItems: BillLineItem[]) {
 
   mockGetList.mockImplementation((path: string) => {
     if (path === "/api/v1/get/vendors") {
-      return Promise.resolve({ data: [{ id: 1, public_id: "v-1", name: "V" }], count: 1 });
+      return Promise.resolve({
+        data: [
+          { id: 1, public_id: "v-1", name: "V" },
+          { id: 2, public_id: "v-2", name: "V2" },
+        ],
+        count: 2,
+      });
     }
     if (path === "/api/v1/get/payment-terms") {
-      return Promise.resolve({ data: [{ id: 1, public_id: "pt-1" }], count: 1 });
+      return Promise.resolve({ data: [{ id: 1, public_id: "pt-1", name: "Net 30" }], count: 1 });
     }
     if (path === "/api/v1/get/sub-cost-codes") {
       return Promise.resolve({
@@ -1694,6 +1694,7 @@ describe("BillEdit ReviewTimeline onBeforeAction (U-530)", () => {
                   if (!ok) return;
                 }
                 await mockPost(REVIEW_SUBMIT_PATH, { comments: null });
+                props.onAfterSubmit?.();
               },
             },
             "Submit for Review",
@@ -3437,4 +3438,116 @@ describe("BillEdit coding suggestions", () => {
     });
   });
 
+});
+
+describe("U-700 BillEdit navigation and reference data", () => {
+  const REF_PATHS = [
+    "/api/v1/get/vendors",
+    "/api/v1/get/payment-terms",
+    "/api/v1/get/sub-cost-codes",
+    "/api/v1/get/projects",
+  ] as const;
+
+  function countGetList(path: string) {
+    return mockGetList.mock.calls.filter((c) => c[0] === path).length;
+  }
+
+  beforeEach(() => {
+    mockNavigate.mockClear();
+    lookupHookCalls.n = 0;
+  });
+
+  it("loads each reference dataset once (no /lookups duplicate)", async () => {
+    setupMocks([sampleLineItem()]);
+    renderBillEdit();
+    await waitForReady();
+    for (const path of REF_PATHS) {
+      expect(countGetList(path), path).toBe(1);
+    }
+    expect(lookupHookCalls.n).toBe(0);
+    expect(
+      mockGetList.mock.calls.some((c) => String(c[0]).includes("/lookups")),
+    ).toBe(false);
+  });
+
+  it("handleSubmitForReview success navigates to /bill/list", async () => {
+    setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+    mockPost.mockImplementation((path: string) => {
+      if (path === "/api/v1/submit/review/bill/bill-1") {
+        return Promise.resolve({});
+      }
+      return Promise.reject(new Error(`unexpected post: ${path}`));
+    });
+    renderBillEdit();
+    await waitForReady();
+    const submitBtn = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+      (b) => b.textContent === "Submit for Review" && !b.dataset.testid,
+    )!;
+    await flushUntil(() => !submitBtn.disabled);
+    await act(async () => {
+      submitBtn.click();
+    });
+    await flushUntil(() =>
+      mockPost.mock.calls.some((c) => c[0] === "/api/v1/submit/review/bill/bill-1"),
+    );
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/list");
+  });
+
+  it("handleSubmitForReview failure does not navigate away", async () => {
+    setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+    mockPost.mockImplementation((path: string) => {
+      if (path === "/api/v1/submit/review/bill/bill-1") {
+        return Promise.reject(new Error("submit failed"));
+      }
+      return Promise.reject(new Error(`unexpected post: ${path}`));
+    });
+    renderBillEdit();
+    await waitForReady();
+    const submitBtn = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+      (b) => b.textContent === "Submit for Review" && !b.dataset.testid,
+    )!;
+    await flushUntil(() => !submitBtn.disabled);
+    await act(async () => {
+      submitBtn.click();
+    });
+    await flushUntil(() => container.textContent?.includes("submit failed") ?? false);
+    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/list");
+  });
+
+  it("ReviewTimeline onAfterSubmit navigates to /bill/list", async () => {
+    vi.mocked(ReviewTimeline).mockImplementation((props) =>
+      createElement(
+        "button",
+        {
+          type: "button",
+          "data-testid": "review-submit-stub",
+          onClick: async () => {
+            if (props.onBeforeAction) {
+              const ok = await props.onBeforeAction("submit", true);
+              if (!ok) return;
+            }
+            await mockPost(REVIEW_SUBMIT_PATH, { comments: null });
+            props.onAfterSubmit?.();
+          },
+        },
+        "Submit",
+      ),
+    );
+    setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+    mockPost.mockImplementation((path: string) => {
+      if (path === REVIEW_SUBMIT_PATH) {
+        return Promise.resolve({});
+      }
+      return Promise.reject(new Error(`unexpected post: ${path}`));
+    });
+    renderBillEdit();
+    await waitForReady();
+    const stub = container.querySelector('[data-testid="review-submit-stub"]') as HTMLButtonElement;
+    expect(stub).toBeTruthy();
+    await act(async () => {
+      stub.click();
+    });
+    await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill/list"));
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/list");
+  });
 });

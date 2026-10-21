@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
 import Pagination from "../../components/Pagination";
 import PageHeader from "../../components/PageHeader";
@@ -160,6 +161,13 @@ export default function BillList() {
     staleWhileRevalidate: true,
     sessionPersistenceKey: "buildOne.billList",
   });
+  const [searchInput, setSearchInput] = useState(search);
+  const debouncedSearch = useDebouncedValue(searchInput, 300);
+  useEffect(() => {
+    if (debouncedSearch === searchInput && debouncedSearch !== search) {
+      setSearch(debouncedSearch);
+    }
+  }, [debouncedSearch, searchInput, search, setSearch]);
   const hasActiveFilters = Boolean(search || fromDate || toDate);
 
   useEffect(() => {
@@ -167,6 +175,7 @@ export default function BillList() {
   }, [loading, items.length, total, page, setPage]);
 
   const clearFilters = () => {
+    setSearchInput("");
     setSearch("");
     setSearchParams(
       (prev) => {
@@ -419,8 +428,8 @@ export default function BillList() {
               type="search"
               className="list-filter-input"
               placeholder="Vendor, bill number, memo…"
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               autoComplete="off"
               aria-label="Search bills by vendor, bill number or memo"
             />
