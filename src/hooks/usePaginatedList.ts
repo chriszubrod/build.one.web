@@ -54,7 +54,10 @@ interface UsePaginatedListResult<T> {
   total: number;
   page: number;
   pageSize: number;
+  /** True when there is nothing to show yet for the current list key (initial load or cache miss). */
   loading: boolean;
+  /** True when re-fetching while stale rows for this key remain visible (SWR reload / background refresh). */
+  refreshing: boolean;
   error: string;
   setPage: (p: number) => void;
   setSearch: (s: string) => void;
@@ -107,6 +110,7 @@ export function usePaginatedList<T>(
     return !paginatedListCache.has(paginatedListCacheKey(basePath, p, pageSize, s));
   });
   const [error, setError] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
   const loadSeqRef = useRef(0);
 
   const setPage = useCallback(
@@ -154,12 +158,19 @@ export function usePaginatedList<T>(
           ? (paginatedListCache.get(key) as PaginatedCacheEntry<T> | undefined)
           : undefined;
 
+      const canShowStale = staleWhileRevalidate && paginatedListCache.has(key);
+
       if (cached) {
         setItems(cached.items);
         setTotal(cached.total);
+      }
+
+      if (canShowStale) {
         setLoading(false);
+        setRefreshing(true);
       } else {
         setLoading(true);
+        setRefreshing(false);
       }
       setError("");
 
@@ -186,7 +197,10 @@ export function usePaginatedList<T>(
           }
         })
         .finally(() => {
-          if (seq === loadSeqRef.current) setLoading(false);
+          if (seq === loadSeqRef.current) {
+            setLoading(false);
+            setRefreshing(false);
+          }
         });
     },
     [basePath, page, pageSize, search, staleWhileRevalidate],
@@ -201,7 +215,7 @@ export function usePaginatedList<T>(
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return {
-    items, total, page, pageSize, loading, error,
+    items, total, page, pageSize, loading, refreshing, error,
     setPage, setSearch, search, reload, totalPages,
   };
 }

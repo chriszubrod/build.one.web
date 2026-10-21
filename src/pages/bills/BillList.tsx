@@ -75,6 +75,15 @@ interface PendingFile {
 
 const NON_PDF_MESSAGE = "Only PDF files can become draft bills here.";
 
+/** Min interval between list refetches while a multi-file import batch is still running. */
+const IMPORT_RELOAD_THROTTLE_MS = 5000;
+
+function importQueueInFlight(rows: PendingFile[]): boolean {
+  return rows.some(
+    (e) => e.status === "pending" || e.status === "uploading" || e.status === "reading",
+  );
+}
+
 const ROW_STATUS_LABELS: Record<PendingRowStatus, string> = {
   pending: "Queued",
   uploading: "Uploading…",
@@ -113,6 +122,8 @@ export default function BillList() {
   const mountedRef = useRef(true);
   const enqueueSeqRef = useRef(0);
   const startedRowIdsRef = useRef(new Set<string>());
+  const lastImportReloadAtRef = useRef(0);
+  const importReloadOwedRef = useRef(false);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -156,7 +167,7 @@ export default function BillList() {
     (toDate ? `&end_date=${encodeURIComponent(toDate)}` : "");
   const {
     items, total, page, pageSize, totalPages,
-    loading, error, setPage, setSearch, search, reload,
+    loading, refreshing, error, setPage, setSearch, search, reload,
   } = usePaginatedList<Bill>(`/api/v1/get/bills${extraParams}`, 50, {
     staleWhileRevalidate: true,
     sessionPersistenceKey: "buildOne.billList",
@@ -200,6 +211,26 @@ export default function BillList() {
     _amount: bill.total_amount ? Number(bill.total_amount) : 0,
   }));
 
+  const flushOwedImportReload = useCallback(() => {
+    if (!importReloadOwedRef.current) return;
+    if (importQueueInFlight(pendingFilesRef.current)) return;
+    reload();
+    lastImportReloadAtRef.current = Date.now();
+    importReloadOwedRef.current = false;
+  }, [reload]);
+
+  const scheduleImportReload = useCallback(() => {
+    const inFlight = importQueueInFlight(pendingFilesRef.current);
+    const now = Date.now();
+    if (!inFlight || now - lastImportReloadAtRef.current >= IMPORT_RELOAD_THROTTLE_MS) {
+      reload();
+      lastImportReloadAtRef.current = now;
+      importReloadOwedRef.current = false;
+    } else {
+      importReloadOwedRef.current = true;
+    }
+  }, [reload]);
+
   const processQueue = useCallback(async () => {
     if (processingRef.current) return;
     processingRef.current = true;
@@ -238,7 +269,7 @@ export default function BillList() {
             existing: result.existing,
             existing_reason: result.existing_reason,
           });
-          reload();
+          scheduleImportReload();
         } catch (err) {
           patchRow(id, { status: "error", error: draftAttachmentErrorMessage(err) });
           continue;
@@ -263,11 +294,12 @@ export default function BillList() {
       }
     } finally {
       processingRef.current = false;
+      flushOwedImportReload();
       if (pendingFilesRef.current.some((e) => e.status === "pending")) {
         void processQueue();
       }
     }
-  }, [navigate, patchRow, reload, toast]);
+  }, [navigate, patchRow, scheduleImportReload, flushOwedImportReload, toast]);
 
   const enqueueFiles = useCallback(
     (files: File[]) => {
@@ -300,7 +332,11 @@ export default function BillList() {
       }
       if (newEntries.length === 0) return;
 
+      const queueWasIdle = !importQueueInFlight(pendingFilesRef.current);
       enqueueSeqRef.current += 1;
+      if (queueWasIdle) {
+        lastImportReloadAtRef.current = Date.now();
+      }
       const enqueueSeq = enqueueSeqRef.current;
       for (const entry of newEntries) {
         entry.enqueueSeq = enqueueSeq;
@@ -327,8 +363,12 @@ export default function BillList() {
     setDuplicateNotes([]);
   };
 
-  if (loading && page === 1 && !search) return <div className="page-loading">Loading...</div>;
-  if (error) return <div className="page-error">{error}</div>;
+  if (loading && items.length === 0 && page === 1 && !search) {
+    return <div className="page-loading">Loading...</div>;
+  }
+  if (error && items.length === 0) {
+    return <div className="page-error">{error}</div>;
+  }
 
   return (
     <div className="page">
@@ -337,12 +377,18 @@ export default function BillList() {
           type="button"
           className="btn btn-secondary"
           onClick={() => reload()}
-          disabled={loading}
+          disabled={loading || refreshing}
           title="Fetch the latest bills from the server"
         >
           Refresh
         </button>
       </PageHeader>
+
+      {error && items.length > 0 && (
+        <div className="page-error" role="alert">
+          {error}
+        </div>
+      )}
 
       <PdfDropZone
         icon="📁"
@@ -468,6 +514,11 @@ export default function BillList() {
 
       <div className="section-label-prose list-meta">
         <span>{SECTION_LABEL[statusFilter]}</span>
+        {refreshing && (
+          <span className="list-count" aria-live="polite">
+            Refreshing…
+          </span>
+        )}
         {hasActiveFilters && total > 0 && (
           <span className="list-count">
             {items.length} of {total.toLocaleString()}
@@ -481,7 +532,7 @@ export default function BillList() {
         </div>
       )}
 
-      {!loading && resolvedItems.length === 0 && (
+      {!loading && !refreshing && resolvedItems.length === 0 && (
         <div className="page-loading" style={{ padding: "var(--space-xl) 0" }}>
           {hasActiveFilters ? NO_MATCH_COPY : EMPTY_COPY[statusFilter]}
         </div>

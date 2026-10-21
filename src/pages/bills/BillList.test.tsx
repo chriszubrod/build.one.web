@@ -239,7 +239,7 @@ describe("BillList PDF draft intake", () => {
 
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(openLinks().length).toBe(2);
-    expect(mockReload.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(mockReload).toHaveBeenCalledTimes(1);
   });
 
   it("stable row ids: remove errored a while b uploads; b done with Open; c ok", async () => {

@@ -84,7 +84,7 @@ export default function ExpenseList() {
     (toDate ? `&end_date=${encodeURIComponent(toDate)}` : "");
   const {
     items, total, page, pageSize, totalPages,
-    loading, error, setPage, setSearch, search, reload,
+    loading, refreshing, error, setPage, setSearch, search, reload,
   } = usePaginatedList<Expense>(`/api/v1/get/expenses${extraParams}`, 50, {
     staleWhileRevalidate: true,
     sessionPersistenceKey: "buildOne.expenseList",
@@ -133,10 +133,10 @@ export default function ExpenseList() {
           type="button"
           className="btn btn-secondary"
           onClick={() => reload()}
-          disabled={loading}
+          disabled={loading || refreshing}
           title="Fetch the latest expenses from the server"
         >
-          Refresh
+          {refreshing ? "Refreshing…" : "Refresh"}
         </button>
       </PageHeader>
 

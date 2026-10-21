@@ -23,6 +23,7 @@ let mockItems: unknown[] = [];
 let mockTotal = 0;
 let mockSearch = "";
 let mockLoading = false;
+let mockRefreshing = false;
 let mockPage = 1;
 const setSearchSpy = vi.fn();
 const setPageSpy = vi.fn();
@@ -32,7 +33,7 @@ vi.mock("../../hooks/usePaginatedList", () => ({
     requestedUrls.push(url);
     return {
       items: mockItems, total: mockTotal, page: mockPage, pageSize: 50,
-      totalPages: 1, loading: mockLoading, error: "",
+      totalPages: 1, loading: mockLoading, refreshing: mockRefreshing, error: "",
       setPage: setPageSpy, setSearch: setSearchSpy, search: mockSearch,
       reload: vi.fn(),
     };
@@ -84,6 +85,7 @@ describe("ExpenseList status tabs reach the API (U-470)", () => {
     mockTotal = 0;
     mockSearch = "";
     mockLoading = false;
+    mockRefreshing = false;
     mockPage = 1;
     setSearchSpy.mockClear();
     setPageSpy.mockClear();
@@ -346,6 +348,18 @@ describe("ExpenseList status tabs reach the API (U-470)", () => {
     await mountAt("/expense/list?status=completed");
     expect(lastContainer.querySelectorAll(".entry-card")).toHaveLength(0);
     expect(lastContainer.textContent).toContain("Loading");
+  });
+
+  it("disables Refresh and shows Refreshing… while a background reload is in flight", async () => {
+    mockItems = [{ public_id: "e1", vendor_id: 10, is_draft: true, status: "draft", is_credit: false }];
+    mockTotal = 1;
+    mockRefreshing = true;
+    await mountAt("/expense/list?status=draft");
+    const refresh = lastContainer.querySelector(
+      'button[title="Fetch the latest expenses from the server"]',
+    ) as HTMLButtonElement;
+    expect(refresh.disabled).toBe(true);
+    expect(refresh.textContent).toBe("Refreshing…");
   });
 
   it("ignores a malformed date in the URL instead of applying it invisibly", async () => {

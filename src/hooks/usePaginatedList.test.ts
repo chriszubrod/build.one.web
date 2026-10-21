@@ -22,8 +22,16 @@ vi.mock("../api/client", () => ({
 
 let latestApi: ReturnType<typeof usePaginatedList<{ id: number; label: string }>> | undefined;
 
-function ListHarness({ basePath }: { basePath: string }) {
-  const api = usePaginatedList<{ id: number; label: string }>(basePath, 50);
+function ListHarness({
+  basePath,
+  swr = false,
+}: {
+  basePath: string;
+  swr?: boolean;
+}) {
+  const api = usePaginatedList<{ id: number; label: string }>(basePath, 50, {
+    staleWhileRevalidate: swr,
+  });
   latestApi = api;
   return createElement("input", {
     "aria-label": "search",
@@ -172,6 +180,29 @@ describe("usePaginatedList — stale response guard (U-700)", () => {
     expect(latestApi!.items.map((i) => i.label)).toEqual(["second"]);
   });
 
+  it("sets refreshing (not loading) on reload after the first successful fetch", async () => {
+    mockRawRequest.mockImplementation(() =>
+      Promise.resolve({ data: [{ id: 1, label: "one" }], count: 1, page: 1, page_size: 50 }),
+    );
+
+    latestApi = undefined;
+    act(() => {
+      root.render(createElement(ListHarness, { basePath: "/api/v1/get/items", swr: true }));
+    });
+
+    await flushUntil(() => !latestApi!.loading);
+    expect(latestApi!.items.map((i) => i.label)).toEqual(["one"]);
+
+    const hang = new Promise(() => {});
+    mockRawRequest.mockImplementationOnce(() => hang);
+
+    latestApi!.reload();
+    await flushUntil(() => latestApi!.refreshing);
+    expect(latestApi!.loading).toBe(false);
+    expect(latestApi!.refreshing).toBe(true);
+    expect(latestApi!.items.map((i) => i.label)).toEqual(["one"]);
+  });
+
   it("clears loading after the latest request errors", async () => {
     let rejectSecond: (err: Error) => void = () => {};
     const second = new Promise((_resolve, reject) => {
@@ -207,5 +238,91 @@ describe("usePaginatedList — stale response guard (U-700)", () => {
     await flushUntil(() => !latestApi!.loading);
     expect(latestApi!.loading).toBe(false);
     expect(latestApi!.error).toBe("network down");
+  });
+});
+
+describe("usePaginatedList — SWR refresh (U-705)", () => {
+  it("clears refreshing after the latest reload errors while stale rows stay visible", async () => {
+    mockRawRequest.mockImplementation(() =>
+      Promise.resolve({ data: [{ id: 1, label: "one" }], count: 1, page: 1, page_size: 50 }),
+    );
+
+    latestApi = undefined;
+    act(() => {
+      root.render(createElement(ListHarness, { basePath: "/api/v1/get/items", swr: true }));
+    });
+
+    await flushUntil(() => !latestApi!.loading);
+    expect(latestApi!.items.map((i) => i.label)).toEqual(["one"]);
+
+    mockRawRequest.mockImplementationOnce(() => Promise.reject(new Error("boom")));
+
+    latestApi!.reload();
+    await flushUntil(() => latestApi!.refreshing);
+    expect(latestApi!.loading).toBe(false);
+    expect(latestApi!.items.map((i) => i.label)).toEqual(["one"]);
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    await flushUntil(() => !latestApi!.refreshing);
+    expect(latestApi!.refreshing).toBe(false);
+    expect(latestApi!.error).toBe("boom");
+    expect(latestApi!.items.map((i) => i.label)).toEqual(["one"]);
+  });
+
+  it("keeps refreshing true when a superseded reload resolves before the latest", async () => {
+    mockRawRequest.mockImplementation(() =>
+      Promise.resolve({ data: [{ id: 1, label: "one" }], count: 1, page: 1, page_size: 50 }),
+    );
+
+    latestApi = undefined;
+    act(() => {
+      root.render(createElement(ListHarness, { basePath: "/api/v1/get/items", swr: true }));
+    });
+
+    await flushUntil(() => !latestApi!.loading);
+
+    let resolveA: (v: unknown) => void = () => {};
+    let resolveB: (v: unknown) => void = () => {};
+    const hangA = new Promise((resolve) => {
+      resolveA = resolve;
+    });
+    const hangB = new Promise((resolve) => {
+      resolveB = resolve;
+    });
+    mockRawRequest.mockImplementationOnce(() => hangA).mockImplementationOnce(() => hangB);
+
+    latestApi!.reload();
+    await flushUntil(() => mockRawRequest.mock.calls.length >= 2);
+    latestApi!.reload();
+    await flushUntil(() => mockRawRequest.mock.calls.length >= 3);
+    expect(latestApi!.refreshing).toBe(true);
+
+    resolveA({
+      data: [{ id: 9, label: "stale-a" }],
+      count: 1,
+      page: 1,
+      page_size: 50,
+    });
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    expect(latestApi!.refreshing).toBe(true);
+    expect(latestApi!.items.map((i) => i.label)).toEqual(["one"]);
+
+    resolveB({
+      data: [{ id: 2, label: "fresh-b" }],
+      count: 1,
+      page: 1,
+      page_size: 50,
+    });
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    await flushUntil(() => !latestApi!.refreshing);
+    expect(latestApi!.items.map((i) => i.label)).toEqual(["fresh-b"]);
   });
 });
