@@ -12,6 +12,15 @@
 - [ ] 🟢 **P3 — a hung request stalls polling.** `rawRequest` has no timeout, so a never-settling poll keeps
   `pollInFlightRef` true and the attempt cap is never reached (no further requests; benign).
 
+## U-704 / U-705 residuals — bill re-read + bill list refresh (booked 2026-10-21, Gate 2)
+
+Shipped and deployed; these are test-quality / hardening follow-ups from the reviews (none affects shipped behaviour):
+- [ ] U-704 `BillEdit.tsx` handleRereadPdf: move `await flushAutoSave()` inside the `try` so a (currently impossible) rejecting flush can never leave `rereadInFlightRef` stuck true.
+- [ ] U-705 tests: (a) the import-queue flush clears the owed reload (a later all-error batch in the same mount must refetch nothing); (b) the inline refresh-error banner disappears after the next successful refresh.
+- [ ] U-705 note: an owed import reload can fire once after unmount (extra GET; React ignores the setState) — harmless, guard with mountedRef if touched again.
+- [ ] U-705 note: a company with ZERO bills whose background refresh fails still gets the full-page error (no rows to keep).
+- [ ] `src/pages/email-messages/EmailList.tsx` has no tests at all — a usePaginatedList regression there would go unnoticed (cache-hit navigation, loading vs refreshing).
+
 ## U-585 follow-ups — system-admin console `/admin` (booked 2026-09-30)
 
 U-585 shipped `/admin` (user list + search) and `/admin/user/:publicId` (info, roles, reset password,
