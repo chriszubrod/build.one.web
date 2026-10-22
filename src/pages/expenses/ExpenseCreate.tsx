@@ -1,11 +1,12 @@
 import { useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { post, uploadFile } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { hasExpensePermission } from "./expensePermissions";
 import DocumentHeaderFields from "../../components/DocumentHeaderFields";
-import { expenseHeaderFields, vendorSelectOptions } from "./expenseHeaderFields";
+import { expenseHeaderFields } from "./expenseHeaderFields";
+import { vendorComboboxOptions } from "../../components/ui/pickerOptions";
 import type { Expense } from "../../types/api";
 
 interface AttachmentResponse {
@@ -33,7 +34,14 @@ export default function ExpenseCreate() {
   const onHeaderChange = (name: string, value: string | boolean) =>
     setForm((prev) => ({ ...prev, [name]: value }));
 
-  const headerFields = expenseHeaderFields(vendorSelectOptions(lookups.vendors), "create");
+  const vendorOptions = useMemo(
+    () => vendorComboboxOptions(lookups?.vendors ?? []),
+    [lookups?.vendors],
+  );
+  const headerFields = useMemo(
+    () => expenseHeaderFields(vendorOptions, "create"),
+    [vendorOptions],
+  );
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null;

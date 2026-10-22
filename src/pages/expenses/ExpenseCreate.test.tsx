@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import ExpenseCreate from "./ExpenseCreate";
+import { comboboxInput } from "../../test/combobox";
 import { Modules } from "../../shared/modules";
 import { makeModule, makeUserWithModules } from "../../__testutils__/currentUser";
 
@@ -74,9 +75,9 @@ describe("ExpenseCreate header", () => {
   });
 
   it("marks vendor, reference number, and expense date required on create", () => {
-    expect(container.querySelector('select[name="vendor_public_id"]')?.hasAttribute("required")).toBe(
-      true,
-    );
+    const vendorBox = container.querySelector('[data-bo-field="vendor_public_id"]');
+    expect(vendorBox).toBeTruthy();
+    expect(comboboxInput(vendorBox!).hasAttribute("required")).toBe(true);
     expect(container.querySelector('input[name="reference_number"]')?.hasAttribute("required")).toBe(
       true,
     );

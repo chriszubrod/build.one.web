@@ -4,7 +4,15 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import InlineLineItems, { type LineItemFieldDef } from "./InlineLineItems";
 import { setInputValue } from "../__testutils__/domEvents";
-import { flushUntil } from "../__testutils__/flush";
+import { flushUntil, flushUntilHard } from "../__testutils__/flush";
+import {
+  clearCombobox,
+  getComboboxValue,
+  pickComboboxOptionByValue,
+  tabAwayFromCombobox,
+  typeInCombobox,
+  waitForCombobox,
+} from "../test/combobox";
 import {
   inlineLineItemInput,
   inlineLineItemInputForValue,
@@ -372,3 +380,192 @@ function findButton(scope: HTMLElement, label: string): HTMLButtonElement {
   if (!btn) throw new Error(`button ${label} not found`);
   return btn;
 }
+
+type ComboboxRow = { uid: string; description: string; status: string };
+
+describe("InlineLineItems combobox field type", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const onEdit = vi.fn();
+
+  const comboboxOptions = [
+    { value: "a", label: "Alpha" },
+    { value: "b", label: "Beta" },
+  ];
+
+  const comboboxFields: LineItemFieldDef<ComboboxRow>[] = [
+    { key: "description", label: "Description", type: "text" },
+    {
+      key: "status",
+      label: "Status",
+      type: "combobox",
+      options: comboboxOptions,
+    },
+  ];
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    onEdit.mockReset();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    document.body.removeChild(container);
+    vi.useRealTimers();
+  });
+
+  function ComboboxHarness({
+    initialStatus = "",
+    fieldExtra,
+  }: {
+    initialStatus?: string;
+    fieldExtra?: Partial<LineItemFieldDef<ComboboxRow>>;
+  }) {
+    const [items, setItems] = useState<ComboboxRow[]>([
+      { uid: "r1", description: "Line", status: initialStatus },
+    ]);
+    const fields: LineItemFieldDef<ComboboxRow>[] = [
+      comboboxFields[0]!,
+      { ...comboboxFields[1]!, ...fieldExtra },
+    ];
+    return createElement(InlineLineItems<ComboboxRow>, {
+      fields,
+      items,
+      onEdit: (index, key, value) => {
+        onEdit(index, key, value);
+        setItems((prev) =>
+          prev.map((row, i) => (i === index ? { ...row, [key]: value } : row)),
+        );
+      },
+      onAdd: vi.fn(),
+      onRemove: vi.fn(),
+    });
+  }
+
+  async function renderComboboxRow(extra?: Partial<LineItemFieldDef<ComboboxRow>>) {
+    await act(async () => {
+      root.render(createElement(ComboboxHarness, { fieldExtra: extra }));
+    });
+    await waitForCombobox(container);
+  }
+
+  function statusCombobox(): Element {
+    const row = inlineLineItemRows(container)[0]!;
+    const box = row.querySelectorAll("td")[1]?.querySelector(".bo-combobox");
+    if (!box) throw new Error("expected combobox in column 2");
+    return box;
+  }
+
+  it("renders a combobox and routes picks through onEdit like select", async () => {
+    await renderComboboxRow();
+    expect(statusCombobox().classList.contains("bo-combobox--inline")).toBe(true);
+
+    await act(async () => {
+      pickComboboxOptionByValue(statusCombobox(), "b");
+    });
+    expect(onEdit).toHaveBeenCalledWith(0, "status", "b");
+  });
+
+  it("clearing a non-required combobox emits empty string", async () => {
+    await renderComboboxRow();
+    await act(async () => {
+      pickComboboxOptionByValue(statusCombobox(), "a");
+    });
+    await flushUntilHard(
+      () => getComboboxValue(statusCombobox()) === "a",
+      "combobox value committed",
+    );
+    onEdit.mockClear();
+    await act(async () => {
+      clearCombobox(statusCombobox());
+    });
+    expect(onEdit).toHaveBeenCalledWith(0, "status", "");
+  });
+
+  it("tabbing away without changing value does not call onEdit", async () => {
+    await renderComboboxRow();
+    await act(async () => {
+      pickComboboxOptionByValue(statusCombobox(), "a");
+    });
+    await flushUntilHard(
+      () => getComboboxValue(statusCombobox()) === "a",
+      "combobox value committed",
+    );
+    onEdit.mockClear();
+    await act(async () => {
+      tabAwayFromCombobox(statusCombobox());
+    });
+    expect(onEdit).not.toHaveBeenCalled();
+  });
+
+  it("honours maxResults on the inline combobox", async () => {
+    const manyOptions = Array.from({ length: 10 }, (_, i) => ({
+      value: String(i),
+      label: `Option ${i}`,
+    }));
+    await act(async () => {
+      root.render(
+        createElement(InlineLineItems<ComboboxRow>, {
+          fields: [
+            comboboxFields[0]!,
+            {
+              key: "status",
+              label: "Status",
+              type: "combobox",
+              options: manyOptions,
+              maxResults: 3,
+            },
+          ],
+          items: [{ uid: "r1", description: "Line", status: "" }],
+          onEdit,
+          onAdd: vi.fn(),
+          onRemove: vi.fn(),
+        }),
+      );
+    });
+    await waitForCombobox(container);
+
+    await act(async () => {
+      typeInCombobox(statusCombobox(), "Option");
+    });
+    await flushUntilHard(
+      () => document.querySelector(".bo-combobox-truncated-hint") !== null,
+      "truncation hint visible",
+    );
+    expect(document.querySelector(".bo-combobox-truncated-hint")?.textContent).toMatch(
+      /Keep typing/,
+    );
+  });
+
+  it("keeps select behaviour unchanged", () => {
+    act(() => {
+      root.render(
+        createElement(InlineLineItems<ComboboxRow>, {
+          fields: [
+            comboboxFields[0]!,
+            {
+              key: "status",
+              label: "Status",
+              type: "select",
+              options: comboboxOptions,
+            },
+          ],
+          items: [{ uid: "r1", description: "Line", status: "a" }],
+          onEdit,
+          onAdd: vi.fn(),
+          onRemove: vi.fn(),
+        }),
+      );
+    });
+    const row = inlineLineItemRows(container)[0]!;
+    const select = row.querySelector("select");
+    expect(select).toBeTruthy();
+    expect(select!.value).toBe("a");
+    expect(row.querySelector(".bo-combobox")).toBeNull();
+  });
+});

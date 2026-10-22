@@ -15,7 +15,12 @@ import { useLookups } from "../../hooks/useLookups";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { resolveExpenseEditActions } from "./expensePermissions";
 import DocumentHeaderFields from "../../components/DocumentHeaderFields";
-import { expenseHeaderFields, vendorSelectOptions } from "./expenseHeaderFields";
+import { expenseHeaderFields } from "./expenseHeaderFields";
+import {
+  projectComboboxOptionsByInternalId,
+  sccComboboxOptions,
+  vendorComboboxOptions,
+} from "../../components/ui/pickerOptions";
 import InlineLineItems, { type LineItemFieldDef } from "../../components/InlineLineItems";
 import LineItemAttachment from "../../components/LineItemAttachment";
 import ReviewTimeline from "../../components/ReviewTimeline";
@@ -459,27 +464,35 @@ export default function ExpenseEdit() {
     [projectFor],
   );
 
+  const sccOptions = useMemo(
+    () => sccComboboxOptions(fullSubCostCodes),
+    [fullSubCostCodes],
+  );
+  const projectOptions = useMemo(
+    () => projectComboboxOptionsByInternalId(fullProjects),
+    [fullProjects],
+  );
+
   const lineItemFields = useMemo<LineItemFieldDef<LineItemRow>[]>(() => {
-    const sccOptions = fullSubCostCodes.map((s) => ({
-      value: String(s.id),
-      label: s.number ? `${s.number} — ${s.name}` : s.name,
-    }));
-    const projectOptions = fullProjects.map((p) => ({ value: String(p.id), label: p.name }));
     return [
       { key: "description", label: "Description", width: "200px" },
       {
         key: "sub_cost_code_id",
         label: "Sub Cost Code",
         width: "140px",
-        type: "select",
+        type: "combobox",
         options: sccOptions,
+        maxResults: Infinity,
+        placeholder: "—",
       },
       {
         key: "project_id",
         label: "Project",
         width: "120px",
-        type: "select",
+        type: "combobox",
         options: projectOptions,
+        maxResults: Infinity,
+        placeholder: "—",
       },
       { key: "quantity", label: "Qty", width: "70px", type: "number", align: "right" },
       { key: "rate", label: "Rate", width: "90px", type: "number", align: "right" },
@@ -494,9 +507,16 @@ export default function ExpenseEdit() {
         hint: (row) => billableHint(row, projectFor(row.project_id)),
       },
     ];
-  }, [fullSubCostCodes, fullProjects, projectFor]);
+  }, [sccOptions, projectOptions, projectFor]);
 
-  const headerFields = expenseHeaderFields(vendorSelectOptions(lookups.vendors), "edit");
+  const vendorOptions = useMemo(
+    () => vendorComboboxOptions(lookups?.vendors ?? []),
+    [lookups?.vendors],
+  );
+  const headerFields = useMemo(
+    () => expenseHeaderFields(vendorOptions, "edit"),
+    [vendorOptions],
+  );
 
   if (loading || meLoading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;

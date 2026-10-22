@@ -12,6 +12,7 @@ import {
   getComboboxValue,
   pickComboboxOptionByValue,
   tabAwayFromCombobox,
+  waitForCombobox,
 } from "../../test/combobox";
 import { deferred } from "../../hooks/__testutils__/renderHook";
 import { Modules } from "../../shared/modules";
@@ -186,6 +187,13 @@ function renderPage(initialEntries: { pathname: string; state?: unknown }[] = [
   });
 }
 
+async function mountPage(initialEntries: { pathname: string; state?: unknown }[] = [
+  { pathname: "/bill/create" },
+]) {
+  renderPage(initialEntries);
+  await waitForCombobox(container);
+}
+
 function selectChange(select: HTMLSelectElement, value: string) {
   select.value = value;
   select.dispatchEvent(new Event("change", { bubbles: true }));
@@ -195,12 +203,12 @@ function vendorCombobox(): Element {
   return container.querySelector('[data-bo-field="vendor_public_id"]')!;
 }
 
-function setVendorValue(value: string) {
+async function setVendorValue(value: string) {
   if (!value) clearCombobox(vendorCombobox());
   else pickComboboxOptionByValue(vendorCombobox(), value);
 }
 
-function fillHeader() {
+async function fillHeader() {
   pickComboboxOptionByValue(vendorCombobox(), "v-1");
   setInputValue(container.querySelector("#bill_number") as HTMLInputElement, "B-100");
   setInputValue(container.querySelector("#bill_date") as HTMLInputElement, "2026-01-15");
@@ -211,9 +219,10 @@ function projectComboboxAt(rowIndex: number): Element {
   return row.querySelectorAll("td")[2].querySelector(".bo-combobox")!;
 }
 
-function fillLineRow(rowIndex: number, description: string, projectPublicId: string) {
+async function fillLineRow(rowIndex: number, description: string, projectPublicId: string) {
   setInputValue(descriptionInputAt(rowIndex), description);
   if (projectPublicId) {
+    await waitForCombobox(projectComboboxAt(rowIndex));
     pickComboboxOptionByValue(projectComboboxAt(rowIndex), projectPublicId);
   } else if (getComboboxValue(projectComboboxAt(rowIndex)) !== "") {
     clearCombobox(projectComboboxAt(rowIndex));
@@ -354,7 +363,8 @@ function sccValueAt(rowIndex: number): string {
   return getComboboxValue(sccComboboxAt(rowIndex));
 }
 
-function fillLineScc(rowIndex: number, sccId: string) {
+async function fillLineScc(rowIndex: number, sccId: string) {
+  await waitForCombobox(sccComboboxAt(rowIndex));
   if (!sccId) clearCombobox(sccComboboxAt(rowIndex));
   else pickComboboxOptionByValue(sccComboboxAt(rowIndex), sccId);
 }
@@ -368,13 +378,13 @@ function lineProjectForIndex(index: number): string {
 }
 
 async function arrangeMultiLineBillWithRates(rates: string[]) {
-  renderPage();
+  await mountPage();
 
   await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
   expect(container.querySelector("#vendor_public_id")).toBeTruthy();
 
   await act(async () => {
-    fillHeader();
+    await fillHeader();
   });
 
   for (let i = 0; i < rates.length; i++) {
@@ -384,7 +394,7 @@ async function arrangeMultiLineBillWithRates(rates: string[]) {
       });
     }
     await act(async () => {
-      fillLineRow(i, `Line ${i + 1}`, lineProjectForIndex(i));
+      await fillLineRow(i, `Line ${i + 1}`, lineProjectForIndex(i));
       fillLineRate(i, rates[i]);
     });
   }
@@ -395,14 +405,14 @@ async function arrangeMultiLineBillWithRates(rates: string[]) {
 }
 
 async function arrangeTwoLineBill() {
-  renderPage();
+  await mountPage();
 
   await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
   expect(container.querySelector("#vendor_public_id")).toBeTruthy();
 
   await act(async () => {
-    fillHeader();
-    fillLineRow(0, "Line one", "p-1");
+    await fillHeader();
+    await fillLineRow(0, "Line one", "p-1");
   });
 
   await act(async () => {
@@ -410,20 +420,20 @@ async function arrangeTwoLineBill() {
   });
 
   await act(async () => {
-    fillLineRow(1, "Line two", "p-2");
+    await fillLineRow(1, "Line two", "p-2");
     await attachPdf();
   });
 }
 
 async function arrangeOneLineBill(project = "p-1") {
-  renderPage();
+  await mountPage();
 
   await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
   expect(container.querySelector("#vendor_public_id")).toBeTruthy();
 
   await act(async () => {
-    fillHeader();
-    fillLineRow(0, "Line one", project);
+    await fillHeader();
+    await fillLineRow(0, "Line one", project);
     await attachPdf();
   });
 }
@@ -532,7 +542,7 @@ describe("BillCreate submit-for-review", () => {
   });
 
   it("Submit For Review stays disabled until a populated line carries a project", async () => {
-    renderPage();
+    await mountPage();
 
     await flushUntil(() => container.querySelector("tbody tr") !== null);
     expect(container.querySelector("tbody tr")).toBeTruthy();
@@ -540,14 +550,14 @@ describe("BillCreate submit-for-review", () => {
     await act(async () => {
       await attachPdf();
       // Empty projectPublicId skips project pick; line already has no project for this gate.
-      fillLineRow(0, "Desc only", "");
+      await fillLineRow(0, "Desc only", "");
     });
 
     await flushUntil(() => submitForReviewButton()?.disabled === true);
     expect(submitForReviewButton().disabled).toBe(true);
 
     await act(async () => {
-      fillLineRow(0, "Desc only", "p-1");
+      await fillLineRow(0, "Desc only", "p-1");
     });
 
     await flushUntil(() => !submitForReviewButton().disabled);
@@ -812,7 +822,7 @@ describe("BillCreate partial line failure and submit guard", () => {
 
 describe("BillCreate line row keys", () => {
   it("keeps the same DOM node and focus on a row after removing an earlier row", async () => {
-    renderPage();
+    await mountPage();
 
     await flushUntil(() => container.querySelector("tbody tr") !== null);
     expect(container.querySelector("tbody tr")).toBeTruthy();
@@ -900,7 +910,7 @@ describe("BillCreate post-create navigation", () => {
 
     await arrangeOneLineBill();
     await act(async () => {
-      fillLineScc(0, "10");
+      await fillLineScc(0, "10");
     });
     await flushUntil(() => completeBillButton()?.disabled === false);
     expect(completeBillButton().disabled).toBe(false);
@@ -983,16 +993,16 @@ function codingSuggestionPayload() {
 describe("BillCreate coding suggestions", () => {
   it("suggests after vendor is set when the line project was filled first", async () => {
     mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
     });
     expect(mockSuggestCoding).not.toHaveBeenCalled();
 
     await act(async () => {
-      setVendorValue("v-1");
+      await setVendorValue("v-1");
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
@@ -1006,11 +1016,11 @@ describe("BillCreate coding suggestions", () => {
 
   it("prefills empty line cells and shows Suggested badge after vendor is set", async () => {
     mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillHeader();
+      await fillHeader();
     });
     await act(async () => {
     });
@@ -1032,21 +1042,21 @@ describe("BillCreate coding suggestions", () => {
       budget_check: "fits" as const,
       budget_remaining: "500.00",
     });
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillHeader();
+      await fillHeader();
     });
     await act(async () => {
     });
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "60");
       findButton("+ Add Line").click();
     });
     await act(async () => {
-      fillLineRow(1, "Line two", "p-1");
+      await fillLineRow(1, "Line two", "p-1");
       fillLineRate(1, "40");
     });
     expect(projectSelectValueAt(0)).toBe("p-1");
@@ -1070,12 +1080,12 @@ describe("BillCreate coding suggestions", () => {
 
   it("does not overwrite user-entered sub cost code", async () => {
     mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillLineScc(0, "99");
-      setVendorValue("v-1");
+      await fillLineScc(0, "99");
+      await setVendorValue("v-1");
     });
 
     await act(async () => {
@@ -1088,11 +1098,11 @@ describe("BillCreate coding suggestions", () => {
 
   it("U-676k Save For Later sends coding_prefill_state prefilled while suggestions are untouched", async () => {
     mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillHeader();
+      await fillHeader();
     });
     await act(async () => {
     });
@@ -1111,14 +1121,14 @@ describe("BillCreate coding suggestions", () => {
 
   it("U-676k Submit For Review and Complete stay enabled with unreviewed suggestions", async () => {
     mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillHeader();
+      await fillHeader();
     });
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
     });
     await flushUntil(() => sccValueAt(0) === "10");
     await act(async () => {
@@ -1132,14 +1142,14 @@ describe("BillCreate coding suggestions", () => {
 
   it("U-676k Submit For Review sends accepted for prefilled lines", async () => {
     mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillHeader();
+      await fillHeader();
     });
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
     });
     await flushUntil(() => sccValueAt(0) === "10");
     await act(async () => {
@@ -1156,14 +1166,14 @@ describe("BillCreate coding suggestions", () => {
 
   it("r4-2 project change on prefilled line keeps prefilled state on save", async () => {
     mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillHeader();
+      await fillHeader();
     });
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
     });
     await flushUntil(() => sccValueAt(0) === "10");
     await act(async () => {
@@ -1186,14 +1196,14 @@ describe("BillCreate coding suggestions", () => {
 
   it("r2-P manual SCC with user project becomes changed when user edits SCC before save", async () => {
     mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillHeader();
+      await fillHeader();
     });
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
     });
     await flushUntil(() => sccValueAt(0) === "10");
     await act(async () => {
@@ -1201,7 +1211,7 @@ describe("BillCreate coding suggestions", () => {
     });
 
     await act(async () => {
-      fillLineScc(0, "99");
+      await fillLineScc(0, "99");
     });
 
     await act(async () => {
@@ -1223,10 +1233,10 @@ describe("BillCreate coding suggestions", () => {
         }),
     );
 
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     await act(async () => {
-      fillHeader();
+      await fillHeader();
     });
     await act(async () => {
     });
@@ -1268,19 +1278,19 @@ describe("BillCreate coding suggestions", () => {
         budget_check: "over" as const,
         budget_remaining: "-10.00",
       });
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "60");
       findButton("+ Add Line").click();
     });
     await act(async () => {
-      fillHeader();
+      await fillHeader();
     });
     await act(async () => {
-      fillLineRow(1, "Line two", "p-1");
+      await fillLineRow(1, "Line two", "p-1");
       fillLineRate(1, "40");
     });
     await flushUntil(() => headerBudgetBadge() !== null);
@@ -1306,14 +1316,14 @@ describe("BillCreate coding suggestions", () => {
       budget_check: "fits" as const,
       budget_remaining: "400.00",
     });
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillHeader();
+      await fillHeader();
     });
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "100");
     });
     await flushUntil(() => headerBudgetBadge() !== null);
@@ -1345,14 +1355,14 @@ describe("BillCreate coding suggestions", () => {
       budget_check: "fits" as const,
       budget_remaining: "0",
     });
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillHeader();
+      await fillHeader();
     });
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "60");
     });
     await flushUntil(() => headerBudgetBadge() !== null);
@@ -1363,7 +1373,7 @@ describe("BillCreate coding suggestions", () => {
     });
     await flushUntil(() => container.querySelectorAll("tbody tr").length >= 2);
     await act(async () => {
-      fillLineRow(1, "Line two", "p-1");
+      await fillLineRow(1, "Line two", "p-1");
       fillLineRate(1, "40");
     });
     expect(headerBudgetBadge()).toBeNull();
@@ -1387,7 +1397,7 @@ describe("BillCreate coding suggestions", () => {
           resolveSlow = resolve;
         }),
     );
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
@@ -1399,8 +1409,8 @@ describe("BillCreate coding suggestions", () => {
     expect(mockSuggestCoding).not.toHaveBeenCalled();
 
     await act(async () => {
-      fillHeader();
-      fillLineRow(0, "Line one", "p-1");
+      await fillHeader();
+      await fillLineRow(0, "Line one", "p-1");
     });
     // Vendor pick and project pick commit on separate renders, like a real user — two hook calls.
     const suggestCallsAfterFill = mockSuggestCoding.mock.calls.length;
@@ -1434,7 +1444,7 @@ describe("BillCreate coding suggestions", () => {
         /* hold responses until after tab-through */
       }),
     );
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     expect(sccValueAt(0)).toBe("");
     expect(getComboboxValue(projectComboboxAt(0))).toBe("");
@@ -1448,7 +1458,7 @@ describe("BillCreate coding suggestions", () => {
 
     mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
     await act(async () => {
-      fillHeader();
+      await fillHeader();
       setInputValue(descriptionInputAt(0), "Line one");
       fillLineRate(0, "50");
       await vi.advanceTimersByTimeAsync(400);
@@ -1469,19 +1479,19 @@ describe("BillCreate coding suggestions", () => {
       budget_check: "fits" as const,
       budget_remaining: "1.00",
     });
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillLineRow(0, "Credit", "p-1");
+      await fillLineRow(0, "Credit", "p-1");
       fillLineRate(0, "50");
       findButton("+ Add Line").click();
     });
     await act(async () => {
-      fillHeader();
+      await fillHeader();
     });
     await act(async () => {
-      fillLineRow(1, "Charge", "p-1");
+      await fillLineRow(1, "Charge", "p-1");
       fillLineRate(1, "-100");
     });
     await act(async () => {
@@ -1508,14 +1518,14 @@ describe("BillCreate coding suggestions", () => {
         budget_check: "fits" as const,
         budget_remaining: "2.00",
       });
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillHeader();
+      await fillHeader();
     });
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "100");
     });
     await flushUntil(() => sccValueAt(0) === "10");
@@ -1553,12 +1563,12 @@ describe("BillCreate coding suggestions", () => {
       }
       return null;
     });
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillHeader();
-      fillLineRow(0, "Line one", "p-1");
+      await fillHeader();
+      await fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "100");
     });
     await flushUntil(() => sccValueAt(0) === "10");
@@ -1586,14 +1596,14 @@ describe("BillCreate coding suggestions", () => {
       budget_check: "fits" as const,
       budget_remaining: "10.00",
     });
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillHeader();
+      await fillHeader();
     });
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "100");
     });
     await flushUntil(() => headerBudgetBadge() !== null);
@@ -1628,7 +1638,7 @@ describe("BillCreate coding suggestions", () => {
       budget_remaining: "1.00",
     });
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
@@ -1639,7 +1649,7 @@ describe("BillCreate coding suggestions", () => {
     await act(async () => {
       setInputValue(container.querySelector("#bill_number") as HTMLInputElement, "B-100");
       setInputValue(container.querySelector("#bill_date") as HTMLInputElement, "2026-01-15");
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "100");
     });
     await flushUntil(() => headerBudgetBadge() !== null);
@@ -1665,11 +1675,11 @@ describe("BillCreate coding suggestions", () => {
       budget_check: "fits" as const,
       budget_remaining: "1.00",
     });
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillHeader();
+      await fillHeader();
     });
     await act(async () => {
     });
@@ -1682,7 +1692,7 @@ describe("BillCreate coding suggestions", () => {
       budget_remaining: null,
     });
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "100");
     });
     await act(async () => {
@@ -1692,7 +1702,7 @@ describe("BillCreate coding suggestions", () => {
     expect(headerBudgetBadge()).toBeNull();
 
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "100");
     });
     await act(async () => {
@@ -1700,7 +1710,7 @@ describe("BillCreate coding suggestions", () => {
     });
     await flushUntil(() => container.querySelectorAll("tbody tr").length >= 2);
     await act(async () => {
-      fillLineRow(1, "bad amount", "p-1");
+      await fillLineRow(1, "bad amount", "p-1");
       fillLineRate(1, "not-money");
     });
     await act(async () => {
@@ -1718,14 +1728,14 @@ describe("BillCreate coding suggestions", () => {
         }),
     );
 
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillHeader();
+      await fillHeader();
     });
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "100");
     });
     await flushUntil(() => mockSuggestCoding.mock.calls.length >= 1);
@@ -1754,14 +1764,14 @@ describe("BillCreate coding suggestions", () => {
       budget_check: "over" as const,
       budget_remaining: "-50.00",
     });
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillHeader();
+      await fillHeader();
     });
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "100");
     });
     await act(async () => {
@@ -1792,12 +1802,12 @@ describe("BillCreate coding suggestions", () => {
       return null;
     });
 
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillHeader();
-      fillLineRow(0, "Line one", "p-1");
+      await fillHeader();
+      await fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "100");
     });
     await act(async () => {
@@ -1811,7 +1821,7 @@ describe("BillCreate coding suggestions", () => {
     );
 
     await act(async () => {
-      setVendorValue("v-2");
+      await setVendorValue("v-2");
     });
     await flushUntil(() => mockSuggestCoding.mock.calls.length >= 2);
     await act(async () => {
@@ -1824,11 +1834,11 @@ describe("BillCreate coding suggestions", () => {
 
   it("r3-4 debounces memo: five keystrokes within 400ms yield one suggest call after debounce", async () => {
     mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillHeader();
+      await fillHeader();
     });
     await flushUntil(() => mockSuggestCoding.mock.calls.length >= 1);
     const callsAfterVendor = mockSuggestCoding.mock.calls.length;
@@ -1855,7 +1865,7 @@ describe("BillCreate coding suggestions", () => {
 
   it("r4-1 does not suggest with stale memo before debounce when vendor is picked", async () => {
     mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
@@ -1863,7 +1873,7 @@ describe("BillCreate coding suggestions", () => {
       setTextareaValue(memo, "final memo");
     });
     await act(async () => {
-      setVendorValue("v-1");
+      await setVendorValue("v-1");
     });
     expect(mockSuggestCoding).not.toHaveBeenCalled();
 
@@ -1916,7 +1926,7 @@ function okReadFromFile(overrides: Record<string, unknown> = {}) {
 describe("BillCreate PDF read attachment", () => {
   it("uploads on drop, reads with attachment id, and shows From file badges", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
 
     await attachPdf();
@@ -1936,7 +1946,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("single-file drop judges only the first file: [pdf, txt] attaches the pdf", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector(".drop-zone") !== null);
     const zone = container.querySelector(".drop-zone") as HTMLElement;
     await act(async () => {
@@ -1952,7 +1962,7 @@ describe("BillCreate PDF read attachment", () => {
   });
 
   it("single-file drop judges only the first file: [txt, pdf] is rejected", async () => {
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector(".drop-zone") !== null);
     const zone = container.querySelector(".drop-zone") as HTMLElement;
     await act(async () => {
@@ -1965,7 +1975,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("accepts extension-only pdf with empty MIME on drop and reads it", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await attachPdfViaDrop(new File(["x"], "x.pdf", { type: "" }));
     await flushUntil(() => mockUploadFile.mock.calls.length >= 1);
     expect(mockUploadFile).toHaveBeenCalledWith(
@@ -1986,14 +1996,14 @@ describe("BillCreate PDF read attachment", () => {
     const uploadDef = deferred<{ public_id: string; content_type: string | null }>();
     mockUploadFile.mockImplementationOnce(() => uploadDef.promise);
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector(".drop-zone") !== null);
 
     await attachPdfViaDrop();
     await flushUntil(() => mockUploadFile.mock.calls.length >= 1);
 
     await act(async () => {
-      fillLineRow(0, "Line one", "p-2");
+      await fillLineRow(0, "Line one", "p-2");
     });
 
     await act(async () => {
@@ -2010,11 +2020,11 @@ describe("BillCreate PDF read attachment", () => {
 
   it("Save reuses uploaded attachment id (single upload across drop and save)", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
       await attachPdf();
     });
     await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
@@ -2030,11 +2040,11 @@ describe("BillCreate PDF read attachment", () => {
 
   it("does not overwrite user-typed header and line fields", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      setVendorValue("v-2");
+      await setVendorValue("v-2");
       setInputValue(container.querySelector("#bill_number") as HTMLInputElement, "USER-N");
       setInputValue(container.querySelector("#bill_date") as HTMLInputElement, "2026-01-01");
       setInputValue(descriptionInputAt(0), "User desc");
@@ -2057,7 +2067,7 @@ describe("BillCreate PDF read attachment", () => {
           resolveRead = resolve;
         }),
     );
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
 
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
@@ -2088,7 +2098,7 @@ describe("BillCreate PDF read attachment", () => {
     expect(findButton("Save For Later").disabled).toBe(false);
     expect(submitForReviewButton().disabled).toBe(true);
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
     });
     await flushUntil(() => !submitForReviewButton().disabled);
   });
@@ -2101,7 +2111,7 @@ describe("BillCreate PDF read attachment", () => {
           capturedSignal = signal;
         }),
     );
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => capturedSignal !== undefined);
@@ -2123,7 +2133,7 @@ describe("BillCreate PDF read attachment", () => {
     ["disabled", disabledReadResult()],
   ] as const)("status %s shows expected inline behavior", async (_label, payload) => {
     mockReadBillAttachment.mockResolvedValue(payload);
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
@@ -2138,7 +2148,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("HTTP read failure shows generic message without filling", async () => {
     mockReadBillAttachment.mockResolvedValue(null);
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("Could not read this PDF"));
@@ -2168,7 +2178,7 @@ describe("BillCreate PDF read attachment", () => {
       source: "vendor_history" as const,
       confidence: 0.5,
     });
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => sccValueAt(0) === "10");
@@ -2180,7 +2190,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("Save sends line_amount and total from file rate without accept controls", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("From file"));
@@ -2196,7 +2206,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("U-676k Save For Later stays enabled with file-filled header and line-1 labels", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("From file"));
@@ -2211,11 +2221,11 @@ describe("BillCreate PDF read attachment", () => {
   it("U-676k does not render accept controls on Bill Create", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
     mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await act(async () => {
-      fillHeader();
-      fillLineRow(0, "Line one", "p-1");
+      await fillHeader();
+      await fillLineRow(0, "Line one", "p-1");
     });
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("Suggested"));
@@ -2231,7 +2241,7 @@ describe("BillCreate PDF read attachment", () => {
           resolveRead = resolve;
         }),
     );
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await act(async () => {
@@ -2266,7 +2276,7 @@ describe("BillCreate PDF read attachment", () => {
         },
       }),
     );
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("From file"));
@@ -2297,7 +2307,7 @@ describe("BillCreate PDF read attachment", () => {
           resolveRead = resolve;
         }),
     );
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await act(async () => {
@@ -2333,7 +2343,7 @@ describe("BillCreate PDF read attachment", () => {
         },
       }),
     );
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => (container.querySelector("#bill_number") as HTMLInputElement).value === "PART-1");
@@ -2342,7 +2352,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("shows upload failure message distinct from read failure", async () => {
     mockUploadFile.mockRejectedValueOnce(new Error("network"));
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("Could not upload this PDF"));
@@ -2350,7 +2360,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("keeps Cancel enabled while reading", async () => {
     mockReadBillAttachment.mockImplementationOnce(() => new Promise(() => {}));
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("Reading invoice"));
@@ -2359,7 +2369,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("file coding fills line 1 only when two lines exist", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     await act(async () => {
       findButton("+ Add Line").click();
@@ -2384,7 +2394,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("enables Save once file labels appear (quantity is not a hidden gate)", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("From file"));
@@ -2394,7 +2404,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("enables Save after editing every file-filled field (edits count as accept)", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("From file"));
@@ -2403,8 +2413,8 @@ describe("BillCreate PDF read attachment", () => {
       setInputValue(descriptionInputAt(0), "edited");
       setInputValue(container.querySelector("#bill_number") as HTMLInputElement, "X1");
       setInputValue(container.querySelector("#bill_date") as HTMLInputElement, "2026-03-11");
-      setVendorValue("v-2");
-      fillLineScc(0, "99");
+      await setVendorValue("v-2");
+      await fillLineScc(0, "99");
     });
     await flushUntil(() => !findButton("Save For Later").disabled);
     expect(findButton("Save For Later").disabled).toBe(false);
@@ -2419,7 +2429,7 @@ describe("BillCreate PDF read attachment", () => {
           resolveB = resolve;
         }),
     );
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => sccValueAt(0) === "10");
@@ -2449,7 +2459,7 @@ describe("BillCreate PDF read attachment", () => {
   it("does not apply a deferred read after Change file when lookups were loading", async () => {
     (globalThis as { __billCreateEmptyLookups?: boolean }).__billCreateEmptyLookups = true;
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await act(async () => {
@@ -2474,7 +2484,7 @@ describe("BillCreate PDF read attachment", () => {
     (globalThis as { __billCreateEmptyLookups?: boolean }).__billCreateEmptyLookups = true;
     mockReadBillAttachment.mockResolvedValueOnce(okReadFromFile());
     mockReadBillAttachment.mockImplementationOnce(() => new Promise(() => {}));
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await act(async () => {
@@ -2495,7 +2505,7 @@ describe("BillCreate PDF read attachment", () => {
   it("keeps Save disabled while a read result is pending on lookups", async () => {
     (globalThis as { __billCreateEmptyLookups?: boolean }).__billCreateEmptyLookups = true;
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("Reading invoice"));
@@ -2515,7 +2525,7 @@ describe("BillCreate PDF read attachment", () => {
     (globalThis as { __billCreateEmptyLookups?: boolean }).__billCreateEmptyLookups = true;
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
     stubPost();
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("Reading invoice"));
@@ -2547,10 +2557,10 @@ describe("BillCreate PDF read attachment", () => {
       source: "vendor_history" as const,
     });
     mockReadBillAttachment.mockResolvedValue(disabledReadResult());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     await act(async () => {
-      setVendorValue("v-1");
+      await setVendorValue("v-1");
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
@@ -2587,10 +2597,10 @@ describe("BillCreate PDF read attachment", () => {
           resolveRead = resolve;
         }),
     );
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     await act(async () => {
-      setVendorValue("v-1");
+      await setVendorValue("v-1");
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
@@ -2619,7 +2629,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("aborts an in-flight read on real unmount", async () => {
     mockReadBillAttachment.mockImplementationOnce(() => new Promise(() => {}));
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     const sig = mockReadBillAttachment.mock.calls[0]?.[2] as AbortSignal | undefined;
@@ -2643,10 +2653,10 @@ describe("BillCreate PDF read attachment", () => {
           resolveRead = resolve;
         }),
     );
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     await act(async () => {
-      setVendorValue("v-1");
+      await setVendorValue("v-1");
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
@@ -2663,7 +2673,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("removing the file-prefilled line clears badges from the new first row", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     await act(async () => {
       findButton("+ Add Line").click();
@@ -2709,7 +2719,7 @@ describe("BillCreate PDF read attachment", () => {
     // removeLine's cleanup drops line-1 prefill meta with its row. Without it, the stale
     // meta re-targets row 0 and "Change file" wipes a description the user typed.
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("From file"));
@@ -2759,7 +2769,7 @@ describe("BillCreate PDF read attachment", () => {
         },
       }),
     );
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
@@ -2775,7 +2785,7 @@ describe("BillCreate PDF read attachment", () => {
           resolveRead = resolve;
         }),
     );
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await act(async () => {
@@ -2796,7 +2806,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("file picker auto memo starts with via PDF upload", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('textarea[name="memo"]') !== null);
     await attachPdf();
     await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
@@ -2809,7 +2819,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("drop auto memo starts with via PDF drop", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector(".drop-zone") !== null);
     await attachPdfViaDrop();
     await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
@@ -2822,7 +2832,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("editing bill number to differ adds DOC# from read; matching again removes it", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('textarea[name="memo"]') !== null);
     await attachPdf();
     await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
@@ -2843,7 +2853,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("stops auto memo updates after the user edits Memo", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('textarea[name="memo"]') !== null);
     await attachPdf();
     await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
@@ -2861,7 +2871,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("does not gate Save on auto memo text", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("From file"));
@@ -2876,7 +2886,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("Change file clears an untouched auto memo", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
@@ -2890,7 +2900,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("Change file keeps a user-edited memo", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('textarea[name="memo"]') !== null);
     await attachPdf();
     await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
@@ -2928,14 +2938,14 @@ describe("BillCreate PDF read attachment", () => {
       sub_cost_code_public_id: "scc-user",
       project_public_id: "p-1",
     });
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
     expect(sccValueAt(0)).toBe("");
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     await act(async () => {
-      setVendorValue("v-1");
+      await setVendorValue("v-1");
       findButton("+ Add Line").click();
     });
     await flushUntil(() => container.querySelectorAll("tbody tr").length === 2);
@@ -2944,7 +2954,7 @@ describe("BillCreate PDF read attachment", () => {
     });
     expect(sccValueAt(0)).toBe("");
     await act(async () => {
-      fillLineRow(1, "Second line", "p-1");
+      await fillLineRow(1, "Second line", "p-1");
       await vi.advanceTimersByTimeAsync(400);
     });
     await flushUntil(() => sccValueAt(1) === "99");
@@ -2959,10 +2969,10 @@ describe("BillCreate PDF read attachment", () => {
       sub_cost_code_public_id: "scc-user",
       project_public_id: "p-1",
     });
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     await act(async () => {
-      setVendorValue("v-1");
+      await setVendorValue("v-1");
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
@@ -2997,7 +3007,7 @@ describe("BillCreate PDF read attachment", () => {
           resolveRead = resolve;
         }),
     );
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('textarea[name="memo"]') !== null);
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("Reading invoice"));
@@ -3053,7 +3063,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("U-676i file read labels cost code and project as From file", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("From file · AI 77%"));
@@ -3065,10 +3075,10 @@ describe("BillCreate PDF read attachment", () => {
 
   it("U-676i vendor-history hook keeps Suggested label on line row", async () => {
     mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     await act(async () => {
-      fillHeader();
+      await fillHeader();
     });
     await act(async () => {
     });
@@ -3078,7 +3088,7 @@ describe("BillCreate PDF read attachment", () => {
 
   it("U-676i every line-row suggestion chip shares bill-line-chip", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() =>
@@ -3100,10 +3110,10 @@ describe("BillCreate PDF read attachment", () => {
   });
 
   it("project select updates projectHintForSuggest", async () => {
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     await act(async () => {
-      setVendorValue("v-1");
+      await setVendorValue("v-1");
     });
     await flushUntil(() => container.querySelectorAll("tbody tr").length >= 1);
     await act(async () => {
@@ -3124,10 +3134,10 @@ describe("BillCreate PDF read attachment", () => {
 describe("BillCreate intake_source on create", () => {
   it("includes pdf_upload when the PDF came from the file picker", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
       await attachPdf();
     });
     await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
@@ -3140,10 +3150,10 @@ describe("BillCreate intake_source on create", () => {
 
   it("includes pdf_drop when the PDF was dropped on the page", async () => {
     mockReadBillAttachment.mockResolvedValue(okReadFromFile());
-    renderPage();
+    await mountPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
+      await fillLineRow(0, "Line one", "p-1");
       await attachPdfViaDrop();
     });
     await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);

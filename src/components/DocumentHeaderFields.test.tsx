@@ -7,7 +7,7 @@ import {
   setSelectValue,
   setTextareaValue,
 } from "../__testutils__/domEvents";
-import { pickComboboxOptionByValue } from "../test/combobox";
+import { pickComboboxOptionByValue, waitForCombobox } from "../test/combobox";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -67,7 +67,7 @@ describe("DocumentHeaderFields", () => {
     expect(form.querySelectorAll(":scope > .full-width").length).toBe(1);
   });
 
-  it("renders each control type and forwards onChange with (key, value)", () => {
+  it("renders each control type and forwards onChange with (key, value)", async () => {
     const fields: DocumentHeaderFieldDef[] = [
       { key: "t", label: "Text", type: "text" },
       { key: "d", label: "Day", type: "date" },
@@ -103,6 +103,9 @@ describe("DocumentHeaderFields", () => {
       c: false,
     });
 
+    const comboRoot = container.querySelector('[data-bo-field="cb"]')!;
+    await waitForCombobox(comboRoot);
+
     act(() => {
       setInputValue(container.querySelector('input[name="t"]') as HTMLInputElement, "next");
     });
@@ -127,11 +130,8 @@ describe("DocumentHeaderFields", () => {
     expect(onChange).toHaveBeenCalledWith("s", "y");
 
     onChange.mockClear();
-    act(() => {
-      pickComboboxOptionByValue(
-        container.querySelector('[data-bo-field="cb"]')!,
-        "b",
-      );
+    await act(async () => {
+      pickComboboxOptionByValue(comboRoot, "b");
     });
     expect(onChange).toHaveBeenCalledWith("cb", "b");
 

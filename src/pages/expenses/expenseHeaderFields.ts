@@ -1,21 +1,16 @@
 import type { DocumentHeaderFieldDef } from "../../components/DocumentHeaderFields";
-
-export type VendorLookupRow = { public_id: string; name: string };
-
-export function vendorSelectOptions(vendors: VendorLookupRow[] | undefined) {
-  return (vendors ?? []).map((v) => ({ value: v.public_id, label: v.name }));
-}
+import type { ComboboxOption } from "../../components/ui/comboboxFilter";
 
 /** Vendor → Reference Number → Expense Date → Total Amount → Memo → Is Credit */
 export function expenseHeaderFields(
-  vendorOptions: { value: string; label: string }[],
+  vendorOptions: ComboboxOption[],
   mode: "create" | "edit",
 ): DocumentHeaderFieldDef[] {
   return [
     {
       key: "vendor_public_id",
       label: "Vendor",
-      type: "select",
+      type: "combobox",
       options: vendorOptions,
       required: mode === "create",
     },

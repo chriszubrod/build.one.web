@@ -3,7 +3,7 @@ import FormField from "./FormField";
 import DateField from "./DateField";
 import TextareaField from "./TextareaField";
 import SelectField from "./SelectField";
-import Combobox from "./ui/Combobox";
+import LazyCombobox from "./ui/LazyCombobox";
 
 export type DocumentHeaderFieldType =
   | "text"
@@ -65,7 +65,7 @@ export default function DocumentHeaderFields({
             break;
           case "combobox":
             control = (
-              <Combobox
+              <LazyCombobox
                 variant="form"
                 label={field.label}
                 name={field.key}

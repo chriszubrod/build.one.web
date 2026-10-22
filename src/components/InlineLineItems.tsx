@@ -1,4 +1,5 @@
 import { Fragment, useState, type ReactNode } from "react";
+import LazyCombobox from "./ui/LazyCombobox";
 
 export interface LineItemColWidth {
   className: string;
@@ -8,8 +9,11 @@ export interface LineItemColWidth {
 export interface LineItemFieldDef<T extends UidRow = UidRow> {
   key: string;
   label: string;
-  type?: "text" | "number" | "select" | "checkbox" | "computed";
+  type?: "text" | "number" | "select" | "combobox" | "checkbox" | "computed";
+  /** For `select` / `combobox` — callers must memoize; combobox requires referential stability. */
   options?: { value: string; label: string }[];
+  /** Combobox only; default 50 in Combobox. */
+  maxResults?: number;
   align?: "left" | "right" | "center";
   width?: string;
   placeholder?: string;
@@ -178,6 +182,22 @@ export default function InlineLineItems<T extends UidRow>(props: InlineLineItems
             </option>
           ))}
         </select>
+      );
+    }
+    if (f.type === "combobox") {
+      const cellValue = String(item[f.key] ?? "");
+      return (
+        <LazyCombobox
+          variant="inline"
+          ariaLabel={f.label}
+          name={`${f.key}-${item.uid}`}
+          value={cellValue}
+          onChange={(v) => updateItem(rowIdx, f.key, v)}
+          options={f.options ?? []}
+          maxResults={f.maxResults}
+          placeholder={f.placeholder}
+          required={false}
+        />
       );
     }
     return (

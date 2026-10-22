@@ -14,6 +14,7 @@ import {
   getComboboxValue,
   pickComboboxOptionByValue,
   tabAwayFromCombobox,
+  waitForCombobox,
 } from "../../test/combobox";
 import { entityItemKey, entityListKey } from "../../hooks/useEntity";
 import type { Bill, BillLineItem } from "../../types/api";
@@ -281,6 +282,11 @@ function renderBillEdit() {
   });
 }
 
+async function mountBillEdit() {
+  renderBillEdit();
+  await waitForCombobox(container);
+}
+
 function findSaveButton(): HTMLButtonElement {
   const btn = Array.from(container.querySelectorAll("button")).find(
     (b) => b.textContent?.trim() === "Save",
@@ -321,7 +327,8 @@ function sccValue(row: HTMLTableRowElement): string {
   return getComboboxValue(sccCombobox(row));
 }
 
-function setSccValue(row: HTMLTableRowElement, value: string): void {
+async function setSccValue(row: HTMLTableRowElement, value: string): Promise<void> {
+  await waitForCombobox(sccCombobox(row));
   if (!value) clearCombobox(sccCombobox(row));
   else pickComboboxOptionByValue(sccCombobox(row), value);
 }
@@ -334,7 +341,8 @@ function projectValue(row: HTMLTableRowElement): string {
   return getComboboxValue(projectCombobox(row));
 }
 
-function setProjectValue(row: HTMLTableRowElement, value: string): void {
+async function setProjectValue(row: HTMLTableRowElement, value: string): Promise<void> {
+  await waitForCombobox(projectCombobox(row));
   if (!value) clearCombobox(projectCombobox(row));
   else pickComboboxOptionByValue(projectCombobox(row), value);
 }
@@ -451,7 +459,7 @@ describe("BillEdit unresolved project handling (U-169)", () => {
   });
 
   it("lookup-miss survives a save: PUT body omits project_public_id", async () => {
-    renderBillEdit();
+    await mountBillEdit();
     await waitForUnresolvedProjectLoaded();
 
     mockPut.mockClear();
@@ -465,14 +473,14 @@ describe("BillEdit unresolved project handling (U-169)", () => {
   });
 
   it("user-cleared project saves null: PUT body has project_public_id === null", async () => {
-    renderBillEdit();
+    await mountBillEdit();
     await waitForUnresolvedProjectLoaded();
 
     const row = lineItemRows()[0];
     expect(projectValue(row)).toBe("__unresolved_project__");
 
     await act(async () => {
-      setProjectValue(row, "");
+      await setProjectValue(row, "");
     });
 
     await flushUntil(() => stickyProjectLabel() == null);
@@ -489,7 +497,7 @@ describe("BillEdit unresolved project handling (U-169)", () => {
   });
 
   it("sticky option renders disabled and Submit for Review is enabled", async () => {
-    renderBillEdit();
+    await mountBillEdit();
     await waitForUnresolvedProjectLoaded();
 
     expect(stickyProjectLabel()).toContain("Project #144");
@@ -515,7 +523,7 @@ describe("BillEdit unresolved project handling (U-169)", () => {
       }),
     ]);
 
-    renderBillEdit();
+    await mountBillEdit();
 
     await flushUntil(() => {
       const rows = lineItemRows();
@@ -544,7 +552,7 @@ describe("BillEdit unresolved project handling (U-169)", () => {
       }),
     ]);
 
-    renderBillEdit();
+    await mountBillEdit();
 
     await flushUntil(() => lineItemRows().length === 1);
     expect(lineItemRows()).toHaveLength(1);
@@ -562,7 +570,7 @@ describe("BillEdit unresolved project handling (U-169)", () => {
   });
 
   it("unresolved_project_id survives the savedItems write-back across two saves", async () => {
-    renderBillEdit();
+    await mountBillEdit();
     await waitForUnresolvedProjectLoaded();
 
     mockPut.mockClear();
@@ -579,14 +587,14 @@ describe("BillEdit unresolved project handling (U-169)", () => {
   });
 
   it("switching from an unresolved project to a visible one sends the new public_id", async () => {
-    renderBillEdit();
+    await mountBillEdit();
     await waitForUnresolvedProjectLoaded();
 
     const row = lineItemRows()[0];
     expect(projectValue(row)).toBe("__unresolved_project__");
 
     await act(async () => {
-      setProjectValue(row, "p-visible");
+      await setProjectValue(row, "p-visible");
     });
 
     await flushUntil(() => stickyProjectLabel() == null);
@@ -628,7 +636,7 @@ describe("BillEdit saveAll incremental line-item sync (U-170)", () => {
       return Promise.reject(new Error(`unexpected post body: ${String(body.description)}`));
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
 
     await act(async () => {
@@ -700,7 +708,7 @@ describe("BillEdit saveAll incremental line-item sync (U-170)", () => {
       return Promise.reject(new Error(`unexpected put: ${path}`));
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntil(() => lineItemRows().length === 2);
     expect(lineItemRows()).toHaveLength(2);
     expect(descriptionInput(lineItemRows()[0]).value).toBe("line-1");
@@ -736,7 +744,7 @@ describe("BillEdit saveAll incremental line-item sync (U-170)", () => {
       return Promise.reject(new Error(`unexpected post: ${path}`));
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
 
     await act(async () => {
@@ -849,7 +857,7 @@ describe("BillEdit shared-attachment re-homing on line delete (U-171)", () => {
         : Promise.reject(new Error(`unexpected post: ${path}`)),
     );
 
-    renderBillEdit();
+    await mountBillEdit();
     await removeFirstRow();
     await clickSave();
 
@@ -882,7 +890,7 @@ describe("BillEdit shared-attachment re-homing on line delete (U-171)", () => {
       Promise.reject(new Error(`unexpected post: ${path}`)),
     );
 
-    renderBillEdit();
+    await mountBillEdit();
     await removeFirstRow();
     await clickSave();
 
@@ -900,7 +908,7 @@ describe("BillEdit shared-attachment re-homing on line delete (U-171)", () => {
       Promise.reject(new Error(`unexpected post: ${path}`)),
     );
 
-    renderBillEdit();
+    await mountBillEdit();
     await removeFirstRow();
     await clickSave();
 
@@ -914,7 +922,7 @@ describe("BillEdit shared-attachment re-homing on line delete (U-171)", () => {
     setup(twoLines(), { "li-A": null, "li-B": { linkId: "blia-B", attachmentId: ATT_ID } });
     mockPost.mockRejectedValue(new Error("unexpected post"));
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntil(() =>
       mockGetOne.mock.calls.some((c) => c[0] === `/api/v1/get/attachment/id/${ATT_ID}`),
     );
@@ -980,7 +988,7 @@ describe("BillEdit item cache reconciliation (U-174)", () => {
   }
 
   it("a successful save seeds the item cache with the fresh bill", async () => {
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
 
     await flushUntil(() => cachedBill()?.row_version === "brv-1");
@@ -1004,7 +1012,7 @@ describe("BillEdit item cache reconciliation (U-174)", () => {
       return Promise.reject(new Error(`unexpected header put #${headerPutCount}`));
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
 
     await act(async () => {
@@ -1039,7 +1047,7 @@ describe("BillEdit item cache reconciliation (U-174)", () => {
       Promise.resolve(sampleBill({ row_version: "brv-2" })),
     );
 
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
 
     await act(async () => {
@@ -1064,7 +1072,7 @@ describe("BillEdit item cache reconciliation (U-174)", () => {
   it("a successful delete removes the item cache entry", async () => {
     confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
 
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
 
     await flushUntil(() => cachedBill() !== undefined);
@@ -1123,7 +1131,7 @@ describe("BillEdit server-owned field rebase (U-464)", () => {
   const cachedBill = () => queryClient.getQueryData<Bill>(entityItemKey(BILL_GET_PATH));
 
   it("picks up a row_version bumped by a review action, so the next save is not a 409", async () => {
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
 
     // What ReviewTimeline's invalidation delivers: the same bill, advanced.
@@ -1145,7 +1153,7 @@ describe("BillEdit server-owned field rebase (U-464)", () => {
   it("does NOT overwrite fields the user has typed", async () => {
     /* The U-460 failure, pinned: a rebase that touched editable fields would
        silently revert in-progress work. */
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
 
     const billNumber = container.querySelector('input[name="bill_number"]') as HTMLInputElement;
@@ -1172,7 +1180,7 @@ describe("BillEdit server-owned field rebase (U-464)", () => {
        instance when the param changes and `form` keeps the previous bill's
        values. Taking bill B's valid token under bill A's values is the
        cross-bill corruption the U-460 review verified by probe. */
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
 
     act(() => {
@@ -1191,7 +1199,7 @@ describe("BillEdit server-owned field rebase (U-464)", () => {
   });
 
   it("does NOT rebase the token when a co-editor changes memo — banner instead", async () => {
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
 
     act(() => {
@@ -1235,7 +1243,7 @@ describe("BillEdit server-owned field rebase (U-464)", () => {
       return Promise.reject(new Error(`unexpected put: ${path}`));
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
 
     const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
@@ -1272,7 +1280,7 @@ describe("BillEdit server-owned field rebase (U-464)", () => {
       return Promise.reject(new Error(`unexpected put: ${path}`));
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
 
     const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
@@ -1396,7 +1404,7 @@ describe("BillEdit ROWVERSION race with review (U-531)", () => {
       return Promise.reject(new Error(`unexpected put: ${path}`));
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
 
     const row = lineItemRows()[0];
@@ -1435,7 +1443,7 @@ describe("BillEdit ROWVERSION race with review (U-531)", () => {
       Promise.resolve(sampleBill({ row_version: "brv-2" })),
     );
 
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
 
     const row = lineItemRows()[0];
@@ -1510,7 +1518,7 @@ describe("BillEdit ROWVERSION race with review (U-531)", () => {
       ),
     );
 
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
 
     const row = lineItemRows()[0];
@@ -1569,7 +1577,7 @@ describe("BillEdit ROWVERSION race with review (U-531)", () => {
       return Promise.reject(new Error(`unexpected put: ${path}`));
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
 
     const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
@@ -1620,7 +1628,7 @@ describe("BillEdit ROWVERSION race with review (U-531)", () => {
       return Promise.reject(new Error(`unexpected put: ${path}`));
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
 
     const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
@@ -1770,7 +1778,7 @@ describe("BillEdit ReviewTimeline onBeforeAction (U-530)", () => {
       }),
     ]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntil(() => lineItemRows().length === 1);
 
     await act(async () => {
@@ -1786,7 +1794,7 @@ describe("BillEdit ReviewTimeline onBeforeAction (U-530)", () => {
   it("ReviewTimeline submit runs saveAll before POSTing review when a project is present", async () => {
     wireReviewMocks([sampleLineItem({ public_id: "li-proj", description: "with project" })]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntil(() => {
       const rows = lineItemRows();
       return rows.length > 0 && descriptionInput(rows[0]).value === "with project";
@@ -1826,7 +1834,7 @@ describe("BillEdit ReviewTimeline onBeforeAction (U-530)", () => {
       [activeReviewRow()],
     );
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntil(() => lineItemRows().length === 1);
 
     await act(async () => {
@@ -1854,7 +1862,7 @@ describe("BillEdit ReviewTimeline onBeforeAction (U-530)", () => {
     );
     mockPost.mockImplementation(() => Promise.resolve({}));
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntil(() => lineItemRows().length === 1);
 
     await act(async () => {
@@ -1895,7 +1903,7 @@ describe("BillEdit ReviewTimeline onBeforeAction (U-530)", () => {
       return Promise.reject(new Error(`unexpected post: ${path}`));
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntil(() => lineItemRows().length === 1);
 
     await act(async () => {
@@ -1948,7 +1956,7 @@ describe("BillEdit ReviewTimeline onBeforeAction (U-530)", () => {
       return priorPost!(path, ...args);
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntil(() => lineItemRows().length === 1);
 
     await act(async () => {
@@ -1992,7 +2000,7 @@ describe("BillEdit ReviewTimeline onBeforeAction (U-530)", () => {
   it("U-676k Submit for Review and Complete Bill stay enabled with untouched pre-fill", async () => {
     wireReviewMocks([sampleLineItem({ public_id: "li-pre", description: "pre-filled", coding_prefill_state: "prefilled" })]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntil(() => lineItemRows().length === 1);
 
     const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>("button"));
@@ -2011,7 +2019,7 @@ describe("BillEdit ReviewTimeline onBeforeAction (U-530)", () => {
   it("passes onBeforeAction to ReviewTimeline", async () => {
     wireReviewMocks([sampleLineItem()]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
 
     expect(ReviewTimeline).toHaveBeenCalled();
@@ -2044,7 +2052,7 @@ describe("BillEdit ReviewTimeline onBeforeAction (U-530)", () => {
       return Promise.reject(new Error(`unexpected post: ${path}`));
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntil(() => lineItemRows().length === 1);
 
     await act(async () => {
@@ -2064,7 +2072,7 @@ describe("BillEdit ReviewTimeline onBeforeAction (U-530)", () => {
       [activeReviewRow()],
     );
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntil(() => lineItemRows().length > 0);
 
     const reviewsCallsBefore = mockGetList.mock.calls.filter((c) => c[0] === REVIEWS_LIST_PATH)
@@ -2116,7 +2124,7 @@ describe("BillEdit coding suggestions", () => {
         description: "line",
       }),
     ]);
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
     await flushUntilHard(() => deliver !== undefined, "on-load coding suggest is in flight");
 
@@ -2153,7 +2161,7 @@ describe("BillEdit coding suggestions", () => {
       }),
     ]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
 
     await flushUntilHard(
@@ -2192,7 +2200,7 @@ describe("BillEdit coding suggestions", () => {
       return Promise.reject(new Error(`unexpected getOne: ${path}`));
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
     await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 1, "suggest after load");
     await act(async () => {
@@ -2239,7 +2247,7 @@ describe("BillEdit coding suggestions", () => {
       return Promise.reject(new Error(`unexpected getOne: ${path}`));
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 2, "lines loaded");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
@@ -2280,7 +2288,7 @@ describe("BillEdit coding suggestions", () => {
       return Promise.reject(new Error(`unexpected getOne: ${path}`));
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "lines loaded");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
@@ -2331,7 +2339,7 @@ describe("BillEdit coding suggestions", () => {
       }),
     ]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 2, "lines loaded");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
@@ -2339,7 +2347,7 @@ describe("BillEdit coding suggestions", () => {
     await flushUntilHard(() => headerBudgetBadge() !== null, "chip before clear");
 
     await act(async () => {
-      setProjectValue(lineItemRows()[0], "");
+      await setProjectValue(lineItemRows()[0], "");
     });
     expect(headerBudgetBadge()).toBeNull();
 
@@ -2368,7 +2376,7 @@ describe("BillEdit coding suggestions", () => {
       }),
     ]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
     await flushUntilHard(
       () => container.querySelector(".status-badge.coding-suggested") !== null,
@@ -2409,7 +2417,7 @@ describe("BillEdit coding suggestions", () => {
       }),
     ]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 2, "lines loaded");
     await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 1, "initial suggest");
     await act(async () => {
@@ -2455,7 +2463,7 @@ describe("BillEdit coding suggestions", () => {
       }),
     ]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "line loaded");
     await flushUntilHard(
       () => container.querySelector(".status-badge.coding-suggested") !== null,
@@ -2463,7 +2471,7 @@ describe("BillEdit coding suggestions", () => {
     );
 
     await act(async () => {
-      setProjectValue(lineItemRows()[0], "p-visible");
+      await setProjectValue(lineItemRows()[0], "p-visible");
     });
     expect(container.querySelector(".status-badge.coding-suggested")).not.toBeNull();
 
@@ -2498,7 +2506,7 @@ describe("BillEdit coding suggestions", () => {
       return Promise.reject(new Error(`unexpected getOne: ${path}`));
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
@@ -2517,7 +2525,7 @@ describe("BillEdit coding suggestions", () => {
       }),
     ]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
     await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 1, "suggestCoding invoked");
 
@@ -2543,7 +2551,7 @@ describe("BillEdit coding suggestions", () => {
       return Promise.reject(new Error(`unexpected post: ${path}`));
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntil(() => lineItemRows().length === 1);
 
     await act(async () => {
@@ -2589,7 +2597,7 @@ describe("BillEdit coding suggestions", () => {
       }),
     ]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
@@ -2643,7 +2651,7 @@ describe("BillEdit coding suggestions", () => {
       return Promise.reject(new Error(`unexpected post: ${path}`));
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntil(() => lineItemRows().length === 1);
 
     const completeBtn = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
@@ -2674,16 +2682,16 @@ describe("BillEdit coding suggestions", () => {
       }),
     ]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntil(() => lineItemRows().length === 1);
     await flushUntil(() => sccValue(lineItemRows()[0]) === "10");
 
     await act(async () => {
-      setProjectValue(lineItemRows()[0], "p-visible");
+      await setProjectValue(lineItemRows()[0], "p-visible");
     });
 
     await act(async () => {
-      setSccValue(lineItemRows()[0], "1");
+      await setSccValue(lineItemRows()[0], "1");
     });
 
     await flushUntil(() => sccValue(lineItemRows()[0]) === "1");
@@ -2719,7 +2727,7 @@ describe("BillEdit coding suggestions", () => {
       }),
     ]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
     await flushUntilHard(() => sccValue(lineItemRows()[0]) === "10", "first prefill");
 
@@ -2734,7 +2742,7 @@ describe("BillEdit coding suggestions", () => {
 
     const row = lineItemRows()[0];
     await act(async () => {
-      setSccValue(row, "");
+      await setSccValue(row, "");
     });
     await flushUntilHard(() => sccValue(row) === "", "user cleared SCC");
 
@@ -2757,7 +2765,7 @@ describe("BillEdit coding suggestions", () => {
       }),
     ]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
     await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 1, "suggestCoding invoked");
     await act(async () => {
@@ -2780,7 +2788,7 @@ describe("BillEdit coding suggestions", () => {
       }),
     ]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
     expect(container.querySelector(".status-badge.coding-suggested")).toBeNull();
     expect(container.querySelector("[class*='coding-budget-']")).toBeNull();
@@ -2789,7 +2797,7 @@ describe("BillEdit coding suggestions", () => {
     expect(sccValue(row)).toBe("10");
 
     await act(async () => {
-      setSccValue(row, "1");
+      await setSccValue(row, "1");
     });
     await flushUntilHard(() => sccValue(row) === "1", "SCC edited");
 
@@ -2817,7 +2825,7 @@ describe("BillEdit coding suggestions", () => {
       }),
     ]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(100);
@@ -2845,7 +2853,7 @@ describe("BillEdit coding suggestions", () => {
       }),
     ]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
@@ -2880,7 +2888,7 @@ describe("BillEdit coding suggestions", () => {
       }),
     ]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
@@ -2912,7 +2920,7 @@ describe("BillEdit coding suggestions", () => {
       }),
     ]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
     await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 1, "suggestCoding invoked");
 
@@ -2933,7 +2941,7 @@ describe("BillEdit coding suggestions", () => {
       }),
     ]);
 
-    renderBillEdit();
+    await mountBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
     await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 1, "initial suggest");
     const callsAfterLoad = mockSuggestCoding.mock.calls.length;
@@ -3013,7 +3021,7 @@ describe("BillEdit coding suggestions", () => {
 
     async function mountMatchingDraft() {
       setupWithPrediction([matchingLineItem()]);
-      renderBillEdit();
+      await mountBillEdit();
       await waitForReady();
       await flushUntilHard(
         () => headerFieldShowsFromFile("bill_number"),
@@ -3023,7 +3031,7 @@ describe("BillEdit coding suggestions", () => {
 
     it("404 prediction → waits for fetch, then no From file labels", async () => {
       setupMocks([sampleLineItem()]);
-      renderBillEdit();
+      await mountBillEdit();
       await flushUntilHard(
         () => mockGetOne.mock.calls.some((c) => String(c[0]).includes("intake-prediction")),
         "intake-prediction fetch",
@@ -3122,7 +3130,7 @@ describe("BillEdit coding suggestions", () => {
         }
         return Promise.reject(new Error(`unexpected getOne: ${path}`));
       });
-      renderBillEdit();
+      await mountBillEdit();
       await flushUntilHard(
         () => mockGetOne.mock.calls.some((c) => String(c[0]).includes("intake-prediction")),
         "intake-prediction fetch",
@@ -3140,7 +3148,7 @@ describe("BillEdit coding suggestions", () => {
   describe("U-681 shared bill line layout", () => {
     it("measured table pins width contract and compact chip class", async () => {
       setupMocks([sampleLineItem()]);
-      renderBillEdit();
+      await mountBillEdit();
       await flushUntilHard(
         () => container.querySelector(".line-items-measured") !== null,
         "measured table",
@@ -3158,7 +3166,7 @@ describe("BillEdit coding suggestions", () => {
 
     it("header field order is Vendor before Bill Number; no Due Date", async () => {
       setupMocks([sampleLineItem()]);
-      renderBillEdit();
+      await mountBillEdit();
       await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
       const labels = Array.from(container.querySelectorAll(".detail-fields-form label")).map(
         (l) => l.textContent?.replace("*", "").trim(),
@@ -3172,7 +3180,7 @@ describe("BillEdit coding suggestions", () => {
         sampleLineItem({ public_id: "li-a", amount: "40.00", description: "a" }),
         sampleLineItem({ public_id: "li-b", amount: "35.50", description: "b" }),
       ]);
-      renderBillEdit();
+      await mountBillEdit();
       await flushUntil(() => lineItemRows().length === 2);
       const footer = container.querySelector(".inline-line-items > div:last-child");
       expect(footer?.textContent?.replace(/\s+/g, " ").trim()).toBe("Total Amount: $75.50");
@@ -3181,7 +3189,7 @@ describe("BillEdit coding suggestions", () => {
 
     it("hides remove when one line remains", async () => {
       setupMocks([sampleLineItem()]);
-      renderBillEdit();
+      await mountBillEdit();
       await flushUntil(() => lineItemRows().length === 1);
       expect(container.querySelector('button[aria-label="Remove line 1"]')).toBeNull();
     });
@@ -3189,7 +3197,7 @@ describe("BillEdit coding suggestions", () => {
     it("PUT sends due_date equal to bill_date when the stored due date differs", async () => {
       // sampleBill stores bill_date 2026-01-15 / due_date 2026-02-15; DueDate = BillDate on every save.
       setupMocks([sampleLineItem()]);
-      renderBillEdit();
+      await mountBillEdit();
       await flushUntilHard(() => findSaveButton() !== null, "save ready");
       await act(async () => {
         setInputValue(
@@ -3213,7 +3221,7 @@ describe("BillEdit coding suggestions", () => {
 
     it("PUT sends due_date equal to bill_date after bill date change", async () => {
       setupMocks([sampleLineItem()]);
-      renderBillEdit();
+      await mountBillEdit();
       await flushUntilHard(() => findSaveButton() !== null, "save ready");
       await act(async () => {
         setInputValue(
@@ -3237,7 +3245,7 @@ describe("BillEdit coding suggestions", () => {
         sampleLineItem({ public_id: "li-1", description: "one" }),
         sampleLineItem({ public_id: "li-2", description: "two" }),
       ]);
-      renderBillEdit();
+      await mountBillEdit();
       await flushUntilHard(() => lineItemRows().length === 2, "two lines");
       const epochBeforeEdit =
         codingSuggestHookCalls[codingSuggestHookCalls.length - 1]?.lineUserEditEpoch ?? 0;
@@ -3331,7 +3339,7 @@ describe("BillEdit coding suggestions", () => {
         return Promise.reject(new Error(`unexpected post: ${path}`));
       });
 
-      renderBillEdit();
+      await mountBillEdit();
       await flushUntilHard(() => lineItemRows().length === 1, "line table");
       await flushUntilHard(
         () => container.querySelector(".line-item-badge-slot .bill-line-chip") !== null,
@@ -3359,10 +3367,10 @@ describe("BillEdit coding suggestions", () => {
 
     it("project select updates projectHintForSuggest", async () => {
       setupMocks([sampleLineItem({ project_id: null, sub_cost_code_id: null })]);
-      renderBillEdit();
+      await mountBillEdit();
       await flushUntilHard(() => lineItemRows().length === 1, "line ready");
       await act(async () => {
-        setProjectValue(lineItemRows()[0], "p-visible");
+        await setProjectValue(lineItemRows()[0], "p-visible");
       });
       await flushUntilHard(
         () =>
@@ -3383,7 +3391,7 @@ describe("BillEdit coding suggestions", () => {
           description: "second",
         }),
       ]);
-      renderBillEdit();
+      await mountBillEdit();
       await flushUntilHard(() => lineItemRows().length === 2, "two lines");
       await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 1, "initial suggest");
       const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
@@ -3425,7 +3433,7 @@ describe("BillEdit coding suggestions", () => {
         return Promise.reject(new Error(`unexpected getOne: ${path}`));
       });
       setupMocks([sampleLineItem()]);
-      renderBillEdit();
+      await mountBillEdit();
       await flushUntil(
         () => container.querySelector("h1")?.textContent?.includes("Draft bill") === true,
       );
@@ -3436,7 +3444,7 @@ describe("BillEdit coding suggestions", () => {
     it("Discard draft confirms delete and navigates to list", async () => {
       const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
       setupMocks([sampleLineItem()]);
-      renderBillEdit();
+      await mountBillEdit();
       await flushUntil(() =>
         Array.from(container.querySelectorAll("button")).some((b) => b.textContent?.includes("Discard draft")),
       );
@@ -3456,7 +3464,7 @@ describe("BillEdit coding suggestions", () => {
       const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
       setupMocks([sampleLineItem()]);
       queryClient.setQueryData(["bill-intake-prediction", "bill-1"], { status: "ok" });
-      renderBillEdit();
+      await mountBillEdit();
       await flushUntil(() =>
         Array.from(container.querySelectorAll("button")).some((b) => b.textContent?.includes("Discard draft")),
       );
@@ -3485,7 +3493,7 @@ describe("BillEdit coding suggestions", () => {
         }
         return Promise.reject(new Error(`unexpected getOne: ${path}`));
       });
-      renderBillEdit();
+      await mountBillEdit();
       await flushUntil(() => container.querySelector('input[name="bill_number"]') !== null);
       expect(
         Array.from(container.querySelectorAll("button")).some((b) => b.textContent?.includes("Discard draft")),
@@ -3517,7 +3525,7 @@ describe("U-700 BillEdit navigation and reference data", () => {
 
   it("loads each reference dataset once (no /lookups duplicate)", async () => {
     setupMocks([sampleLineItem()]);
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
     for (const path of REF_PATHS) {
       expect(countGetList(path), path).toBe(1);
@@ -3530,7 +3538,7 @@ describe("U-700 BillEdit navigation and reference data", () => {
 
   it("Cancel navigates to /bill/list", async () => {
     setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
     const cancelBtn = Array.from(container.querySelectorAll("button")).find(
       (b) => b.textContent?.trim() === "Cancel",
@@ -3549,7 +3557,7 @@ describe("U-700 BillEdit navigation and reference data", () => {
       }
       return Promise.reject(new Error(`unexpected put: ${path}`));
     });
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
     await act(async () => {
       findSaveButton().click();
@@ -3566,7 +3574,7 @@ describe("U-700 BillEdit navigation and reference data", () => {
       }
       return Promise.reject(new Error(`unexpected post: ${path}`));
     });
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
     const submitBtn = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
       (b) => b.textContent === "Submit for Review" && !b.dataset.testid,
@@ -3584,7 +3592,7 @@ describe("U-700 BillEdit navigation and reference data", () => {
 
   it("implicit form submit (Enter) does not navigate to bill view before list (U-708)", async () => {
     setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
     const form = container.querySelector("form.detail-card") as HTMLFormElement;
     await act(async () => {
@@ -3603,7 +3611,7 @@ describe("U-700 BillEdit navigation and reference data", () => {
       }
       return Promise.reject(new Error(`unexpected post: ${path}`));
     });
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
     const submitBtn = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
       (b) => b.textContent === "Submit for Review" && !b.dataset.testid,
@@ -3642,7 +3650,7 @@ describe("U-700 BillEdit navigation and reference data", () => {
       }
       return Promise.reject(new Error(`unexpected post: ${path}`));
     });
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
     const stub = container.querySelector('[data-testid="review-submit-stub"]') as HTMLButtonElement;
     expect(stub).toBeTruthy();
@@ -3678,7 +3686,7 @@ describe("U-700 BillEdit navigation and reference data", () => {
       }
       return Promise.reject(new Error(`unexpected getOne: ${path}`));
     });
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
     const completeBtn = Array.from(container.querySelectorAll("button")).find(
       (b) => b.textContent === "Complete Bill",
@@ -3718,7 +3726,7 @@ describe("U-700 BillEdit navigation and reference data", () => {
       }
       return baseGetOne(path);
     });
-    renderBillEdit();
+    await mountBillEdit();
     await waitForReady();
     const completeBtn = Array.from(container.querySelectorAll("button")).find(
       (b) => b.textContent === "Complete Bill",
@@ -3775,7 +3783,7 @@ describe("U-708 saveAll line sync and cache merge", () => {
   });
 
   it("does not re-fetch line items or drop the PDF iframe after Save", async () => {
-    renderBillEdit();
+    await mountBillEdit();
     await waitForPdf();
     expect(lineItemsFetchCount()).toBe(1);
 
@@ -3822,7 +3830,7 @@ describe("U-708 saveAll line sync and cache merge", () => {
       return Promise.reject(new Error(`unexpected post: ${path}`));
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await waitForPdf();
 
     const submitBtn = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
@@ -3876,7 +3884,7 @@ describe("U-708 saveAll line sync and cache merge", () => {
       return Promise.reject(new Error(`unexpected put: ${path}`));
     });
 
-    renderBillEdit();
+    await mountBillEdit();
     await waitForPdf();
     await flushUntil(() => lineItemRows().length === 1);
     await flushUntil(() => sccValue(lineItemRows()[0]) === "10");
@@ -3887,7 +3895,7 @@ describe("U-708 saveAll line sync and cache merge", () => {
     await flushUntil(() => pendingLinePuts.length === 1);
 
     await act(async () => {
-      setSccValue(lineItemRows()[0], "1");
+      await setSccValue(lineItemRows()[0], "1");
     });
     await flushUntil(() => sccValue(lineItemRows()[0]) === "1");
 

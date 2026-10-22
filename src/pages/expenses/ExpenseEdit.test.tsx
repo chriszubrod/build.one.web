@@ -6,7 +6,14 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import ExpenseEdit from "./ExpenseEdit";
 import { ApiError } from "../../api/client";
 import type { Expense } from "../../types/api";
-import { setInputValue, setSelectValue, setTextareaValue } from "../../__testutils__/domEvents";
+import { setInputValue, setTextareaValue } from "../../__testutils__/domEvents";
+import {
+  comboboxInput,
+  getComboboxValue,
+  pickComboboxOptionByValue,
+  tabAwayFromCombobox,
+  waitForCombobox,
+} from "../../test/combobox";
 import ReviewTimeline from "../../components/ReviewTimeline";
 import { flushUntil, flushUntilHard } from "../../__testutils__/flush";
 import { RefetchWitness, WITNESS_ID } from "../../__testutils__/formSeedGuardHarness";
@@ -2420,16 +2427,41 @@ function firstLineItemRow(container: HTMLElement): HTMLTableRowElement {
   return rows[0]!;
 }
 
-function sccSelectInRow(row: HTMLTableRowElement): HTMLSelectElement {
-  const select = row.querySelectorAll("td")[1]?.querySelector("select");
-  if (!select) throw new Error("expected sub_cost_code_id select in column 2");
-  return select as HTMLSelectElement;
+function sccComboboxInRow(row: HTMLTableRowElement): Element {
+  const box = row.querySelectorAll("td")[1]?.querySelector(".bo-combobox");
+  if (!box) throw new Error("expected sub_cost_code_id combobox in column 2");
+  return box;
 }
 
-function projectSelectInRow(row: HTMLTableRowElement): HTMLSelectElement {
-  const select = row.querySelectorAll("td")[2]?.querySelector("select");
-  if (!select) throw new Error("expected project_id select in column 3");
-  return select as HTMLSelectElement;
+function projectComboboxInRow(row: HTMLTableRowElement): Element {
+  const box = row.querySelectorAll("td")[2]?.querySelector(".bo-combobox");
+  if (!box) throw new Error("expected project_id combobox in column 3");
+  return box;
+}
+
+function vendorCombobox(container: HTMLElement): Element {
+  const box = container.querySelector('[data-bo-field="vendor_public_id"]');
+  if (!box) throw new Error("expected vendor combobox");
+  return box;
+}
+
+function visibleComboboxOptionLabels(): string[] {
+  return Array.from(document.querySelectorAll('[role="listbox"] [role="option"]'))
+    .filter((o) => !o.querySelector(".bo-combobox-truncated-hint"))
+    .map((o) => o.textContent?.trim() ?? "");
+}
+
+function sccCatalogVisible(container: HTMLElement): boolean {
+  try {
+    const sccBox = sccComboboxInRow(firstLineItemRow(container));
+    if (sccBox.hasAttribute("data-bo-combobox-pending")) return false;
+    comboboxInput(sccBox).dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+    return visibleComboboxOptionLabels().includes("00.02 — Suspense");
+  } catch {
+    return false;
+  }
 }
 
 function submitForReviewButtons(container: HTMLElement): HTMLButtonElement[] {
@@ -2528,21 +2560,26 @@ describe("ExpenseEdit line-item coding fields (U-486)", () => {
   async function waitForCodingReady() {
     await waitForReady(container);
     await flushUntil(() => inlineLineItemRows(container).length === 1);
-    await flushUntil(() => {
-      const row = inlineLineItemRows(container)[0];
-      return row ? sccSelectInRow(row).options.length > 1 : false;
+    await act(async () => {
+      await waitForCombobox(sccComboboxInRow(firstLineItemRow(container)));
     });
+    await flushUntilHard(() => sccCatalogVisible(container), "SCC catalog loaded");
   }
 
-  it("renders SubCostCode as a select with number — name option labels", async () => {
+  it("renders SubCostCode as a combobox with number — name option labels", async () => {
     renderExpenseEdit(root);
     await waitForCodingReady();
 
-    const sccSelect = sccSelectInRow(firstLineItemRow(container));
-    expect(sccSelect.tagName).toBe("SELECT");
+    const sccBox = sccComboboxInRow(firstLineItemRow(container));
+    expect(sccBox.classList.contains("bo-combobox--inline")).toBe(true);
 
-    const labels = Array.from(sccSelect.options).map((o) => o.textContent);
-    expect(labels).toContain("00.02 — Suspense");
+    await act(async () => {
+      comboboxInput(sccBox).focus();
+      comboboxInput(sccBox).dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+      );
+    });
+    expect(visibleComboboxOptionLabels()).toContain("00.02 — Suspense");
   });
 
   it("shows an existing line item project as selected (numeric row value)", async () => {
@@ -2572,11 +2609,65 @@ describe("ExpenseEdit line-item coding fields (U-486)", () => {
     renderExpenseEdit(root);
     await waitForReady(container);
     await flushUntil(() => inlineLineItemRows(container).length === 1);
+    await act(async () => {
+      await waitForCombobox(projectComboboxInRow(firstLineItemRow(container)));
+    });
 
-    const projectSelect = projectSelectInRow(firstLineItemRow(container));
-    expect(projectSelect.value).toBe("144");
-    const selectedLabel = projectSelect.options[projectSelect.selectedIndex]?.textContent;
-    expect(selectedLabel).toBe("Main Street");
+    const projectBox = projectComboboxInRow(firstLineItemRow(container));
+    expect(getComboboxValue(projectBox)).toBe("144");
+    expect(comboboxInput(projectBox).value).toBe("Main Street");
+  });
+
+  it("shows project abbreviation in the picker label while keeping internal id as value", async () => {
+    mockGetList.mockImplementation((path: string) => {
+      const catalog = codingCatalogGetList(path);
+      if (catalog) return Promise.resolve(catalog);
+      if (path === SUB_COST_CODES_PATH) {
+        return Promise.resolve({ data: [], count: 0 });
+      }
+      if (path === PROJECTS_PATH) {
+        return Promise.resolve({
+          data: [
+            {
+              id: 144,
+              public_id: PROJECT_144_PUBLIC_ID,
+              name: "4406 Harding",
+              abbreviation: "HP2",
+            },
+          ],
+          count: 1,
+        });
+      }
+      if (path === "/api/v1/get/expense_line_items/expense/1") {
+        return Promise.resolve({
+          data: [
+            expenseLineItemFixture("li-coded", "Line to code", "50.00", { project_id: 144 }),
+          ],
+          count: 1,
+        });
+      }
+      return Promise.reject(new Error(`unexpected getList: ${path}`));
+    });
+
+    renderExpenseEdit(root);
+    await waitForReady(container);
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+    await act(async () => {
+      await waitForCombobox(projectComboboxInRow(firstLineItemRow(container)));
+    });
+
+    const projectBox = projectComboboxInRow(firstLineItemRow(container));
+    expect(getComboboxValue(projectBox)).toBe("144");
+    expect(comboboxInput(projectBox).value).toBe("HP2 — 4406 Harding");
+
+    const row = firstLineItemRow(container);
+    await act(async () => {
+      setInputValue(inlineLineItemInput(row), "Line to code (edited)");
+    });
+    await clickSave(container);
+    const linePuts = putCallsForLineItem("li-coded");
+    expect(linePuts.length).toBeGreaterThan(0);
+    expect(linePuts[linePuts.length - 1]![1].project_public_id).toBe(PROJECT_144_PUBLIC_ID);
   });
 
   it("persists numeric sub_cost_code_id and project public_id UUID on save", async () => {
@@ -2585,8 +2676,8 @@ describe("ExpenseEdit line-item coding fields (U-486)", () => {
 
     const row = firstLineItemRow(container);
     await act(async () => {
-      setSelectValue(sccSelectInRow(row), "481");
-      setSelectValue(projectSelectInRow(row), "144");
+      pickComboboxOptionByValue(sccComboboxInRow(row), "481");
+      pickComboboxOptionByValue(projectComboboxInRow(row), "144");
     });
 
     await clickSave(container);
@@ -2646,10 +2737,16 @@ describe("ExpenseEdit line-item coding fields (U-486)", () => {
     renderExpenseEdit(root);
     await waitForCodingReady();
 
-    const sccSelect = sccSelectInRow(firstLineItemRow(container));
-    const labels = Array.from(sccSelect.options).map((o) => o.textContent);
+    const sccBox = sccComboboxInRow(firstLineItemRow(container));
+    await act(async () => {
+      comboboxInput(sccBox).focus();
+      comboboxInput(sccBox).dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+      );
+    });
+    const labels = visibleComboboxOptionLabels();
     expect(labels).toContain("NoNumberScc");
-    expect(labels.some((l) => l?.includes(" — NoNumberScc"))).toBe(false);
+    expect(labels.some((l) => l.includes(" — NoNumberScc"))).toBe(false);
   });
 
   it("keeps the full ordered line-item field key list via column headers", async () => {
@@ -2668,12 +2765,6 @@ describe("ExpenseEdit line-item coding fields (U-486)", () => {
     expect(container.querySelector('[data-testid="review-timeline-stub"]')).not.toBeNull();
   });
 });
-
-function vendorSelect(container: HTMLElement): HTMLSelectElement {
-  const el = container.querySelector('select[name="vendor_public_id"]');
-  if (!el) throw new Error("expected vendor select");
-  return el as HTMLSelectElement;
-}
 
 function deleteButton(container: HTMLElement): HTMLButtonElement | undefined {
   return Array.from(container.querySelectorAll("button")).find(
@@ -2798,12 +2889,17 @@ describe("ExpenseEdit U-487 bill parity", () => {
 
     renderExpenseEdit(root);
     await waitForExpenseForm();
-    await flushUntil(() => sccSelectInRow(firstLineItemRow(container)).options.length > 1);
+    await act(async () => {
+      await waitForCombobox(sccComboboxInRow(firstLineItemRow(container)));
+    });
+    await flushUntilHard(() => sccCatalogVisible(container), "SCC catalog loaded");
 
     await act(async () => {
-      setSelectValue(sccSelectInRow(firstLineItemRow(container)), "481");
+      pickComboboxOptionByValue(sccComboboxInRow(firstLineItemRow(container)), "481");
     });
-    await flushUntil(() => sccSelectInRow(firstLineItemRow(container)).value === "481");
+    await flushUntil(
+      () => getComboboxValue(sccComboboxInRow(firstLineItemRow(container))) === "481",
+    );
 
     const reviewPostsBefore = mockPost.mock.calls.filter((c) => c[0] === REVIEW_SUBMIT_PATH).length;
     expect(reviewPostsBefore).toBe(0);
@@ -2871,7 +2967,75 @@ describe("ExpenseEdit U-487 bill parity", () => {
     renderExpenseEdit(root);
     await waitForExpenseForm();
 
-    expect(vendorSelect(container).value).toBe(VENDOR_1_PUBLIC_ID);
+    expect(getComboboxValue(vendorCombobox(container))).toBe(VENDOR_1_PUBLIC_ID);
+  });
+
+  it("tabbing through vendor and line pickers without edits sends no PUT on Save (U-621b)", async () => {
+    mockGetList.mockImplementation((path: string) => {
+      const catalog = codingCatalogGetList(path);
+      if (catalog) return Promise.resolve(catalog);
+      if (path === SUB_COST_CODES_PATH) {
+        return Promise.resolve({
+          data: [{ id: 481, public_id: "scc-481", name: "Suspense", number: "00.02" }],
+          count: 1,
+        });
+      }
+      if (path === PROJECTS_PATH) {
+        return Promise.resolve({
+          data: [{ id: 144, public_id: PROJECT_144_PUBLIC_ID, name: "Main Street", abbreviation: "HP2" }],
+          count: 1,
+        });
+      }
+      if (path === "/api/v1/get/expense_line_items/expense/1") {
+        return Promise.resolve({
+          data: [
+            expenseLineItemFixture("li-coded", "Line to code", "50.00", {
+              sub_cost_code_id: 481,
+              project_id: 144,
+            }),
+          ],
+          count: 1,
+        });
+      }
+      return Promise.reject(new Error(`unexpected getList: ${path}`));
+    });
+
+    renderExpenseEdit(root);
+    await waitForExpenseForm();
+    await flushUntilHard(
+      () => getComboboxValue(vendorCombobox(container)) === VENDOR_1_PUBLIC_ID,
+      "vendor value hydrated",
+    );
+    await act(async () => {
+      await waitForCombobox(vendorCombobox(container));
+    });
+    await flushUntilHard(
+      () => comboboxInput(vendorCombobox(container)).value.length > 0,
+      "vendor label visible",
+    );
+
+    const row = firstLineItemRow(container);
+    await act(async () => {
+      await waitForCombobox(sccComboboxInRow(row));
+      await waitForCombobox(projectComboboxInRow(row));
+    });
+    await flushUntilHard(
+      () => comboboxInput(sccComboboxInRow(row)).value === "00.02 — Suspense",
+      "SCC label visible",
+    );
+    await flushUntilHard(
+      () => comboboxInput(projectComboboxInRow(row)).value === "HP2 — Main Street",
+      "project label visible",
+    );
+
+    await act(async () => {
+      tabAwayFromCombobox(vendorCombobox(container));
+      tabAwayFromCombobox(sccComboboxInRow(row));
+      tabAwayFromCombobox(projectComboboxInRow(row));
+    });
+
+    await clickSave(container);
+    expect(mockPut.mock.calls).toHaveLength(0);
   });
 
   it("does not claim Complete syncs to QBO", async () => {
@@ -3337,10 +3501,8 @@ describe("ExpenseEdit document header (U-683b)", () => {
 
   it("requires reference number and expense date but not vendor on edit", async () => {
     renderExpenseEdit(root);
-    await flushUntil(() => container.querySelector('select[name="vendor_public_id"]') !== null);
-    expect(container.querySelector('select[name="vendor_public_id"]')?.hasAttribute("required")).toBe(
-      false,
-    );
+    await flushUntil(() => vendorCombobox(container) !== null);
+    expect(comboboxInput(vendorCombobox(container)).hasAttribute("required")).toBe(false);
     expect(container.querySelector('input[name="reference_number"]')?.hasAttribute("required")).toBe(
       true,
     );

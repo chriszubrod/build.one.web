@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import BillHeaderFields from "./BillHeaderFields";
-import { typeInCombobox } from "../../test/combobox";
+import { typeInCombobox, waitForCombobox } from "../../test/combobox";
 import {
   BILL_LINE_COL,
   buildBillLineFields,
@@ -161,7 +161,7 @@ describe("billLineFields", () => {
       expect(document.querySelector(".bo-combobox-truncated-hint")).toBeNull();
     });
 
-    it("vendor header options still use the default 50 cap with truncation hint", () => {
+    it("vendor header options still use the default 50 cap with truncation hint", async () => {
       const vendors = Array.from({ length: 55 }, (_, i) => ({
         public_id: `v-${i}`,
         name: `Vendor ${i}`,
@@ -184,7 +184,8 @@ describe("billLineFields", () => {
           }),
         );
       });
-      act(() => {
+      await waitForCombobox(container);
+      await act(async () => {
         typeInCombobox(container, "Vendor");
       });
       expect(visibleRealOptionCount()).toBe(50);
