@@ -1,3 +1,21 @@
+## U-710 follow-ups — searchable picker / shared UI library (booked 2026-10-22, shipped `2338046`)
+
+- [ ] 🟠 **Pre-existing vacuous tests (on `main` before U-710): `BillCreate.test.tsx` r6-3 "SCRATCH-E moved line…" and
+  r5-5 "moving a covered line to p-2…".** Both wait for the budget chip with a soft `flushUntil` and then assert it is
+  hidden — but the chip never appears in their fixtures (made the wait `flushUntilHard` on origin/main: both fail), so
+  the "chip hides" assertions pass without the chip ever showing. Fix the budget fixture so the chip renders, then
+  harden the precondition.
+- [ ] 🟢 **Soft precondition waits in U-710 bill tests** (house rule: always follow `flushUntil` with a hard assertion):
+  BillCreate.test.tsx ~987, 1099, 1123, 1144, 1168, 1198, 1233, 1521, 1564, 2174, 2425, 2655; BillEdit.test.tsx ~2679,
+  2689, 3882, 3892. Each has a later hard end-assertion, so low risk — swap to `flushUntilHard`.
+- [ ] 🟢 **BillEditRoute.test.tsx ~208-210** — the loop's negative regex cannot match a Suspense-wrapped bare
+  `<BillEdit />` (coverage holds via the first test / positive match, but the assertion is weaker than it reads).
+- [ ] 🟢 **Combobox polish:** render the "Keep typing to narrow N more" hint outside the ListBox (today it is a disabled
+  option checked in four places); `data-bo-combobox-value` is a test hook in production markup; our Esc handler is
+  redundant (react-aria restores the label itself — a mutant removing it stays green).
+- [ ] 🟢 **Lint rule** — `no-restricted-imports` for `react-aria-components` outside `src/components/ui/` (rides with U-711).
+- Booked separately: **U-711** shared form field shell; vendor's-usual-codes-on-top and other forms = follow-ups.
+
 ## U-654b follow-ups — bill text-tier coding suggestions (booked 2026-10-16)
 
 - [ ] 🟢 **P3 — "same fill" is inferred, not recorded.** `applyUserCodingFieldChange` (`projectFromSameFillAsScc`) and the
