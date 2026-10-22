@@ -4,6 +4,24 @@ Chronological session history. Newest at the top.
 
 ---
 
+## U-621b — Re-land expense review on current main (2026-10-22)
+
+The original U-621 web branch (2026-10-02 cut) never merged; U-621b re-implemented its behaviour on
+today's `main` without cherry-pick/rebase (U-708 EntryCard links, U-705 list refresh, U-700
+`onAfterSubmit` on ReviewTimeline all preserved).
+
+**Carried over:** submit-for-review from Expense View (`ReviewTimeline` + `onAfterAction`, permission
+via `can_submit` on Expenses); `ExpenseViewRoute` keyed by `publicId`; next-draft navigation +
+`expenseListPath` tab-preserving breadcrumbs; Edit dirty-tracking (zero-PUT submit/complete on clean
+forms), flush-first `saveAll`, `formRef` post-flush header body, single-flight join, `itemId`-keyed
+line/receipt chain, shared `headerPutBody`, first-line-first receipt lookup; `useSyncedToken`
+latest-committed fallback; Ctrl/Cmd+Enter on review dialog; ported specs + U-621 (web) TODO residuals.
+
+**Dropped:** list hover/focus/touch prefetch (`EntryCard.onPrefetch` / `ExpenseList.prefetchExpense`) —
+same rejection as bills (2026-10-22). No `EntryCard.test.tsx` for prefetch.
+
+---
+
 ## Session: Admin /docs surface — iOS-first (2026-06-20)
 
 Shipped v1 of an **admin-only `/docs`** surface — a Hybrid docs site documenting the whole 5-repo application, freshness-badged per repo (LIVE / DERIVED / CURATED). Decision: **iOS-first** (the hardest repo: can't be runtime-introspected from web). Built on native primitives (`ios-page` / `SectionCard` / `ListRow` / `NavHeader`) as a drill-down (`DocsHome` → section), matching Time/Labor/Profile. Routes are `React.lazy`-split in `App.tsx` (keeps react-markdown out of the main bundle). Dual-gated: `menuConfig` `requiresAdmin` + page `is_admin` guard; surfaced via a **new Reference group in `AppSidebar`** — NOT the primary bottom pill (which would overflow at 5 tabs).

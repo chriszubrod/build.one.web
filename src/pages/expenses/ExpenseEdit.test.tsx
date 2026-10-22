@@ -8,7 +8,7 @@ import { ApiError } from "../../api/client";
 import type { Expense } from "../../types/api";
 import { setInputValue, setSelectValue, setTextareaValue } from "../../__testutils__/domEvents";
 import ReviewTimeline from "../../components/ReviewTimeline";
-import { flushUntil } from "../../__testutils__/flush";
+import { flushUntil, flushUntilHard } from "../../__testutils__/flush";
 import { RefetchWitness, WITNESS_ID } from "../../__testutils__/formSeedGuardHarness";
 import {
   inlineLineItemInput,
@@ -865,9 +865,8 @@ describe("ExpenseEdit line-item row identity (stable uid keys)", () => {
     );
 
     expect(container.querySelector(`#${WITNESS_ID}`)?.textContent).toBe(refreshedExpenseRowVersion);
-    expect(mockGetList.mock.calls.length).toBeGreaterThan(listCallsBefore);
+    expect(mockGetList.mock.calls.length).toBe(listCallsBefore);
 
-    // Controlled inputs keep .value after re-hydrate; only stable uid keys preserve the node.
     expect(inlineLineItemInputForValue(container, savedDescription)).toBe(inputAfterSave);
   });
 });
@@ -929,33 +928,316 @@ describe("ExpenseEdit chained-save row_version", () => {
       .map((c) => c[1] as { row_version?: string });
   }
 
-  it("saveAll after flushAutoSave sends the token returned by the flush PUT, not stale form state", async () => {
+  it("a coalesced follow-up save sends the token returned by the in-flight PUT, not stale form state", async () => {
+    let releaseFirstPut!: () => void;
+    const firstPutHeld = new Promise<void>((resolve) => { releaseFirstPut = resolve; });
+    let headerPuts = 0;
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/expense/exp-1") {
+        headerPuts += 1;
+        const response = sampleExpense({ row_version: "rv-2" });
+        return headerPuts === 1 ? firstPutHeld.then(() => response) : Promise.resolve(response);
+      }
+      return Promise.reject(new Error("unexpected put: " + path));
+    });
+
     renderExpenseEdit(root);
     await waitForReady(container);
     await flushMicrotasks();
 
     const refInput = container.querySelector('input[name="reference_number"]') as HTMLInputElement;
     expect(refInput).not.toBeNull();
-
-    await act(async () => {
-      refInput.value = "EXP-EDITED";
-      refInput.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-
-    // Debounced auto-save is scheduled but must not fire before Complete.
+    await act(async () => { setInputValue(refInput, "EXP-EDITED"); });
     expect(headerPutBodies()).toHaveLength(0);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(320); });
+    expect(headerPutBodies()).toHaveLength(1);
+
+    await act(async () => { setInputValue(refInput, "EXP-EDITED-AGAIN"); });
 
     const btn = completeButton(container);
     expect(btn).not.toBeNull();
-    await act(async () => {
-      btn!.click();
-      await flushMicrotasks();
-    });
+    await act(async () => { btn!.click(); });
+    await act(async () => { releaseFirstPut(); await flushMicrotasks(); });
+    await flushUntil(() => headerPutBodies().length >= 2);
 
     const bodies = headerPutBodies();
-    expect(bodies.length).toBeGreaterThanOrEqual(2);
+    expect(bodies).toHaveLength(2);
     expect(bodies[0].row_version).toBe("rv-1");
     expect(bodies[1].row_version).toBe("rv-2");
+  });
+
+  it("a keystroke typed while the flush PUT is in flight is carried by saveAll's own header PUT (Pass 1 P2)", async () => {
+    let releaseFirstPut!: () => void;
+    const firstPutHeld = new Promise<void>((resolve) => { releaseFirstPut = resolve; });
+    let headerPuts = 0;
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/expense/exp-1") {
+        headerPuts += 1;
+        const response = sampleExpense({ row_version: `rv-${headerPuts + 1}` });
+        return headerPuts === 1 ? firstPutHeld.then(() => response) : Promise.resolve(response);
+      }
+      return Promise.reject(new Error("unexpected put: " + path));
+    });
+
+    renderExpenseEdit(root);
+    await waitForReady(container);
+    await flushMicrotasks();
+
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => { setTextareaValue(memo, "a"); });
+
+    const saveBtn = Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Save")!;
+    await act(async () => { saveBtn.click(); await flushMicrotasks(); });
+    expect(headerPutBodies()).toHaveLength(1);
+
+    await act(async () => { setTextareaValue(memo, "ab"); });
+
+    await act(async () => { releaseFirstPut(); await flushMicrotasks(); });
+    await flushUntil(() => headerPutBodies().length >= 2);
+
+    const bodies = headerPutBodies() as { memo?: string | null }[];
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0].memo).toBe("a");
+    expect(bodies[1].memo).toBe("ab");
+  });
+
+  it("line inputs stay disabled while saveAll's flush PUT is in flight (U-621b W1)", async () => {
+    let releaseFlush!: () => void;
+    const flushHeld = new Promise<void>((resolve) => { releaseFlush = resolve; });
+    let headerPuts = 0;
+    mockGetListWithCodingCatalog((path) => {
+      if (path === "/api/v1/get/expense_line_items/expense/1") {
+        return Promise.resolve({
+          data: [
+            {
+              public_id: "li-1",
+              row_version: "rv-li",
+              description: "seed",
+              sub_cost_code_id: null,
+              project_id: null,
+              quantity: null,
+              rate: null,
+              amount: null,
+              is_billable: true,
+              billable_decided_at: null,
+              markup: null,
+              price: null,
+            },
+          ],
+          count: 1,
+        });
+      }
+      return Promise.resolve({ data: [], count: 0 });
+    });
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/expense/exp-1") {
+        headerPuts += 1;
+        const response = sampleExpense({ row_version: `rv-${headerPuts + 1}` });
+        return headerPuts === 1 ? flushHeld.then(() => response) : Promise.resolve(response);
+      }
+      if (path === "/api/v1/update/expense_line_item/li-1") {
+        return Promise.resolve({ public_id: "li-1", row_version: "rv-li-2" });
+      }
+      return Promise.reject(new Error("unexpected put: " + path));
+    });
+
+    renderExpenseEdit(root);
+    await waitForReady(container);
+    await flushMicrotasks();
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+
+    const row = inlineLineItemRows(container)[0]!;
+    await act(async () => { setInputValue(inlineLineItemInput(row), "before-save"); });
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => { setTextareaValue(memo, "flush-me"); });
+
+    const saveBtn = findSaveButton(container);
+    await act(async () => { saveBtn.click(); await flushMicrotasks(); });
+    expect(headerPutBodies()).toHaveLength(1);
+
+    const lineInput = inlineLineItemInput(row);
+    expect(lineInput.matches(":disabled")).toBe(true);
+
+    await act(async () => { releaseFlush(); await flushMicrotasks(); });
+    await flushUntilHard(
+      () => mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/expense_line_item/li-1"),
+      "line PUT after flush",
+    );
+    expect(lineInput.matches(":disabled")).toBe(false);
+  });
+
+  it("Complete path: line inputs stay disabled while saveAll's flush PUT is in flight (U-621b C1)", async () => {
+    let releaseFlush!: () => void;
+    const flushHeld = new Promise<void>((resolve) => { releaseFlush = resolve; });
+    let headerPuts = 0;
+    mockGetListWithCodingCatalog((path) => {
+      if (path === "/api/v1/get/expense_line_items/expense/1") {
+        return Promise.resolve({
+          data: [
+            {
+              public_id: "li-1",
+              row_version: "rv-li",
+              description: "seed",
+              sub_cost_code_id: null,
+              project_id: null,
+              quantity: null,
+              rate: null,
+              amount: null,
+              is_billable: true,
+              billable_decided_at: null,
+              markup: null,
+              price: null,
+            },
+          ],
+          count: 1,
+        });
+      }
+      return Promise.resolve({ data: [], count: 0 });
+    });
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/expense/exp-1") {
+        headerPuts += 1;
+        const response = sampleExpense({ row_version: `rv-${headerPuts + 1}` });
+        return headerPuts === 1 ? flushHeld.then(() => response) : Promise.resolve(response);
+      }
+      if (path === "/api/v1/update/expense_line_item/li-1") {
+        return Promise.resolve({ public_id: "li-1", row_version: "rv-li-2" });
+      }
+      return Promise.reject(new Error("unexpected put: " + path));
+    });
+
+    renderExpenseEdit(root);
+    await waitForReady(container);
+    await flushMicrotasks();
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+
+    const row = inlineLineItemRows(container)[0]!;
+    await act(async () => { setInputValue(inlineLineItemInput(row), "before-complete"); });
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => { setTextareaValue(memo, "flush-me"); });
+
+    const completeBtn = completeButton(container);
+    await act(async () => { completeBtn!.click(); await flushMicrotasks(); });
+    expect(headerPutBodies()).toHaveLength(1);
+
+    const lineInput = inlineLineItemInput(row);
+    expect(lineInput.matches(":disabled")).toBe(true);
+
+    await act(async () => { releaseFlush(); await flushMicrotasks(); });
+    await flushUntilHard(
+      () => mockPost.mock.calls.some((c) => c[0] === "/api/v1/complete/expense/exp-1"),
+      "POST /complete/expense after flush",
+    );
+    expect(lineInput.matches(":disabled")).toBe(false);
+  });
+
+  it("a second Save clicked while the flush PUT is held joins the first — ONE create per new line (U-621 re-review P1)", async () => {
+    let releaseFlush!: () => void;
+    const flushHeld = new Promise<void>((resolve) => { releaseFlush = resolve; });
+    let headerPuts = 0;
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/expense/exp-1") {
+        headerPuts += 1;
+        const response = sampleExpense({ row_version: `rv-${headerPuts + 1}` });
+        return headerPuts === 1 ? flushHeld.then(() => response) : Promise.resolve(response);
+      }
+      return Promise.reject(new Error("unexpected put: " + path));
+    });
+    mockPost.mockImplementation((path: string, body: Record<string, unknown>) =>
+      path === LINE_CREATE_PATH
+        ? Promise.resolve({ public_id: `li-${String(body.description)}`, row_version: "rv-new" })
+        : Promise.reject(new Error("unexpected post: " + path)),
+    );
+
+    renderExpenseEdit(root);
+    await waitForReady(container);
+    await flushMicrotasks();
+
+    await act(async () => { findAddRowButton(container).click(); });
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+    await act(async () => { setInputValue(inlineLineItemInput(inlineLineItemRows(container)[0]!), "new-line"); });
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => { setTextareaValue(memo, "a"); });
+
+    const saveBtn = findSaveButton(container);
+    await act(async () => { saveBtn.click(); await flushMicrotasks(); });
+    expect(headerPutBodies()).toHaveLength(1);
+    await act(async () => { saveBtn.click(); await flushMicrotasks(); });
+
+    await act(async () => { releaseFlush(); await flushMicrotasks(); });
+    await flushUntil(() => postCallsForDescription("new-line").length >= 1);
+    await flushMicrotasks();
+
+    expect(postCallsForDescription("new-line")).toHaveLength(1);
+  });
+
+  it("Complete on an untouched draft issues no header PUT at all", async () => {
+    renderExpenseEdit(root);
+    await waitForReady(container);
+    await flushMicrotasks();
+
+    const btn = completeButton(container);
+    expect(btn).not.toBeNull();
+    await act(async () => { btn!.click(); await flushMicrotasks(); });
+    await flushUntilHard(
+      () => mockPost.mock.calls.some((c) => c[0] === "/api/v1/complete/expense/exp-1"),
+      "POST /complete/expense",
+    );
+
+    expect(headerPutBodies()).toHaveLength(0);
+    expect(mockPost.mock.calls.filter((c) => c[0] === "/api/v1/complete/expense/exp-1")).toHaveLength(1);
+  });
+
+  it("clears a stale save-error banner when saveAll early-returns on a clean form via Submit for Review (U-621b C2)", async () => {
+    vi.mocked(ReviewTimeline).mockImplementation((props: { onBeforeAction?: () => Promise<boolean> }) =>
+      createElement(
+        "button",
+        {
+          type: "button",
+          "data-testid": "review-submit-stub",
+          onClick: async () => {
+            if (props.onBeforeAction) {
+              const ok = await props.onBeforeAction();
+              if (!ok) return;
+            }
+            await mockPost(REVIEW_SUBMIT_PATH, { comments: null });
+          },
+        },
+        "Submit for Review",
+      ),
+    );
+
+    let completeAttempts = 0;
+    mockPost.mockImplementation((path: string) => {
+      if (path === "/api/v1/complete/expense/exp-1") {
+        completeAttempts += 1;
+        if (completeAttempts === 1) return Promise.reject(new Error("complete failed"));
+        return Promise.resolve({});
+      }
+      if (path === REVIEW_SUBMIT_PATH) return Promise.resolve({});
+      return Promise.reject(new Error("unexpected post: " + path));
+    });
+
+    renderExpenseEdit(root);
+    await waitForReady(container);
+    await flushMicrotasks();
+
+    const completeBtn = completeButton(container);
+    await act(async () => { completeBtn!.click(); await flushMicrotasks(); });
+    await flushUntilHard(() => container.textContent?.includes("complete failed") ?? false, "complete error shown");
+    expect(headerPutBodies()).toHaveLength(0);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="review-submit-stub"]')!.click();
+      await flushMicrotasks();
+    });
+    await flushUntilHard(
+      () => mockPost.mock.calls.some((c) => c[0] === REVIEW_SUBMIT_PATH),
+      "review submit POST on clean form",
+    );
+    expect(container.textContent?.includes("complete failed")).toBe(false);
+    expect(headerPutBodies()).toHaveLength(0);
   });
 });
 
@@ -1062,6 +1344,9 @@ describe("ExpenseEdit token rebase (U-471)", () => {
 
     await flushUntil(() => container.textContent?.includes("This expense was changed in another window.") ?? false);
     expect(container.textContent).toContain("This expense was changed in another window.");
+
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => { setTextareaValue(memo, "my local edit"); });
 
     await clickSave();
     const bodies = headerPutBodies();
@@ -1731,6 +2016,9 @@ describe("ExpenseEdit receipt re-homing on line delete (U-171 / U-476)", () => {
     await removeFirstRow();
     expect(inlineLineItemInput(inlineLineItemRows(container)[0]!).value).toBe("line-B");
 
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => { setTextareaValue(memo, "edited header"); });
+
     await clickSave(container);
 
     expect(container.textContent).toContain("header fail");
@@ -1795,7 +2083,7 @@ describe("ExpenseEdit receipt re-homing on line delete (U-171 / U-476)", () => {
     );
   });
 
-  it("saveAll cancels an armed auto-save debounce so a slow re-home GET issues only one header PUT", async () => {
+  it("saveAll flushes an armed auto-save debounce up front, so a slow re-home GET sees exactly one header PUT", async () => {
     let releaseLiA!: () => void;
     const liAHeld = new Promise<void>((resolve) => {
       releaseLiA = resolve;
@@ -1834,10 +2122,11 @@ describe("ExpenseEdit receipt re-homing on line delete (U-171 / U-476)", () => {
       }
     });
 
+    expect(expenseHeaderPutBodies()).toHaveLength(1);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(320);
     });
-    expect(expenseHeaderPutBodies()).toHaveLength(0);
+    expect(expenseHeaderPutBodies()).toHaveLength(1);
 
     await act(async () => {
       releaseLiA();
@@ -2007,6 +2296,12 @@ describe("ExpenseEdit auto-save disarm after failed save (U-476)", () => {
     await waitForReady(container);
     await flushUntil(() => inlineLineItemRows(container).length === 1);
 
+    const memoBefore = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => { setTextareaValue(memoBefore, "typed before save"); });
+    await act(async () => {
+      setInputValue(inlineLineItemInput(inlineLineItemRows(container)[0]!), "edited line");
+    });
+
     await clickSave(container);
     await flushUntil(() => container.textContent?.includes("line fail") ?? false);
     expect(container.textContent).toContain("line fail");
@@ -2031,6 +2326,26 @@ describe("ExpenseEdit auto-save disarm after failed save (U-476)", () => {
     expect(expenseHeaderPutBodies()).toHaveLength(putsAfterFail);
   });
 
+  it("a line-item failure after the header persisted does not re-dirty the header (next Save sends no header PUT)", async () => {
+    renderExpenseEdit(root);
+    await waitForReady(container);
+    await flushUntil(() => inlineLineItemRows(container).length === 1);
+
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => { setTextareaValue(memo, "typed once"); });
+    await act(async () => {
+      setInputValue(inlineLineItemInput(inlineLineItemRows(container)[0]!), "edited line");
+    });
+
+    await clickSave(container);
+    await flushUntil(() => container.textContent?.includes("line fail") ?? false);
+    expect(expenseHeaderPutBodies()).toHaveLength(1);
+
+    await clickSave(container);
+    await flushUntil(() => mockPut.mock.calls.filter((c) => String(c[0]).startsWith("/api/v1/update/expense_line_item/")).length >= 2);
+    expect(expenseHeaderPutBodies()).toHaveLength(1);
+  });
+
   it("cancels an already-armed debounce so a failed save does not fire a follow-up header PUT", async () => {
     renderExpenseEdit(root);
     await waitForReady(container);
@@ -2041,7 +2356,9 @@ describe("ExpenseEdit auto-save disarm after failed save (U-476)", () => {
     await act(async () => {
       setTextareaValue(memo, "typed before failing save");
     });
-    // Timer is armed (300ms) but must not fire before Save.
+    await act(async () => {
+      setInputValue(inlineLineItemInput(inlineLineItemRows(container)[0]!), "edited line");
+    });
     expect(expenseHeaderPutBodies()).toHaveLength(0);
 
     await clickSave(container);
@@ -2310,6 +2627,13 @@ describe("ExpenseEdit line-item coding fields (U-486)", () => {
       mockGetList.mock.calls.some((c) => c[0] === "/api/v1/get/expense_line_items/expense/1"),
     );
 
+    await act(async () => {
+      setInputValue(
+        inlineLineItemInput(inlineLineItemRows(container)[0]!),
+        "Line to code (edited)",
+      );
+    });
+
     await clickSave(container);
 
     const linePuts = putCallsForLineItem("li-coded");
@@ -2515,12 +2839,32 @@ describe("ExpenseEdit U-487 bill parity", () => {
     renderExpenseEdit(root);
     await waitForExpenseForm();
 
+    const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+    await act(async () => { setTextareaValue(memo, "unsaved edit"); });
+
     await act(async () => {
       container.querySelector<HTMLButtonElement>('[data-testid="review-submit-stub"]')!.click();
     });
     await flushUntil(() => mockPut.mock.calls.some((c) => c[0] === EXPENSE_UPDATE_PATH));
+    await flushMicrotasks();
 
     expect(mockPost.mock.calls.some((c) => c[0] === REVIEW_SUBMIT_PATH)).toBe(false);
+  });
+
+  it("Submit for Review on an untouched draft issues ZERO PUTs before the review POST", async () => {
+    renderExpenseEdit(root);
+    await waitForExpenseForm();
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="review-submit-stub"]')!.click();
+    });
+    await flushUntilHard(
+      () => mockPost.mock.calls.some((c) => c[0] === REVIEW_SUBMIT_PATH),
+      "review submit POST",
+    );
+
+    expect(mockPut.mock.calls).toHaveLength(0);
+    expect(mockPost.mock.calls.filter((c) => c[0] === REVIEW_SUBMIT_PATH)).toHaveLength(1);
   });
 
   it("renders a stored vendor_id as the selected vendor_public_id", async () => {
@@ -2756,12 +3100,12 @@ describe("ExpenseEdit delete document (U-683a)", () => {
       deleteButton(container)!.click();
     });
 
-    await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/expense/list"));
+    await flushUntil(() => mockNavigate.mock.calls.some((c) => String(c[0]).startsWith("/expense/list")));
     expect(callOrder).toEqual(["cancel", "delete"]);
     expect(mockDel).toHaveBeenCalledWith(EXPENSE_DELETE_PATH);
     expect(queryClient.getQueryData(entityItemKey(EXPENSE_GET_PATH))).toBeUndefined();
     expect(mockToast).toHaveBeenCalledWith("Expense deleted.");
-    expect(mockNavigate).toHaveBeenCalledWith("/expense/list");
+    expect(mockNavigate).toHaveBeenCalledWith("/expense/list?status=draft");
   });
 });
 

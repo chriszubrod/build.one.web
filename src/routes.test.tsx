@@ -1020,3 +1020,19 @@ describe("routed <-> nav reconciliation (U-077)", () => {
     expect(dead).toEqual([]);
   });
 });
+
+describe("expense detail routes are keyed by publicId (U-465 for Edit; View since the next-draft flow)", () => {
+  function elementDisplayName(path: string): string {
+    const branch = branchFor(path);
+    const leaf = branch?.[branch.length - 1];
+    const el = leaf?.route.element as ReactElement | undefined;
+    const type = el?.type as ComponentType & { displayName?: string };
+    return type?.displayName ?? type?.name ?? "";
+  }
+  it("/expense/:publicId renders a KeyedByPublicId wrapper", () => {
+    expect(elementDisplayName("/expense/abc123")).toBe("KeyedByPublicId(ExpenseView)");
+  });
+  it("/expense/:publicId/edit renders a KeyedByPublicId wrapper", () => {
+    expect(elementDisplayName("/expense/abc123/edit")).toBe("KeyedByPublicId(ExpenseEdit)");
+  });
+});

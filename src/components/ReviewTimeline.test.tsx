@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ReviewTimeline, { type ReviewActionKind } from "./ReviewTimeline";
 import { entityItemKey } from "../hooks/useEntity";
-import { flushUntil } from "../__testutils__/flush";
+import { flushUntil, flushUntilHard } from "../__testutils__/flush";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -62,6 +62,7 @@ function render(
       canSubmit?: boolean,
     ) => Promise<boolean>;
     onAfterSubmit?: () => void;
+    onAfterAction?: (action: ReviewActionKind) => void | Promise<void>;
   } = {},
 ) {
   act(() => {
@@ -375,5 +376,82 @@ describe("ReviewTimeline — U-463 the headline names the submitter", () => {
     await flushUntil(() => container.textContent?.includes("submitted by") ?? false);
 
     expect(container.textContent).toContain("submitted by Claude Agent");
+  });
+});
+
+describe("ReviewTimeline — onAfterAction + keyboard confirm (expense review 2026-10-03)", () => {
+  it("calls onAfterAction with the action kind once the POST landed and the parent was invalidated", async () => {
+    const seen: string[] = [];
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    render("bill", "bill-1", {
+      onAfterAction: (action) => {
+        expect(invalidate).toHaveBeenCalledWith({ queryKey: entityItemKey("/api/v1/get/bill/bill-1") });
+        seen.push(action);
+      },
+    });
+    await submitForReview();
+    await flushUntilHard(() => seen.length === 1, "onAfterAction ran");
+    expect(seen).toEqual(["submit"]);
+  });
+
+  it("does NOT call onAfterAction when the POST failed", async () => {
+    mockPost.mockRejectedValue(new Error("nope"));
+    const onAfterAction = vi.fn();
+    render("bill", "bill-1", { onAfterAction });
+    await submitForReview();
+    await flushUntilHard(() => (container.textContent ?? "").includes("nope"), "POST error shown");
+    expect(mockPost).toHaveBeenCalledTimes(1);
+    expect(onAfterAction).not.toHaveBeenCalled();
+  });
+
+  it("keeps the dialog closed when onAfterAction throws after a successful POST (U-621b W3)", async () => {
+    const onAfterAction = vi.fn(async () => {
+      throw new Error("after hook blew up");
+    });
+    render("bill", "bill-1", { onAfterAction });
+    await submitForReview();
+    await flushUntilHard(() => mockPost.mock.calls.length === 1, "review POST");
+    expect(onAfterAction).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(container.textContent ?? "").not.toContain("after hook blew up");
+  });
+
+  it("Ctrl+Enter in the comments box confirms the dialog; plain Enter does not", async () => {
+    render();
+    await flushUntil(() => buttonWithText("Submit for Review") !== undefined);
+    await act(async () => { buttonWithText("Submit for Review")!.click(); });
+    await flushUntil(() => container.querySelector("textarea") !== null);
+    const textarea = container.querySelector("textarea")!;
+
+    await act(async () => {
+      textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    expect(mockPost).not.toHaveBeenCalled();
+
+    await act(async () => {
+      textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }));
+    });
+    await flushUntilHard(() => mockPost.mock.calls.length > 0, "Ctrl+Enter POST");
+    expect(mockPost).toHaveBeenCalledWith(
+      "/api/v1/submit/review/bill/bill-1",
+      expect.objectContaining({ comments: null }),
+    );
+  });
+
+  it("Cmd+Enter in the comments box confirms the dialog (metaKey)", async () => {
+    render();
+    await flushUntil(() => buttonWithText("Submit for Review") !== undefined);
+    await act(async () => { buttonWithText("Submit for Review")!.click(); });
+    await flushUntil(() => container.querySelector("textarea") !== null);
+    const textarea = container.querySelector("textarea")!;
+
+    await act(async () => {
+      textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true }));
+    });
+    await flushUntilHard(() => mockPost.mock.calls.length > 0, "Cmd+Enter POST");
+    expect(mockPost).toHaveBeenCalledWith(
+      "/api/v1/submit/review/bill/bill-1",
+      expect.objectContaining({ comments: null }),
+    );
   });
 });

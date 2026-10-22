@@ -17,6 +17,13 @@ interface ReviewTimelineProps {
   onBeforeAction?: (action?: ReviewActionKind, canSubmit?: boolean) => Promise<boolean>;
   /** Called only after a successful submit-for-review (not advance/decline). */
   onAfterSubmit?: () => void;
+  /**
+   * Called after an action has landed AND the parent item query has been
+   * invalidated — i.e. once the page's own data is refreshing. Lets a page
+   * react to the transition (ExpenseView moves on to the next draft) without
+   * owning the review POST itself.
+   */
+  onAfterAction?: (action: ReviewActionKind) => void | Promise<void>;
 }
 
 // API URL slug per parent type. Three of four match snake_case; bill_credit
@@ -91,6 +98,7 @@ export default function ReviewTimeline({
   readOnly = false,
   onBeforeAction,
   onAfterSubmit,
+  onAfterAction,
 }: ReviewTimelineProps) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
@@ -154,16 +162,17 @@ export default function ReviewTimeline({
     }
 
     setDialog({ ...dialog, busy: true, error: "" });
+    const actionKind = dialog.kind;
     try {
       if (onBeforeAction) {
-        const ok = await onBeforeAction(dialog.kind, canSubmit);
+        const ok = await onBeforeAction(actionKind, canSubmit);
         if (!ok) {
           setDialog({ ...dialog, busy: false, error: "" });
           return;
         }
       }
-      const path = `/api/v1/${dialog.kind}/review/${slug}/${parentPublicId}`;
-      const body: Record<string, any> = {
+      const path = `/api/v1/${actionKind}/review/${slug}/${parentPublicId}`;
+      const body: Record<string, unknown> = {
         comments: dialog.comments.trim() || null,
       };
       // Decline auto-resolves the target server-side when only one declined
@@ -183,13 +192,19 @@ export default function ReviewTimeline({
       // data — see BillEdit's server-owned-field rebase, the other half.
       await queryClient.invalidateQueries({ queryKey: entityItemKey(parentItemPath) });
       setDialog(null);
-      if (dialog.kind === "submit" && onAfterSubmit) {
+    } catch (err: unknown) {
+      const msg =
+        err instanceof ApiError ? err.detail : err instanceof Error ? err.message : "Action failed.";
+      setDialog({ ...dialog, busy: false, error: msg });
+      return;
+    }
+    try {
+      if (onAfterAction) await onAfterAction(actionKind);
+      if (actionKind === "submit" && onAfterSubmit) {
         onAfterSubmit();
       }
-    } catch (err: any) {
-      const msg =
-        err instanceof ApiError ? err.detail : err?.message ?? "Action failed.";
-      setDialog({ ...dialog, busy: false, error: msg });
+    } catch (err) {
+      console.error("ReviewTimeline onAfterAction failed after a successful review POST", err);
     }
   };
 
@@ -441,6 +456,12 @@ function ActionModal({
           style={{ width: "100%", resize: "vertical" }}
           value={dialog.comments}
           onChange={(e) => onChangeComments(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !dialog.busy) {
+              e.preventDefault();
+              onSubmit();
+            }
+          }}
           placeholder={
             requiredComments
               ? "Explain why you're declining…"

@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef, type Dispatch, type SetStateAction } from "react";
 import { useServerOwnedRebase } from "../../hooks/useServerOwnedRebase";
 import { useSyncedToken } from "../../hooks/useSyncedToken";
 import { useQueryClient } from "@tanstack/react-query";
@@ -10,7 +10,7 @@ import { useAutoSave } from "../../hooks/useAutoSave";
 import { useCompletionPolling } from "../../hooks/useCompletionPolling";
 import { useToast } from "../../components/Toast";
 import CompletionStatusBar from "../../components/CompletionStatusBar";
-import { put, post, del, getList, getOne, ApiError } from "../../api/client";
+import { put, post, del, getList, getOne } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { resolveExpenseEditActions } from "./expensePermissions";
@@ -19,6 +19,8 @@ import { expenseHeaderFields, vendorSelectOptions } from "./expenseHeaderFields"
 import InlineLineItems, { type LineItemFieldDef } from "../../components/InlineLineItems";
 import LineItemAttachment from "../../components/LineItemAttachment";
 import ReviewTimeline from "../../components/ReviewTimeline";
+import { expenseListPath } from "./expenseStatusTabs";
+import { expenseStatus } from "./expenseLifecycle";
 import RecordChangedBanner from "../../components/RecordChangedBanner";
 import Breadcrumb from "../../components/Breadcrumb";
 import type { Expense, ExpenseLineItem, Project, SubCostCode, Vendor as FullVendor } from "../../types/api";
@@ -29,6 +31,11 @@ import {
   billablePayload,
   effectiveBillable,
 } from "./billableDecision";
+import {
+  findReceiptAttachmentPublicId,
+  getEliaLinkForLine,
+  type EliaLink,
+} from "./expenseReceipt";
 
 interface LineItemRow {
   uid: string;
@@ -46,17 +53,25 @@ interface LineItemRow {
   price: string;
 }
 
+/** Header form state mirrored from Expense (stringly fields for inputs). */
+interface ExpenseFormState {
+  vendor_public_id: string;
+  expense_date: string;
+  reference_number: string;
+  total_amount: string;
+  memo: string;
+  is_draft: boolean;
+  is_credit: boolean;
+  row_version: string;
+  [key: string]: string | boolean;
+}
+
 function newLineItem(): LineItemRow {
   return {
     uid: newLineItemUid(),
     description: "", sub_cost_code_id: "", project_id: "",
     quantity: "", rate: "", amount: "", is_billable: true, billable_decided: false, markup: "", price: "",
   };
-}
-
-interface EliaLink {
-  public_id: string;
-  attachment_id: number | null;
 }
 
 const ATTACHMENT_PRESERVE_ERROR =
@@ -92,18 +107,6 @@ function restoreRemovedLineItems(
   }
   const rest = current.filter((r) => !r.public_id || !placed.has(r.public_id));
   return [...persisted, ...rest];
-}
-
-/** U-476: null only on a definitive 404 (the line has no link); other errors propagate. */
-async function getEliaLinkForLine(lineItemPublicId: string): Promise<EliaLink | null> {
-  try {
-    return await getOne<EliaLink>(
-      `/api/v1/get/expense-line-item-attachment/by-expense-line-item/${lineItemPublicId}`,
-    );
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 404) return null;
-    throw err;
-  }
 }
 
 /**
@@ -234,7 +237,7 @@ export default function ExpenseEdit() {
   const { data: lookups } = useLookups("vendors");
   const { data: me, isLoading: meLoading } = useCurrentUser();
   const actions = resolveExpenseEditActions(me);
-  const [form, setForm] = useState<Record<string, any> | null>(null);
+  const [form, setForm] = useState<ExpenseFormState | null>(null);
   const [lineItems, setLineItems] = useState<LineItemRow[]>([]);
   const [origLineItemPublicIds, setOrigLineItemPublicIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -250,6 +253,10 @@ export default function ExpenseEdit() {
   // auto-save until an explicit Save succeeds, so the debounce cannot keep
   // firing header PUTs against a half-synced line set.
   const autoSaveArmedRef = useRef(true);
+  const headerDirtyRef = useRef(false);
+  const linesDirtyRef = useRef(false);
+  const lineItemsRef = useRef<LineItemRow[]>([]);
+  const formRef = useRef<ExpenseFormState | null>(null);
   // Last-seen persisted rows, including ones the user just removed from the DOM.
   const knownLineItemByPublicIdRef = useRef<Map<string, LineItemRow>>(new Map());
   for (const row of lineItems) {
@@ -263,25 +270,26 @@ export default function ExpenseEdit() {
       onComplete: (expense) => {
         queryClient.setQueryData(entityItemKey(expenseItemPath), expense);
         toast("Expense completed — external syncs continue in the background.");
-        setForm((prev: any) => (prev ? { ...prev, is_draft: false } : prev));
+        setForm((prev) => (prev ? { ...prev, is_draft: false } : prev));
         setCompleting(false);
       },
       onError: () => setCompleting(false),
     },
   );
 
-  // Load line items
+  const itemId = item?.id ?? null;
   useEffect(() => {
-    if (!item) return;
+    if (itemId === null) return;
     let cancelled = false;
-    getList<ExpenseLineItem>(`/api/v1/get/expense_line_items/expense/${item.id}`)
+    setAttachmentPublicId(null);
+    getList<ExpenseLineItem>(`/api/v1/get/expense_line_items/expense/${itemId}`)
       .then(async (res) => {
         if (cancelled) return;
         setOrigLineItemPublicIds(res.data.map((li) => li.public_id));
-        setAttachmentPublicId(null);
+        linesDirtyRef.current = false;
         setLineItems((prev) => {
           const existing = existingUidsByPublicId(prev);
-          return res.data.map((li) => {
+          const next = res.data.map((li) => {
             const project_id = li.project_id != null ? String(li.project_id) : "";
             const billable_decided = li.billable_decided_at != null;
             const rowSoFar: LineItemRow = {
@@ -305,24 +313,13 @@ export default function ExpenseEdit() {
               is_billable: effectiveBillable(rowSoFar, project),
             };
           });
+          lineItemsRef.current = next;
+          return next;
         });
         setLinesHydrated((n) => n + 1);
 
-        for (const li of res.data) {
-          if (cancelled) return;
-          try {
-            const link = await getEliaLinkForLine(li.public_id);
-            if (cancelled || !link?.attachment_id) continue;
-            const att = await getOne<{ public_id: string }>(
-              `/api/v1/get/attachment/id/${link.attachment_id}`,
-            );
-            if (cancelled) return;
-            setAttachmentPublicId(att.public_id);
-            break;
-          } catch {
-            // display-only — try the next line
-          }
-        }
+        const publicId = await findReceiptAttachmentPublicId(res.data, () => cancelled);
+        if (publicId && !cancelled) setAttachmentPublicId(publicId);
       })
       .catch(() => {
         if (!cancelled) setAttachmentPublicId(null);
@@ -331,7 +328,7 @@ export default function ExpenseEdit() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fullProjects at fetch time; projectBillableKey effect covers late catalog
-  }, [item]);
+  }, [itemId]);
 
   // When the project catalog arrives or cost-plus flags change, refresh undecided checkboxes.
   useEffect(() => {
@@ -361,7 +358,7 @@ export default function ExpenseEdit() {
   // ONE projection for the seed, the baseline, and the divergence test.
   // A separate seed literal and pick literal is how U-464/U-465 were
   // allowed to rebase a token under a body they had never compared.
-  const seedFrom = (e: Expense) => ({
+  const seedFrom = (e: Expense): ExpenseFormState => ({
     vendor_public_id: fullVendors.find((v) => v.id === e.vendor_id)?.public_id ?? "",
     expense_date: e.expense_date,
     reference_number: e.reference_number,
@@ -380,8 +377,8 @@ export default function ExpenseEdit() {
   const { diverged, acceptBaseline } = useServerOwnedRebase({
     item,
     seededFor: seededForRef,
-    setForm,
-    seedFrom,
+    setForm: setForm as Dispatch<SetStateAction<Record<string, unknown> | null>>,
+    seedFrom: seedFrom as (e: Expense) => Record<string, unknown>,
     owned: ["row_version", "is_draft"],
   });
 
@@ -391,27 +388,37 @@ export default function ExpenseEdit() {
     setForm(seedFrom(item));
   }
 
+  formRef.current = form;
+  lineItemsRef.current = lineItems;
+
+  const headerPutBody = (f: ExpenseFormState) => ({
+    row_version: rowVersion.read(),
+    vendor_public_id: f.vendor_public_id || undefined,
+    expense_date: f.expense_date,
+    reference_number: f.reference_number,
+    total_amount: f.total_amount !== "" ? Number(f.total_amount) : null,
+    memo: f.memo || null,
+    is_draft: f.is_draft,
+    is_credit: f.is_credit,
+  });
+
   // Auto-save header on changes (300ms debounce)
   const autoSaveHeader = useCallback(async () => {
-    if (!form || !id) return;
+    const f = formRef.current;
+    if (!f || !id) return;
+    if (!headerDirtyRef.current) return;
+    headerDirtyRef.current = false;
     try {
-      const updated = await put<Expense>(`/api/v1/update/expense/${id}`, {
-        row_version: rowVersion.read(),
-        vendor_public_id: form.vendor_public_id || undefined,
-        expense_date: form.expense_date,
-        reference_number: form.reference_number,
-        total_amount: form.total_amount !== "" ? Number(form.total_amount) : null,
-        memo: form.memo || null,
-        is_draft: form.is_draft,
-        is_credit: form.is_credit,
-      });
+      const updated = await put<Expense>(`/api/v1/update/expense/${id}`, headerPutBody(f));
       rowVersion.set(updated.row_version);
       acceptBaseline(updated);
-      setForm((prev: any) => prev ? { ...prev, row_version: updated.row_version } : prev);
+      setForm((prev) => (prev ? { ...prev, row_version: updated.row_version } : prev));
     } catch {
-      // Silent fail for auto-save
+      headerDirtyRef.current = true;
     }
-  }, [form, id, rowVersion, acceptBaseline]);
+    // headerPutBody + formRef: latest header snapshot without listing form in deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, rowVersion, acceptBaseline]);
 
   const { flush: flushAutoSave, cancel: cancelAutoSave } = useAutoSave(
     autoSaveHeader,
@@ -424,12 +431,13 @@ export default function ExpenseEdit() {
     if (!actions.canEdit) cancelAutoSave();
   }, [actions.canEdit, cancelAutoSave]);
 
+  const listPath = expenseListPath(item ? expenseStatus(item) : null);
   const { deleting, runDelete: runDeleteExpense } = useDeleteDocument({
     deletePath: id ? `/api/v1/delete/expense/${id}` : "",
     confirmText: "Delete this expense? This cannot be undone.",
     successToast: "Expense deleted.",
     errorFallback: "Could not delete expense.",
-    navigateTo: "/expense/list",
+    navigateTo: listPath,
     beforeDelete: cancelAutoSave,
     removeQueryKeys: id ? [entityItemKey(expenseItemPath)] : [],
   });
@@ -441,7 +449,12 @@ export default function ExpenseEdit() {
 
   const handleLineItemsChange = useCallback(
     (next: LineItemRow[]) => {
-      setLineItems((prev) => applyLineEdits(prev, next, projectFor));
+      linesDirtyRef.current = true;
+      setLineItems((prev) => {
+        const merged = applyLineEdits(prev, next, projectFor);
+        lineItemsRef.current = merged;
+        return merged;
+      });
     },
     [projectFor],
   );
@@ -500,8 +513,10 @@ export default function ExpenseEdit() {
     );
   }
 
-  const onHeaderChange = (name: string, value: string | boolean) =>
-    setForm((prev: any) => ({ ...prev, [name]: value }));
+  const onHeaderChange = (name: string, value: string | boolean) => {
+    headerDirtyRef.current = true;
+    setForm((prev) => (prev ? { ...prev, [name]: value } : prev));
+  };
 
   // One save at a time. A second caller (e.g. Submit for Review clicked while Save is
   // still writing) JOINS the save in flight instead of starting another: saveAllOnce
@@ -517,18 +532,24 @@ export default function ExpenseEdit() {
   };
 
   const saveAllOnce = async (): Promise<boolean> => {
-    // Cancel before any await so a 300ms header debounce cannot fire a second
-    // PUT with the same row_version while re-home GETs are in flight.
-    cancelAutoSave();
     setSaving(true);
     setSaveError("");
+    let linesNeedSync = false;
     try {
+      await flushAutoSave();
+      cancelAutoSave();
+
+      const syncedLines = lineItemsRef.current;
+      const survivingIds = syncedLines.filter((li) => li.public_id).map((li) => li.public_id!);
+      const currentIds = new Set(survivingIds);
+      const removedIds = origLineItemPublicIds.filter((oid) => !currentIds.has(oid));
+      const hasUnsavedLines = syncedLines.some((li) => !li.public_id);
+      linesNeedSync = linesDirtyRef.current || removedIds.length > 0 || hasUnsavedLines;
+
+      if (!headerDirtyRef.current && !linesNeedSync) return true;
       // U-476: re-home the receipt BEFORE the header PUT and any line delete —
       // create-before-delete. If re-home throws, restore removed rows so the
       // message "the line was not removed" is true and the form stays saveable.
-      const survivingIds = lineItems.filter((li) => li.public_id).map((li) => li.public_id!);
-      const currentIds = new Set(survivingIds);
-      const removedIds = origLineItemPublicIds.filter((oid) => !currentIds.has(oid));
       try {
         await rehomeAttachmentsBeforeLineDeletes(removedIds, survivingIds);
       } catch (err) {
@@ -543,20 +564,25 @@ export default function ExpenseEdit() {
         throw err;
       }
 
-      // Save header
-      const updated = await put<Expense>(`/api/v1/update/expense/${id}`, {
-        row_version: rowVersion.read(),
-        vendor_public_id: form.vendor_public_id || undefined,
-        expense_date: form.expense_date,
-        reference_number: form.reference_number,
-        total_amount: form.total_amount !== "" ? Number(form.total_amount) : null,
-        memo: form.memo || null,
-        is_draft: form.is_draft,
-        is_credit: form.is_credit,
-      });
-      rowVersion.set(updated.row_version);
-      acceptBaseline(updated);
-      setForm((prev: any) => ({ ...prev, row_version: updated.row_version }));
+      if (headerDirtyRef.current) {
+        const latest = formRef.current!;
+        headerDirtyRef.current = false;
+        let updated: Expense;
+        try {
+          updated = await put<Expense>(`/api/v1/update/expense/${id}`, headerPutBody(latest));
+        } catch (err) {
+          headerDirtyRef.current = true;
+          throw err;
+        }
+        rowVersion.set(updated.row_version);
+        acceptBaseline(updated);
+        setForm((prev) => (prev ? { ...prev, row_version: updated.row_version } : prev));
+      }
+
+      if (!linesNeedSync) {
+        autoSaveArmedRef.current = true;
+        return true;
+      }
 
       // Line-item sync (U-170). Each confirmed fact is committed through a
       // functional updater the instant it lands — never accumulated and written
@@ -570,7 +596,10 @@ export default function ExpenseEdit() {
       const stampRow = (uid: string, patch: Partial<LineItemRow>) =>
         setLineItems((prev) => prev.map((r) => (r.uid === uid ? { ...r, ...patch } : r)));
 
-      for (const li of lineItems) {
+      const linesToSync = lineItemsRef.current;
+      linesDirtyRef.current = false;
+
+      for (const li of linesToSync) {
         const bodyBase = {
           expense_public_id: id!,
           sub_cost_code_id: li.sub_cost_code_id !== "" ? Number(li.sub_cost_code_id) : null,
@@ -616,10 +645,11 @@ export default function ExpenseEdit() {
       }
       autoSaveArmedRef.current = true;
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
       autoSaveArmedRef.current = false;
+      if (linesNeedSync) linesDirtyRef.current = true;
       cancelAutoSave();
-      setSaveError(err.message);
+      setSaveError(err instanceof Error ? err.message : "Save failed.");
       return false;
     } finally {
       setSaving(false);
@@ -635,7 +665,6 @@ export default function ExpenseEdit() {
 
   const handleComplete = async () => {
     if (!confirm("Complete this expense? This will finalize and sync to external systems.")) return;
-    await flushAutoSave();
     const saved = await saveAll();
     if (!saved) return;
     setCompleting(true);
@@ -644,8 +673,8 @@ export default function ExpenseEdit() {
     try {
       await post(`/api/v1/complete/expense/${id}`, {});
       startPolling();
-    } catch (err: any) {
-      setSaveError(err.message);
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : "Complete failed.");
       setCompleting(false);
     }
   };
@@ -654,7 +683,7 @@ export default function ExpenseEdit() {
     <div className="page form-page-wide">
       <Breadcrumb
         crumbs={[
-          { label: "Expenses", path: "/expense/list" },
+          { label: "Expenses", path: listPath },
           { label: item?.reference_number || "…", path: `/expense/${id}` },
           { label: "Edit" },
         ]}

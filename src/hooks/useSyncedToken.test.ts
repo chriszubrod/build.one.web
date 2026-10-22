@@ -28,6 +28,18 @@ describe("useSyncedToken", () => {
     expect(h.result.current.read()).toBe("v2");
   });
 
+  it("a read() captured BEFORE a commit still returns the committed value AFTER it (U-621 re-review P2)", () => {
+    let committed = "v1";
+    const h = renderHook(() => useSyncedToken(committed));
+    const readFromClickTimeRender = h.result.current.read;
+    h.result.current.set("v2");
+    committed = "v2";
+    act(() => {
+      h.rerender();
+    });
+    expect(readFromClickTimeRender()).toBe("v2");
+  });
+
   it("handles null and undefined committed safely", () => {
     let committed: string | null | undefined = null;
     const h = renderHook(() => useSyncedToken(committed));

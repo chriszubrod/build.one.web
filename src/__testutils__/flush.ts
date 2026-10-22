@@ -1,5 +1,5 @@
 import { act } from "react";
-import { vi } from "vitest";
+import { expect, vi } from "vitest";
 
 /**
  * Flush until `check()` passes, ADVANCING FAKE TIMERS each iteration.
@@ -23,4 +23,10 @@ export async function flushUntil(check: () => boolean): Promise<void> {
       if (check()) return;
     }
   });
+}
+
+/** Like flushUntil, but fails the spec if the condition never becomes true. */
+export async function flushUntilHard(check: () => boolean, label: string): Promise<void> {
+  await flushUntil(check);
+  expect(check(), label).toBe(true);
 }

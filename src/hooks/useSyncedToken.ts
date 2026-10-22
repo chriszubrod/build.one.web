@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
 /**
  * Authoritative optimistic-concurrency token bridge.
@@ -18,13 +18,23 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
  */
 export function useSyncedToken(committed: string | null | undefined) {
   const ref = useRef<string | null>(null);
+  // The fallback must be the LATEST committed value, never the one captured by
+  // the render that created a long-lived closure (saveAll runs across several
+  // awaits; once the flush's set() commits and the bridge clears, that
+  // closure's own `committed` is the pre-flush token — U-621 re-review).
+  const committedRef = useRef(committed);
+  useLayoutEffect(() => {
+    committedRef.current = committed;
+  }, [committed]);
 
   // Bridge only the pre-commit window — see the JSDoc above.
   useEffect(() => {
     ref.current = null;
   }, [committed]);
 
-  const read = useCallback(() => ref.current ?? committed, [committed]);
+  // `committed` in deps keeps read's identity in sync with the hook contract (see JSDoc).
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- value read is always committedRef.current
+  const read = useCallback(() => ref.current ?? committedRef.current, [committed]);
   const set = useCallback((v: string) => {
     ref.current = v;
   }, []);

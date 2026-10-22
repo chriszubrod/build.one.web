@@ -1,14 +1,18 @@
-import { useParams } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
 import { useEntityItem } from "../../hooks/useEntity";
-import { getList, getOne } from "../../api/client";
+import { getList } from "../../api/client";
+import { findReceiptAttachmentPublicId } from "./expenseReceipt";
+import { nextDraftPath } from "./expenseDraftQueue";
 import { useViewAttachmentObjectUrl } from "../../hooks/useViewAttachmentObjectUrl";
 import DetailView from "../../components/DetailView";
 import { entityCrumbs } from "../../components/Breadcrumb";
 import LineItemTable, { type LineItemColumn } from "../../components/LineItemTable";
-import ReviewTimeline from "../../components/ReviewTimeline";
+import ReviewTimeline, { type ReviewActionKind } from "../../components/ReviewTimeline";
+import { useToast } from "../../components/Toast";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
 import type { Expense, ExpenseLineItem, Project, SubCostCode, Vendor } from "../../types/api";
+import { expenseListPath } from "./expenseStatusTabs";
 import {
   EXPENSE_STATUS_LABELS,
   expenseReviewBadgeClass,
@@ -54,6 +58,8 @@ function makeLineItemCols(
 
 export default function ExpenseView() {
   const { publicId } = useParams<{ publicId: string }>();
+  const navigate = useNavigate();
+  const { toast } = useToast();
   const { item, loading, error } = useEntityItem<Expense>(`/api/v1/get/expense/${publicId}`);
   const vendorMap = useIdNameMap<Vendor>("/api/v1/get/vendors", (v) => v.name);
   const sccMap = useIdNameMap<SubCostCode>("/api/v1/get/sub-cost-codes", (s) => s.number ? `${s.number} — ${s.name}` : s.name);
@@ -63,31 +69,41 @@ export default function ExpenseView() {
   const { objectUrl: attachmentBlobUrl, loading: attachmentLoading, loadError: attachmentLoadError } =
     useViewAttachmentObjectUrl(attachmentPublicId);
 
+  const itemId = item?.id ?? null;
   useEffect(() => {
-    if (!item) return;
-    getList<ExpenseLineItem>(`/api/v1/get/expense_line_items/expense/${item.id}`)
-      .then((res) => {
+    if (itemId === null) return;
+    let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clear stale receipt while the next expense's lines load
+    setAttachmentPublicId(null);
+    getList<ExpenseLineItem>(`/api/v1/get/expense_line_items/expense/${itemId}`)
+      .then(async (res) => {
+        if (cancelled) return;
         setLineItems(res.data);
-        setAttachmentPublicId(null);
-        // Fetch receipt from first line item (one attachment shared across all)
-        if (res.data.length > 0) {
-          const firstLi = res.data[0];
-          getOne<{ attachment_id: number }>(`/api/v1/get/expense-line-item-attachment/by-expense-line-item/${firstLi.public_id}`)
-            .then((elia) => {
-              if (elia.attachment_id) {
-                getOne<{ public_id: string }>(`/api/v1/get/attachment/id/${elia.attachment_id}`)
-                  .then((att) => setAttachmentPublicId(att.public_id))
-                  .catch(() => {});
-              }
-            })
-            .catch(() => {});
-        }
+        const publicId = await findReceiptAttachmentPublicId(res.data, () => cancelled);
+        if (publicId && !cancelled) setAttachmentPublicId(publicId);
       })
       .catch(() => {
+        if (cancelled) return;
         setLineItems([]);
         setAttachmentPublicId(null);
       });
-  }, [item]);
+    return () => { cancelled = true; };
+  }, [itemId]);
+
+  const advancingRef = useRef(false);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+  const handleAfterReviewAction = async (action: ReviewActionKind) => {
+    if (action !== "submit" || advancingRef.current) return;
+    advancingRef.current = true;
+    const target = await nextDraftPath(publicId);
+    if (!mountedRef.current) return;
+    toast(target.startsWith("/expense/list") ? "Submitted — no more drafts." : "Submitted — opening the next draft.");
+    navigate(target);
+  };
 
   if (loading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
@@ -101,7 +117,7 @@ export default function ExpenseView() {
     <DetailView
       title={`Expense ${item.reference_number}`}
       editPath={`/expense/${publicId}/edit`}
-      breadcrumbs={entityCrumbs("Expenses", "/expense/list", item.reference_number)}
+      breadcrumbs={entityCrumbs("Expenses", expenseListPath(status), item.reference_number)}
       fields={[
         { label: "Reference Number", value: item.reference_number },
         { label: "Vendor", value: vendorMap.get(item.vendor_id) ?? item.vendor_id },
@@ -132,7 +148,14 @@ export default function ExpenseView() {
         },
       ]}
     >
-      {publicId && <ReviewTimeline parentType="expense" parentPublicId={publicId} readOnly />}
+      {publicId && (
+        <ReviewTimeline
+          parentType="expense"
+          parentPublicId={publicId}
+          readOnly={status === "completed"}
+          onAfterAction={handleAfterReviewAction}
+        />
+      )}
       <LineItemTable columns={makeLineItemCols(sccMap, projectMap)} items={lineItems} />
       {attachmentPublicId && (
         <div className="pdf-viewer">
