@@ -281,7 +281,7 @@ export default function PastDayScreen() {
                   meta={range}
                   duration={dur}
                   active={false}
-                  onClick={() => navigate(`/time-entry/${entry.public_id}/log/${log.public_id}`)}
+                  to={`/time-entry/${entry.public_id}/log/${log.public_id}`}
                 />
               );
             })}

@@ -436,7 +436,7 @@ describe("BillList PDF draft intake", () => {
     expect(container.textContent).not.toContain("Already added");
   });
 
-  it("draft bill card navigates to edit; completed to view", async () => {
+  it("draft bill card links to edit; completed to view", async () => {
     mockListState.items = [
       {
         public_id: "draft-1",
@@ -462,16 +462,10 @@ describe("BillList PDF draft intake", () => {
       },
     ];
     await renderList();
-    await flushUntil(() => container.querySelectorAll(".entry-card").length >= 2);
-    const cards = Array.from(container.querySelectorAll(".entry-card"));
-    await act(async () => {
-      (cards[0] as HTMLElement).click();
-    });
-    expect(mockNavigate).toHaveBeenCalledWith("/bill/draft-1/edit");
-    await act(async () => {
-      (cards[1] as HTMLElement).click();
-    });
-    expect(mockNavigate).toHaveBeenCalledWith("/bill/done-1");
+    await flushUntil(() => container.querySelectorAll("a.entry-card").length >= 2);
+    const cards = Array.from(container.querySelectorAll("a.entry-card"));
+    expect(cards[0].getAttribute("href")).toBe("/bill/draft-1/edit");
+    expect(cards[1].getAttribute("href")).toBe("/bill/done-1");
   });
 
   it("processes files sequentially", async () => {

@@ -289,7 +289,7 @@ export default function TodayScreen() {
                   duration={dur}
                   active={isActive}
                   workerName={effectiveScope === "team" ? undefined : undefined}
-                  onClick={() => navigate(`/time-entry/${entry.public_id}/log/${log.public_id}`)}
+                  to={`/time-entry/${entry.public_id}/log/${log.public_id}`}
                 />
               );
             })}

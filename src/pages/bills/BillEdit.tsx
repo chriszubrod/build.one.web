@@ -240,20 +240,24 @@ export default function BillEdit() {
         toast("Bill completed — external syncs continue in the background.");
         setForm((prev) => (prev ? { ...prev, is_draft: false } : prev));
         setCompleting(false);
+        navigate("/bill/list");
       },
       onError: () => setCompleting(false),
     },
   );
 
-  // Load line items
+  // Load line items when the bill id or project catalog first becomes available —
+  // NOT when the cached bill object is merged after saveAll (U-170 / U-708). The
+  // effect reads item.id only; header fields come from the separate form seed/rebase.
+  // A different bill remounts via BillEditRoute (keyed by publicId).
+  const billIdForLines = item?.id;
   useEffect(() => {
-    if (!item || fullProjects.length === 0) return;
+    if (billIdForLines == null || fullProjects.length === 0) return;
     let cancelled = false;
-    getList<BillLineItem>(`/api/v1/get/bill_line_items/bill/${item.id}`)
+    getList<BillLineItem>(`/api/v1/get/bill_line_items/bill/${billIdForLines}`)
       .then(async (res) => {
         if (cancelled) return;
         setOrigLineItemPublicIds(res.data.map((li) => li.public_id));
-        setAttachmentPublicId(null);
         const mapped = res.data.map((li) => {
           const project = fullProjects.find((p) => p.id === li.project_id) ?? null;
           // A stored project absent from the scoped list keeps its numeric id here so a
@@ -307,7 +311,7 @@ export default function BillEdit() {
     return () => {
       cancelled = true;
     };
-  }, [item, fullProjects]);
+  }, [billIdForLines, fullProjects]);
 
   // Which bill `form` was seeded from. The rebase below refuses to take a
   // token from a DIFFERENT bill — see the guard's comment for why that is
@@ -697,8 +701,28 @@ export default function BillEdit() {
         setOrigLineItemPublicIds((prev) => prev.filter((id) => id !== origId));
       }
 
-      const stampRow = (uid: string, patch: Partial<LineItemRow>) =>
-        setLineItems((prev) => prev.map((r) => (r.uid === uid ? { ...r, ...patch } : r)));
+      const stampConfirmedLineResponse = (
+        uid: string,
+        result: BillLineItem,
+        codingPrefillAtSend: LineItemRow["coding_prefill_state"],
+        isCreate: boolean,
+      ) =>
+        setLineItems((prev) =>
+          prev.map((r) => {
+            if (r.uid !== uid) return r;
+            const next: LineItemRow = { ...r, row_version: result.row_version };
+            if (isCreate) {
+              next.public_id = result.public_id;
+            }
+            if (
+              result.coding_prefill_state !== undefined &&
+              r.coding_prefill_state === codingPrefillAtSend
+            ) {
+              next.coding_prefill_state = result.coding_prefill_state ?? undefined;
+            }
+            return next;
+          }),
+        );
 
       for (const li of linesToSave) {
         const body = {
@@ -725,15 +749,17 @@ export default function BillEdit() {
           })(),
         };
 
+        const codingPrefillAtSend = li.coding_prefill_state;
+
         if (li.public_id) {
           const result = await put<BillLineItem>(`/api/v1/update/bill_line_item/${li.public_id}`, {
             ...body,
             row_version: li.row_version!,
           });
-          stampRow(li.uid, { row_version: result.row_version });
+          stampConfirmedLineResponse(li.uid, result, codingPrefillAtSend, false);
         } else {
           const result = await post<BillLineItem>("/api/v1/create/bill_line_item", body);
-          stampRow(li.uid, { public_id: result.public_id, row_version: result.row_version });
+          stampConfirmedLineResponse(li.uid, result, codingPrefillAtSend, true);
           // Register the new id as server-known at once: if the user removes this
           // row before the next save, the delete loop above must still see it, or
           // the line is orphaned server-side. Append is idempotent because the
@@ -785,10 +811,9 @@ export default function BillEdit() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSave = async () => {
     if (await saveAll()) {
-      navigate(`/bill/${publicId}`);
+      navigate("/bill/list");
     }
   };
 
@@ -938,7 +963,13 @@ export default function BillEdit() {
           </button>
         )}
       </div>
-      <form className="detail-card" onSubmit={handleSubmit}>
+      <form
+        className="detail-card"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void handleSave();
+        }}
+      >
         {diverged && <RecordChangedBanner entity="bill" />}
         {saveError && <div className="form-error">{saveError}</div>}
 
@@ -1026,8 +1057,14 @@ export default function BillEdit() {
             </button>
           )}
           <div className="page-header-spacer" />
-          <button type="button" className="btn btn-secondary" onClick={() => navigate(`/bill/${publicId}`)}>Cancel</button>
-          <button type="submit" className="btn btn-primary" disabled={formLocked || saving || completing || submitting || deleting || !lineItemsLoaded}>
+          <button type="button" className="btn btn-secondary" onClick={() => navigate("/bill/list")}>
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={formLocked || saving || completing || submitting || deleting || !lineItemsLoaded}
+          >
             {saving ? "Saving..." : "Save"}
           </button>
           {form.is_draft && actions.canSubmitForReview && (

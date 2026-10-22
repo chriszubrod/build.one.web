@@ -1007,7 +1007,7 @@ describe("BillEdit item cache reconciliation (U-174)", () => {
     await flushUntil(() => buttonWithText("Save") !== undefined);
 
     expect(cachedBill()?.row_version).toBe("brv-1");
-    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-1");
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/list");
   });
 
   it("seeds the item cache on a normal save even when the line sync is slow enough for React to commit", async () => {
@@ -1034,7 +1034,7 @@ describe("BillEdit item cache reconciliation (U-174)", () => {
     await flushUntil(() => buttonWithText("Save") !== undefined);
 
     expect(cachedBill()?.row_version).toBe("brv-2");
-    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-1");
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/list");
   });
 
   it("a successful delete removes the item cache entry", async () => {
@@ -3470,7 +3470,37 @@ describe("U-700 BillEdit navigation and reference data", () => {
     ).toBe(false);
   });
 
-  it("handleSubmitForReview success navigates to /bill/list", async () => {
+  it("Cancel navigates to /bill/list", async () => {
+    setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+    renderBillEdit();
+    await waitForReady();
+    const cancelBtn = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent?.trim() === "Cancel",
+    )!;
+    await act(async () => {
+      cancelBtn.click();
+    });
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/list");
+  });
+
+  it("failed Save does not navigate away", async () => {
+    setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/bill/bill-1") {
+        return Promise.reject(new Error("save failed"));
+      }
+      return Promise.reject(new Error(`unexpected put: ${path}`));
+    });
+    renderBillEdit();
+    await waitForReady();
+    await act(async () => {
+      findSaveButton().click();
+    });
+    await flushUntil(() => container.textContent?.includes("save failed") ?? false);
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("handleSubmitForReview success navigates to /bill/list without detouring to bill view", async () => {
     setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
     mockPost.mockImplementation((path: string) => {
       if (path === "/api/v1/submit/review/bill/bill-1") {
@@ -3490,6 +3520,20 @@ describe("U-700 BillEdit navigation and reference data", () => {
     await flushUntil(() =>
       mockPost.mock.calls.some((c) => c[0] === "/api/v1/submit/review/bill/bill-1"),
     );
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/list");
+    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/bill-1");
+  });
+
+  it("implicit form submit (Enter) does not navigate to bill view before list (U-708)", async () => {
+    setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+    renderBillEdit();
+    await waitForReady();
+    const form = container.querySelector("form.detail-card") as HTMLFormElement;
+    await act(async () => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    await flushUntil(() => mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/bill/bill-1"));
+    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/bill-1");
     expect(mockNavigate).toHaveBeenCalledWith("/bill/list");
   });
 
@@ -3549,5 +3593,261 @@ describe("U-700 BillEdit navigation and reference data", () => {
     });
     await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill/list"));
     expect(mockNavigate).toHaveBeenCalledWith("/bill/list");
+  });
+
+  it("Complete navigates to /bill/list only after poll reports completion", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+    let completed = false;
+    mockPost.mockImplementation((path: string) => {
+      if (path === "/api/v1/complete/bill/bill-1") {
+        completed = true;
+        return Promise.resolve({});
+      }
+      return Promise.reject(new Error(`unexpected post: ${path}`));
+    });
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === BILL_GET_PATH) {
+        return Promise.resolve(
+          completed ? sampleBill({ is_draft: false }) : sampleBill(),
+        );
+      }
+      if (path === "/api/v1/bill/bill-1/intake-prediction") {
+        return Promise.reject(new ApiError(404, "Not found"));
+      }
+      if (path.startsWith("/api/v1/get/bill-line-item-attachment/by-bill-line-item/")) {
+        return Promise.reject(new ApiError(404, "Not found"));
+      }
+      return Promise.reject(new Error(`unexpected getOne: ${path}`));
+    });
+    renderBillEdit();
+    await waitForReady();
+    const completeBtn = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent === "Complete Bill",
+    )!;
+    await act(async () => {
+      completeBtn.click();
+    });
+    await flushUntil(() => completed);
+    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/list");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3500);
+    });
+    await flushUntilHard(
+      () => mockNavigate.mock.calls.some((c) => c[0] === "/bill/list"),
+      "Complete navigates to /bill/list after the poll reports completion",
+    );
+    expect(mockToast).toHaveBeenCalledWith(
+      "Bill completed — external syncs continue in the background.",
+    );
+  });
+
+  it("Complete poll error does not navigate to /bill/list", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+    let pollStarted = false;
+    mockPost.mockImplementation((path: string) => {
+      if (path === "/api/v1/complete/bill/bill-1") {
+        pollStarted = true;
+        return Promise.resolve({});
+      }
+      return Promise.reject(new Error(`unexpected post: ${path}`));
+    });
+    const baseGetOne = mockGetOne.getMockImplementation()!;
+    mockGetOne.mockImplementation((path: string) => {
+      if (path === BILL_GET_PATH && pollStarted) {
+        return Promise.reject(new ApiError(500, "poll failed"));
+      }
+      return baseGetOne(path);
+    });
+    renderBillEdit();
+    await waitForReady();
+    const completeBtn = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent === "Complete Bill",
+    )!;
+    await act(async () => {
+      completeBtn.click();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3500);
+    });
+    await flushUntil(
+      () => container.querySelector(".completion-status-bar--error") !== null,
+    );
+    expect(container.textContent).toContain("Completion failed: poll failed");
+    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/list");
+  });
+});
+
+describe("U-708 saveAll line sync and cache merge", () => {
+  const LINE_PUT_PATH = "/api/v1/update/bill_line_item/li-1";
+  const ATT_ID = 501;
+
+  function lineItemsFetchCount(): number {
+    return mockGetList.mock.calls.filter((c) => c[0] === BILL_LINE_ITEMS_PATH).length;
+  }
+
+  async function waitForPdf() {
+    await flushUntil(() => container.querySelector('iframe[title="Bill PDF"]') !== null);
+  }
+
+  function wireAttachmentGetOne() {
+    const baseGetOne = mockGetOne.getMockImplementation()!;
+    mockGetOne.mockImplementation((path: string) => {
+      if (path.startsWith("/api/v1/get/bill-line-item-attachment/by-bill-line-item/")) {
+        return Promise.resolve({ public_id: "blia-1", attachment_id: ATT_ID });
+      }
+      if (path === `/api/v1/get/attachment/id/${ATT_ID}`) {
+        return Promise.resolve({ public_id: "att-pub-1" });
+      }
+      return baseGetOne(path);
+    });
+  }
+
+  beforeEach(() => {
+    mockUseViewAttachmentObjectUrl.mockReturnValue({
+      objectUrl: "blob:test-pdf",
+      loading: false,
+      loadError: null,
+    });
+    setupMocks([
+      sampleLineItem({ project_id: VISIBLE_PROJECT.id, description: "line" }),
+    ]);
+    wireAttachmentGetOne();
+  });
+
+  it("does not re-fetch line items or drop the PDF iframe after Save", async () => {
+    renderBillEdit();
+    await waitForPdf();
+    expect(lineItemsFetchCount()).toBe(1);
+
+    await clickSave();
+
+    queryClient.setQueryData(entityItemKey(BILL_GET_PATH), sampleBill({ row_version: "brv-2" }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(lineItemsFetchCount()).toBe(1);
+    expect(container.querySelector('iframe[title="Bill PDF"]')).toBeTruthy();
+  });
+
+  it("stamps coding_prefill_state from line PUT so a later draft save does not downgrade", async () => {
+    setupMocks([
+      sampleLineItem({
+        project_id: VISIBLE_PROJECT.id,
+        description: "line",
+        coding_prefill_state: "prefilled",
+      }),
+    ]);
+    wireAttachmentGetOne();
+
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/bill/bill-1") {
+        return Promise.resolve(sampleBill({ row_version: "brv-2" }));
+      }
+      if (path === LINE_PUT_PATH) {
+        return Promise.resolve({
+          public_id: "li-1",
+          row_version: "rv-1b",
+          coding_prefill_state: "accepted",
+        });
+      }
+      return Promise.reject(new Error(`unexpected put: ${path}`));
+    });
+
+    mockPost.mockImplementation((path: string) => {
+      if (path === REVIEW_SUBMIT_PATH) {
+        return Promise.reject(new ApiError(500, "submit failed"));
+      }
+      return Promise.reject(new Error(`unexpected post: ${path}`));
+    });
+
+    renderBillEdit();
+    await waitForPdf();
+
+    const submitBtn = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+      (b) => b.textContent === "Submit for Review" && !b.dataset.testid,
+    )!;
+    await act(async () => {
+      submitBtn.click();
+    });
+    await flushUntil(() =>
+      mockPut.mock.calls.filter((c) => c[0] === LINE_PUT_PATH).length >= 1,
+    );
+
+    await clickSave();
+
+    await flushUntil(() =>
+      mockPut.mock.calls.filter((c) => c[0] === LINE_PUT_PATH).length >= 2,
+    );
+
+    const linePuts = mockPut.mock.calls.filter((c) => c[0] === LINE_PUT_PATH);
+    expect((linePuts[0]![1] as Record<string, unknown>).coding_prefill_state).toBe("accepted");
+    expect((linePuts[1]![1] as Record<string, unknown>).coding_prefill_state).toBe("accepted");
+  });
+
+  it("does not stamp coding_prefill_state from a stale line PUT when the user changed SCC during the await", async () => {
+    setupMocks([
+      sampleLineItem({
+        project_id: VISIBLE_PROJECT.id,
+        description: "line",
+        sub_cost_code_id: 10,
+        coding_prefill_state: "prefilled",
+      }),
+    ]);
+    wireAttachmentGetOne();
+
+    const pendingLinePuts: Array<{
+      resolve: (row: BillLineItem) => void;
+      promise: Promise<BillLineItem>;
+    }> = [];
+    mockPut.mockImplementation((path: string) => {
+      if (path === "/api/v1/update/bill/bill-1") {
+        return Promise.resolve(sampleBill({ row_version: "brv-2" }));
+      }
+      if (path === LINE_PUT_PATH) {
+        let resolve!: (row: BillLineItem) => void;
+        const promise = new Promise<BillLineItem>((res) => {
+          resolve = res;
+        });
+        pendingLinePuts.push({ resolve, promise });
+        return promise;
+      }
+      return Promise.reject(new Error(`unexpected put: ${path}`));
+    });
+
+    renderBillEdit();
+    await waitForPdf();
+    await flushUntil(() => lineItemRows().length === 1);
+    await flushUntil(() => sccSelect(lineItemRows()[0]).value === "10");
+
+    await act(async () => {
+      findSaveButton().click();
+    });
+    await flushUntil(() => pendingLinePuts.length === 1);
+
+    await act(async () => {
+      setSelectValue(sccSelect(lineItemRows()[0]), "1");
+    });
+    await flushUntil(() => sccSelect(lineItemRows()[0]).value === "1");
+
+    pendingLinePuts[0]!.resolve({
+      public_id: "li-1",
+      row_version: "rv-1b",
+      coding_prefill_state: "accepted",
+    } as BillLineItem);
+    await act(async () => {
+      await pendingLinePuts[0]!.promise;
+    });
+    await flushUntil(() => findSaveButton().textContent?.trim() === "Save");
+
+    mockPut.mockClear();
+    await clickSave();
+
+    await flushUntil(() => mockPut.mock.calls.some((c) => c[0] === LINE_PUT_PATH));
+    const linePut = mockPut.mock.calls.find((c) => c[0] === LINE_PUT_PATH);
+    expect((linePut![1] as Record<string, unknown>).coding_prefill_state).toBe("changed");
   });
 });

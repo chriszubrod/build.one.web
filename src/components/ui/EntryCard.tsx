@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
 
 interface EntryCardProps {
   projectAbbrev: string;
@@ -13,6 +14,8 @@ interface EntryCardProps {
    * nothing and renders exactly as before.
    */
   badge?: ReactNode;
+  /** In-app path — renders a real anchor for open-in-new-tab / modified clicks. */
+  to?: string;
   onClick?: () => void;
 }
 
@@ -24,6 +27,7 @@ export default function EntryCard({
   active,
   workerName,
   badge,
+  to,
   onClick,
 }: EntryCardProps) {
   const metaLine = workerName ? `${workerName} · ${meta}` : meta;
@@ -43,6 +47,14 @@ export default function EntryCard({
       </div>
     </>
   );
+
+  if (to) {
+    return (
+      <Link to={to} className="entry-card">
+        {inner}
+      </Link>
+    );
+  }
 
   if (onClick) {
     return (

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
@@ -47,7 +47,6 @@ function fmtDate(v: string | null): string {
 }
 
 export default function ExpenseList() {
-  const navigate = useNavigate();
   const { data: me } = useCurrentUser();
   // In the URL, like BillList — so a tab is linkable and survives a refresh.
   //
@@ -254,7 +253,7 @@ export default function ExpenseList() {
                   )}
               </>
             }
-            onClick={() => navigate(`/expense/${expense.public_id}`)}
+            to={`/expense/${expense.public_id}`}
           />
         );
       })}

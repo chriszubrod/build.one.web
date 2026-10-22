@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { getList } from "../../api/client";
 import { useLookups } from "../../hooks/useLookups";
@@ -70,8 +70,6 @@ const NO_MATCH_COPY = "No matching entries.";
 const VALID_STATUSES: LaborStatus[] = ["pending_review", "submitted", "ready", "billed"];
 
 export default function LaborList() {
-  const navigate = useNavigate();
-
   // Filter state is URL-backed so navigating to a CL → editing → returning
   // via navigate(-1) restores the exact filter set. Bookmarkable too.
   // `replace: true` on every setSearchParams so per-keystroke updates
@@ -292,7 +290,7 @@ export default function LaborList() {
             projectName={cl.employee_name ?? "Unknown worker"}
             meta={meta}
             duration={duration}
-            onClick={() => navigate(`/labor/${cl.public_id}`)}
+            to={`/labor/${cl.public_id}`}
           />
         );
       })}

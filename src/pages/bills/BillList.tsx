@@ -571,7 +571,7 @@ export default function BillList() {
                   )}
               </>
             }
-            onClick={() => navigate(billPath)}
+            to={billPath}
           />
         );
       })}
