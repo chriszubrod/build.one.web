@@ -165,8 +165,12 @@ describe("routes.tsx wiring", () => {
       .filter((l) => !l.trim().startsWith("//") && !l.trim().startsWith("*"))
       .join("\n");
 
-    expect(executable).toMatch(/path="\/bill\/:publicId\/edit"\s+element=\{<BillEditRoute \/>\}/);
-    expect(executable).not.toMatch(/path="\/bill\/:publicId\/edit"\s+element=\{<BillEdit \/>\}/);
+    expect(executable).toMatch(
+      /path="\/bill\/:publicId\/edit"\s+element=\{\s*(?:<Suspense[^>]*>\s*)?<BillEditRoute\s*\/>/,
+    );
+    expect(executable).not.toMatch(
+      /path="\/bill\/:publicId\/edit"\s+element=\{\s*(?:<Suspense[^>]*>\s*)?<BillEdit\s*\/>/,
+    );
   });
 });
 
@@ -187,7 +191,9 @@ describe("routes.tsx — every entity edit route is keyed (U-465)", () => {
       ["/expense/:publicId/edit", "ExpenseEditRoute"],
       ["/bill-credit/:publicId/edit", "BillCreditEditRoute"],
     ] as const) {
-      const re = new RegExp(`path="${path.replace(/\//g, "\\/")}"\\s+element=\\{<${wrapper} \\/>\\}`);
+      const re = new RegExp(
+        `path="${path.replace(/\//g, "\\/")}"\\s+element=\\{\\s*(?:<Suspense[^>]*>\\s*)?<${wrapper}\\s*\\/>`,
+      );
       expect(executable, `${path} must render ${wrapper}`).toMatch(re);
     }
   });
@@ -200,7 +206,9 @@ describe("routes.tsx — every entity edit route is keyed (U-465)", () => {
       .join("\n");
 
     for (const bare of ["BillEdit", "ExpenseEdit", "BillCreditEdit"]) {
-      expect(executable).not.toMatch(new RegExp(`element=\\{<${bare} \\/>\\}`));
+      expect(executable).not.toMatch(
+        new RegExp(`element=\\{\\s*(?:<Suspense[^>]*>\\s*)?<${bare}\\s*\\/>\\}`),
+      );
     }
   });
 });

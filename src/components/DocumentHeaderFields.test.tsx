@@ -7,6 +7,7 @@ import {
   setSelectValue,
   setTextareaValue,
 } from "../__testutils__/domEvents";
+import { pickComboboxOptionByValue } from "../test/combobox";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -80,6 +81,15 @@ describe("DocumentHeaderFields", () => {
           { value: "y", label: "Y" },
         ],
       },
+      {
+        key: "cb",
+        label: "Combo",
+        type: "combobox",
+        options: [
+          { value: "a", label: "Alpha" },
+          { value: "b", label: "Beta" },
+        ],
+      },
       { key: "m", label: "Memo", type: "textarea" },
       { key: "c", label: "Check", type: "checkbox" },
     ];
@@ -88,6 +98,7 @@ describe("DocumentHeaderFields", () => {
       d: "2026-03-01",
       n: "3",
       s: "x",
+      cb: "a",
       m: "note",
       c: false,
     });
@@ -114,6 +125,15 @@ describe("DocumentHeaderFields", () => {
       setSelectValue(container.querySelector('select[name="s"]') as HTMLSelectElement, "y");
     });
     expect(onChange).toHaveBeenCalledWith("s", "y");
+
+    onChange.mockClear();
+    act(() => {
+      pickComboboxOptionByValue(
+        container.querySelector('[data-bo-field="cb"]')!,
+        "b",
+      );
+    });
+    expect(onChange).toHaveBeenCalledWith("cb", "b");
 
     onChange.mockClear();
     act(() => {

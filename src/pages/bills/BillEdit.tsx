@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEntityItem, entityItemKey } from "../../hooks/useEntity";
@@ -24,7 +24,9 @@ import {
   BILL_LINE_COL,
   buildBillLineFields,
   fmtBillLineMoney,
-  projectOptionLabel,
+  projectComboboxOptions,
+  sccComboboxOptions,
+  vendorComboboxOptions,
   type BillLineRow,
 } from "./billLineFields";
 import ReviewTimeline from "../../components/ReviewTimeline";
@@ -487,6 +489,19 @@ export default function BillEdit() {
     lineUserEditEpoch,
   });
 
+  const sccOptions = useMemo(
+    () => sccComboboxOptions(fullSubCostCodes),
+    [fullSubCostCodes],
+  );
+  const projectOptions = useMemo(
+    () => projectComboboxOptions(fullProjects),
+    [fullProjects],
+  );
+  const vendorOptions = useMemo(
+    () => vendorComboboxOptions(fullVendors),
+    [fullVendors],
+  );
+
   if (loading || meLoading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
   if (!form) return null;
@@ -874,19 +889,6 @@ export default function BillEdit() {
     return saveAll(recordReviewedPrefill ? { recordReviewedPrefill: true } : undefined);
   };
 
-  // Hoisted out of the line-item map: these depend on neither the row nor its
-  // index, and the sub-cost-code catalog is ~500 rows — rebuilding both per row
-  // per render meant N×(500+P) allocations on every keystroke in the table.
-  // Same shape BillCreate computes once in its component body.
-  const sccOptions = fullSubCostCodes.map((s) => ({
-    value: String(s.id),
-    label: s.number ? `${s.number} — ${s.name}` : s.name,
-  }));
-  const projectOptions = fullProjects.map((p) => ({
-    value: p.public_id,
-    label: projectOptionLabel(p.abbreviation, p.name),
-  }));
-
   const patchLineAt = (index: number, patch: Partial<LineItemRow>, bumpEpoch: boolean) => {
     if (bumpEpoch) setLineUserEditEpoch((n) => n + 1);
     setLineItems((prev) => {
@@ -987,7 +989,7 @@ export default function BillEdit() {
           mode="edit"
           form={form as BillHeaderFormValues}
           onChange={onChange}
-          vendorOptions={fullVendors.map((v) => ({ value: v.public_id, label: v.name }))}
+          vendorOptions={vendorOptions}
           paymentTermOptions={fullPaymentTerms.map((pt) => ({
             value: pt.public_id,
             label: pt.name,

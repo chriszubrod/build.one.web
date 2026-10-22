@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { filePrefillLabel } from "./filePrefillLabels";
 import { post, put, uploadFile } from "../../api/client";
 import PdfDropZone from "../../components/PdfDropZone";
@@ -18,7 +18,9 @@ import {
   BILL_LINE_COL,
   buildBillLineFields,
   fmtBillLineMoney,
-  projectOptionLabel,
+  projectComboboxOptions,
+  sccComboboxOptions,
+  vendorComboboxOptions,
   type BillLineRow,
 } from "./billLineFields";
 import Breadcrumb, { entityCrumbs } from "../../components/Breadcrumb";
@@ -763,14 +765,18 @@ export default function BillCreate() {
     }
   };
 
-  const projectOptions = (lookups.projects ?? []).map((p) => ({
-    value: p.public_id,
-    label: projectOptionLabel(p.abbreviation, p.name),
-  }));
-  const sccOptions = (lookups.sub_cost_codes ?? []).map((s) => ({
-    value: String(s.id),
-    label: s.number ? `${s.number} — ${s.name}` : s.name,
-  }));
+  const projectOptions = useMemo(
+    () => projectComboboxOptions(lookups.projects ?? []),
+    [lookups.projects],
+  );
+  const sccOptions = useMemo(
+    () => sccComboboxOptions(lookups.sub_cost_codes ?? []),
+    [lookups.sub_cost_codes],
+  );
+  const vendorOptions = useMemo(
+    () => vendorComboboxOptions(lookups.vendors ?? []),
+    [lookups.vendors],
+  );
 
   return (
     <div className="page form-page-wide">
@@ -804,7 +810,7 @@ export default function BillCreate() {
           mode="create"
           form={form}
           onChange={onChange}
-          vendorOptions={(lookups.vendors ?? []).map((v) => ({ value: v.public_id, label: v.name }))}
+          vendorOptions={vendorOptions}
           paymentTermOptions={(lookups.payment_terms ?? []).map((pt) => ({
             value: pt.public_id,
             label: pt.name,

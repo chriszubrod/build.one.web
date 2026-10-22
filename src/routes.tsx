@@ -51,12 +51,14 @@ import AssetEdit from "./pages/assets/AssetEdit";
 // Bill surface (Phase 3) — renders inside the responsive AppLayout,
 // office/AP audience (gated on the Bills module), like Budget in U-066.
 import BillList from "./pages/bills/BillList";
-import BillCreate from "./pages/bills/BillCreate";
 import BillView from "./pages/bills/BillView";
+// Bill create/edit pull in react-aria (searchable vendor/project pickers) — lazy-load
+// so the main bundle stays lean for users who never open a bill form.
+const BillCreate = lazy(() => import("./pages/bills/BillCreate"));
 // U-462: the route renders a keyed WRAPPER, not BillEdit directly — see
 // BillEditRoute for why. Importing the wrapper keeps this file's shape:
 // still one component per route, still no shell/provider imports.
-import BillEditRoute from "./pages/bills/BillEditRoute";
+const BillEditRoute = lazy(() => import("./pages/bills/BillEditRoute"));
 
 // Expense surface (Phase 3) — renders inside the responsive AppLayout,
 // office/AP audience (gated on the Expenses module), like Bill in U-066.
@@ -150,7 +152,7 @@ import CustomerCreate from "./pages/customers/CustomerCreate";
 // not bundled by Vite since unreachable from this route tree). Restore
 // pages by re-adding their imports + routes here when ready.
 
-const docsFallback = (
+const routeChunkFallback = (
   <div className="ios-page">
     <div className="page-loading" style={{ padding: "var(--space-xl) 0" }}>
       Loading…
@@ -199,9 +201,23 @@ export const appRouteTree = (
         <Route path="/asset/*" element={<Navigate to="/asset/list" replace />} />
 
         <Route path="/bill/list" element={<BillList />} />
-        <Route path="/bill/create" element={<BillCreate />} />
+        <Route
+          path="/bill/create"
+          element={
+            <Suspense fallback={routeChunkFallback}>
+              <BillCreate />
+            </Suspense>
+          }
+        />
         <Route path="/bill/:publicId" element={<BillView />} />
-        <Route path="/bill/:publicId/edit" element={<BillEditRoute />} />
+        <Route
+          path="/bill/:publicId/edit"
+          element={
+            <Suspense fallback={routeChunkFallback}>
+              <BillEditRoute />
+            </Suspense>
+          }
+        />
         <Route path="/bill/*" element={<Navigate to="/bill/list" replace />} />
 
         <Route path="/expense/list" element={<ExpenseList />} />
@@ -327,7 +343,7 @@ export const appRouteTree = (
         <Route
           path="/docs"
           element={
-            <Suspense fallback={docsFallback}>
+            <Suspense fallback={routeChunkFallback}>
               <DocsPage />
             </Suspense>
           }
@@ -335,7 +351,7 @@ export const appRouteTree = (
         <Route
           path="/docs/:section"
           element={
-            <Suspense fallback={docsFallback}>
+            <Suspense fallback={routeChunkFallback}>
               <DocsPage />
             </Suspense>
           }

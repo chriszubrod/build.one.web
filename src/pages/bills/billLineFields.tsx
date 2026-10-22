@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { LineItemFieldDef } from "../../components/InlineLineItems";
 import {
   BILL_LINE_CHIP_CLASS,
@@ -16,6 +16,7 @@ import {
 } from "./filePrefillLabels";
 import type { BillIntakePrediction } from "../../types/api";
 import type { Line1PrefillMeta } from "./headerPrefill";
+import Combobox from "../../components/ui/Combobox";
 
 export { BILL_LINE_CHIP_CLASS };
 
@@ -54,6 +55,30 @@ export function fmtBillLineMoney(v: string): string {
   const n = Number(v);
   if (isNaN(n)) return v;
   return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
+export function vendorComboboxOptions(
+  vendors: { public_id: string; name: string }[],
+): { value: string; label: string }[] {
+  return vendors.map((v) => ({ value: v.public_id, label: v.name }));
+}
+
+export function sccComboboxOptions(
+  codes: { id: number; number?: string | null; name: string }[],
+): { value: string; label: string }[] {
+  return codes.map((s) => ({
+    value: String(s.id),
+    label: s.number ? `${s.number} — ${s.name}` : s.name,
+  }));
+}
+
+export function projectComboboxOptions(
+  projects: { public_id: string; abbreviation?: string | null; name: string }[],
+): { value: string; label: string }[] {
+  return projects.map((p) => ({
+    value: p.public_id,
+    label: projectOptionLabel(p.abbreviation, p.name),
+  }));
 }
 
 /** "HP2 — 4406 Harding" style project dropdown label. */
@@ -122,6 +147,51 @@ function projectBadge(li: BillLineRow, show: boolean): ReactNode {
   );
 }
 
+function BillLineProjectCombobox({
+  li,
+  opts,
+  update,
+}: {
+  li: BillLineRow;
+  opts: BuildBillLineFieldsOptions;
+  update: (value: string) => void;
+}) {
+  const projectValue =
+    opts.mode === "edit"
+      ? li.project_public_id ||
+        (li.unresolved_project_id != null ? UNRESOLVED_PROJECT_VALUE : "")
+      : li.project_public_id;
+
+  const projectOptions = useMemo(() => {
+    if (opts.mode === "edit" && li.unresolved_project_id != null) {
+      return [
+        {
+          value: UNRESOLVED_PROJECT_VALUE,
+          label: `Project #${li.unresolved_project_id} (not in your projects)`,
+          disabled: true as const,
+        },
+        ...opts.projectOptions,
+      ];
+    }
+    return opts.projectOptions;
+  }, [li.unresolved_project_id, opts.mode, opts.projectOptions]);
+
+  return (
+    <Combobox
+      variant="inline"
+      ariaLabel="Project"
+      options={projectOptions}
+      value={projectValue ?? ""}
+      placeholder="—"
+      onChange={(value) => {
+        if (value === UNRESOLVED_PROJECT_VALUE) return;
+        opts.onProjectHintChange?.(value || undefined);
+        update(value);
+      }}
+    />
+  );
+}
+
 function line1Adornment(
   opts: BuildBillLineFieldsOptions,
   li: BillLineRow,
@@ -157,46 +227,26 @@ export function buildBillLineFields(
     {
       key: "sub_cost_code_id",
       label: "Sub Cost Code",
-      type: "select",
-      options: opts.sccOptions,
       col: BILL_LINE_COL.scc,
       adornment: (li) => sccBadge(li, showBadges),
+      render: (li, _index, update) => (
+        <Combobox
+          variant="inline"
+          ariaLabel="Sub Cost Code"
+          options={opts.sccOptions}
+          value={li.sub_cost_code_id ?? ""}
+          onChange={(v) => update(v)}
+          placeholder="—"
+        />
+      ),
     },
     {
       key: "project_public_id",
       label: "Project",
       col: BILL_LINE_COL.project,
-      render: (li, _index, update) => {
-        const projectSelectValue =
-          opts.mode === "edit"
-            ? li.project_public_id ||
-              (li.unresolved_project_id != null ? UNRESOLVED_PROJECT_VALUE : "")
-            : li.project_public_id;
-        return (
-          <select
-            className="inline-li-input"
-            value={projectSelectValue}
-            onChange={(e) => {
-              const value = e.target.value;
-              if (value === UNRESOLVED_PROJECT_VALUE) return;
-              opts.onProjectHintChange?.(value || undefined);
-              update(value);
-            }}
-          >
-            <option value="">—</option>
-            {opts.mode === "edit" && li.unresolved_project_id != null && (
-              <option value={UNRESOLVED_PROJECT_VALUE} disabled>
-                Project #{li.unresolved_project_id} (not in your projects)
-              </option>
-            )}
-            {opts.projectOptions.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        );
-      },
+      render: (li, _index, update) => (
+        <BillLineProjectCombobox li={li} opts={opts} update={update} />
+      ),
       adornment: (li) => projectBadge(li, showBadges),
     },
     {

@@ -7,7 +7,14 @@ import BillEdit from "./BillEdit";
 import ReviewTimeline from "../../components/ReviewTimeline";
 import { ApiError } from "../../api/client";
 import { flushUntil } from "../../__testutils__/flush";
-import { setInputValue, setSelectValue, setTextareaValue } from "../../__testutils__/domEvents";
+import { setInputValue, setTextareaValue } from "../../__testutils__/domEvents";
+import {
+  clearCombobox,
+  comboboxInput,
+  getComboboxValue,
+  pickComboboxOptionByValue,
+  tabAwayFromCombobox,
+} from "../../test/combobox";
 import { entityItemKey, entityListKey } from "../../hooks/useEntity";
 import type { Bill, BillLineItem } from "../../types/api";
 
@@ -306,12 +313,30 @@ async function flushUntilHard(check: () => boolean, label: string): Promise<void
   expect(check(), label).toBe(true);
 }
 
-function sccSelect(row: HTMLTableRowElement): HTMLSelectElement {
-  return row.querySelectorAll("td")[1].querySelector("select") as HTMLSelectElement;
+function sccCombobox(row: HTMLTableRowElement): Element {
+  return row.querySelectorAll("td")[1].querySelector(".bo-combobox")!;
 }
 
-function projectSelect(row: HTMLTableRowElement): HTMLSelectElement {
-  return row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
+function sccValue(row: HTMLTableRowElement): string {
+  return getComboboxValue(sccCombobox(row));
+}
+
+function setSccValue(row: HTMLTableRowElement, value: string): void {
+  if (!value) clearCombobox(sccCombobox(row));
+  else pickComboboxOptionByValue(sccCombobox(row), value);
+}
+
+function projectCombobox(row: HTMLTableRowElement): Element {
+  return row.querySelectorAll("td")[2].querySelector(".bo-combobox")!;
+}
+
+function projectValue(row: HTMLTableRowElement): string {
+  return getComboboxValue(projectCombobox(row));
+}
+
+function setProjectValue(row: HTMLTableRowElement, value: string): void {
+  if (!value) clearCombobox(projectCombobox(row));
+  else pickComboboxOptionByValue(projectCombobox(row), value);
 }
 
 function descriptionInput(row: HTMLTableRowElement): HTMLInputElement {
@@ -403,27 +428,22 @@ afterEach(() => {
 // U-172: API service.py:188 ignores null today — explicit project clear does not
 // persist server-side yet. This suite pins the CLIENT wire shape only.
 describe("BillEdit unresolved project handling (U-169)", () => {
-
-
-  function projectSelect(row: HTMLTableRowElement): HTMLSelectElement {
-    return row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
-  }
-
   function findSubmitForReviewButton(): HTMLButtonElement | undefined {
     return Array.from(container.querySelectorAll("button")).find((b) =>
       b.textContent?.includes("Submit for Review"),
     );
   }
 
-  function stickyProjectOption(): HTMLOptionElement | undefined {
-    return Array.from(container.querySelectorAll("option")).find((o) =>
-      o.textContent?.includes("Project #144"),
-    );
+  function stickyProjectLabel(): string | null {
+    const rows = lineItemRows();
+    if (!rows.length) return null;
+    if (projectValue(rows[0]!) !== "__unresolved_project__") return null;
+    return comboboxInput(projectCombobox(rows[0]!)).value;
   }
 
   async function waitForUnresolvedProjectLoaded() {
-    await flushUntil(() => stickyProjectOption() != null);
-    expect(stickyProjectOption()).toBeDefined();
+    await flushUntil(() => stickyProjectLabel() != null);
+    expect(stickyProjectLabel()).toBeDefined();
   }
 
   beforeEach(() => {
@@ -448,16 +468,16 @@ describe("BillEdit unresolved project handling (U-169)", () => {
     renderBillEdit();
     await waitForUnresolvedProjectLoaded();
 
-    const select = projectSelect(lineItemRows()[0]);
-    expect(select.value).toBe("__unresolved_project__");
+    const row = lineItemRows()[0];
+    expect(projectValue(row)).toBe("__unresolved_project__");
 
     await act(async () => {
-      setSelectValue(select, "");
+      setProjectValue(row, "");
     });
 
-    await flushUntil(() => stickyProjectOption() == null);
-    expect(stickyProjectOption()).toBeUndefined();
-    expect(select.value).toBe("");
+    await flushUntil(() => stickyProjectLabel() == null);
+    expect(stickyProjectLabel()).toBeNull();
+    expect(projectValue(row)).toBe("");
 
     mockPut.mockClear();
 
@@ -472,9 +492,14 @@ describe("BillEdit unresolved project handling (U-169)", () => {
     renderBillEdit();
     await waitForUnresolvedProjectLoaded();
 
-    const sticky = stickyProjectOption()!;
-    expect(sticky.textContent).toContain("Project #144");
-    expect(sticky.disabled).toBe(true);
+    expect(stickyProjectLabel()).toContain("Project #144");
+    act(() => {
+      (projectCombobox(lineItemRows()[0]!).querySelector(".bo-combobox-trigger") as HTMLButtonElement)?.click();
+    });
+    const stickyOpt = Array.from(document.querySelectorAll('[role="option"]')).find((o) =>
+      o.textContent?.includes("Project #144"),
+    );
+    expect(stickyOpt?.getAttribute("data-disabled")).toBe("true");
 
     const submitBtn = findSubmitForReviewButton();
     expect(submitBtn).toBeDefined();
@@ -495,11 +520,11 @@ describe("BillEdit unresolved project handling (U-169)", () => {
     await flushUntil(() => {
       const rows = lineItemRows();
       if (rows.length === 0) return false;
-      return projectSelect(rows[0]).value === "p-visible";
+      return projectValue(rows[0]!) === "p-visible";
     });
     expect(lineItemRows()).toHaveLength(1);
-    expect(projectSelect(lineItemRows()[0]).value).toBe("p-visible");
-    expect(stickyProjectOption()).toBeUndefined();
+    expect(projectValue(lineItemRows()[0]!)).toBe("p-visible");
+    expect(stickyProjectLabel()).toBeNull();
 
     mockPut.mockClear();
 
@@ -523,8 +548,8 @@ describe("BillEdit unresolved project handling (U-169)", () => {
 
     await flushUntil(() => lineItemRows().length === 1);
     expect(lineItemRows()).toHaveLength(1);
-    expect(stickyProjectOption()).toBeUndefined();
-    expect(projectSelect(lineItemRows()[0]).value).toBe("");
+    expect(stickyProjectLabel()).toBeNull();
+    expect(projectValue(lineItemRows()[0]!)).toBe("");
 
     mockPut.mockClear();
 
@@ -550,24 +575,23 @@ describe("BillEdit unresolved project handling (U-169)", () => {
     expect(Object.prototype.hasOwnProperty.call(liPuts[0][1], "project_public_id")).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(liPuts[1][1], "project_public_id")).toBe(false);
 
-    expect(stickyProjectOption()).toBeDefined();
-    expect(stickyProjectOption()!.disabled).toBe(true);
+    expect(stickyProjectLabel()).toBeTruthy();
   });
 
   it("switching from an unresolved project to a visible one sends the new public_id", async () => {
     renderBillEdit();
     await waitForUnresolvedProjectLoaded();
 
-    const select = projectSelect(lineItemRows()[0]);
-    expect(select.value).toBe("__unresolved_project__");
+    const row = lineItemRows()[0];
+    expect(projectValue(row)).toBe("__unresolved_project__");
 
     await act(async () => {
-      setSelectValue(select, "p-visible");
+      setProjectValue(row, "p-visible");
     });
 
-    await flushUntil(() => stickyProjectOption() == null);
-    expect(stickyProjectOption()).toBeUndefined();
-    expect(select.value).toBe("p-visible");
+    await flushUntil(() => stickyProjectLabel() == null);
+    expect(stickyProjectLabel()).toBeNull();
+    expect(projectValue(row)).toBe("p-visible");
 
     mockPut.mockClear();
 
@@ -2074,6 +2098,50 @@ function codingSuggestionPayloadEdit() {
 }
 
 describe("BillEdit coding suggestions", () => {
+  it("tabbing through vendor and empty line pickers does not block later coding suggest", async () => {
+    // Hold the on-load suggestion open, tab through the pickers while it is pending, then
+    // deliver it: a tab-through that marked the line touched would make it skip the fill.
+    let deliver: ((v: unknown) => void) | undefined;
+    mockSuggestCoding.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          deliver = resolve;
+        }),
+    );
+    setupMocks([
+      sampleLineItem({
+        public_id: "li-empty",
+        sub_cost_code_id: null,
+        project_id: null,
+        description: "line",
+      }),
+    ]);
+    renderBillEdit();
+    await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
+    await flushUntilHard(() => deliver !== undefined, "on-load coding suggest is in flight");
+
+    const row = lineItemRows()[0]!;
+    expect(sccValue(row)).toBe("");
+    expect(getComboboxValue(projectCombobox(row))).toBe("");
+
+    const callsBeforeTab = mockSuggestCoding.mock.calls.length;
+    const vendorField = container.querySelector('[data-bo-field="vendor_public_id"]')!;
+    await act(async () => {
+      tabAwayFromCombobox(vendorField);
+      tabAwayFromCombobox(sccCombobox(row));
+      tabAwayFromCombobox(projectCombobox(row));
+    });
+    expect(mockSuggestCoding.mock.calls.length).toBe(callsBeforeTab);
+
+    await act(async () => {
+      deliver!(codingSuggestionPayloadEdit());
+    });
+    await flushUntilHard(
+      () => sccValue(row) === "10",
+      "suggestion still fills the tabbed-through line (not marked touched)",
+    );
+  });
+
   it("prefills empty coding cells and shows Suggested badge on draft bills", async () => {
     mockSuggestCoding.mockResolvedValue(codingSuggestionPayloadEdit());
     setupMocks([
@@ -2094,10 +2162,8 @@ describe("BillEdit coding suggestions", () => {
     );
 
     const row = lineItemRows()[0];
-    const scc = sccSelect(row);
-    const project = projectSelect(row);
-    expect(scc.value).toBe("10");
-    expect(project.value).toBe("");
+    expect(sccValue(row)).toBe("10");
+    expect(projectValue(row)).toBe("");
     expect(mockSuggestCoding).toHaveBeenCalledWith(
       expect.objectContaining({
         vendor_public_id: "v-1",
@@ -2220,7 +2286,7 @@ describe("BillEdit coding suggestions", () => {
       await vi.advanceTimersByTimeAsync(400);
     });
     expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
-    expect(sccSelect(lineItemRows()[0]).value).toBe("");
+    expect(sccValue(lineItemRows()[0])).toBe("");
     expect(headerBudgetBadge()).toBeNull();
 
     await act(async () => {
@@ -2234,7 +2300,7 @@ describe("BillEdit coding suggestions", () => {
       } as unknown as ReturnType<typeof codingSuggestionPayloadEdit>);
       await Promise.resolve();
     });
-    await flushUntilHard(() => sccSelect(lineItemRows()[0]).value === "10", "SCC prefilled");
+    await flushUntilHard(() => sccValue(lineItemRows()[0]) === "10", "SCC prefilled");
     await flushUntilHard(() => headerBudgetBadge() !== null, "header budget chip");
     expect(container.textContent).toContain("Within budget");
     expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
@@ -2273,7 +2339,7 @@ describe("BillEdit coding suggestions", () => {
     await flushUntilHard(() => headerBudgetBadge() !== null, "chip before clear");
 
     await act(async () => {
-      setSelectValue(projectSelect(lineItemRows()[0]), "");
+      setProjectValue(lineItemRows()[0], "");
     });
     expect(headerBudgetBadge()).toBeNull();
 
@@ -2396,9 +2462,8 @@ describe("BillEdit coding suggestions", () => {
       "SCC badge visible",
     );
 
-    const projectSelectEl = projectSelect(lineItemRows()[0]);
     await act(async () => {
-      setSelectValue(projectSelectEl, "p-visible");
+      setProjectValue(lineItemRows()[0], "p-visible");
     });
     expect(container.querySelector(".status-badge.coding-suggested")).not.toBeNull();
 
@@ -2457,8 +2522,8 @@ describe("BillEdit coding suggestions", () => {
     await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 1, "suggestCoding invoked");
 
     const row = lineItemRows()[0];
-    expect(sccSelect(row).value).toBe("1");
-    expect(projectSelect(row).value).toBe("");
+    expect(sccValue(row)).toBe("1");
+    expect(projectValue(row)).toBe("");
   });
 
   it("U-676k manual Save sends prefilled; Submit for Review sends accepted", async () => {
@@ -2611,28 +2676,17 @@ describe("BillEdit coding suggestions", () => {
 
     renderBillEdit();
     await flushUntil(() => lineItemRows().length === 1);
-    await flushUntil(() => {
-      const scc = lineItemRows()[0].querySelectorAll("td")[1].querySelector(
-        "select",
-      ) as HTMLSelectElement;
-      return scc.value === "10";
-    });
+    await flushUntil(() => sccValue(lineItemRows()[0]) === "10");
 
-    const projectSelectEl = lineItemRows()[0].querySelectorAll("td")[2].querySelector(
-      "select",
-    ) as HTMLSelectElement;
     await act(async () => {
-      setSelectValue(projectSelectEl, "p-visible");
+      setProjectValue(lineItemRows()[0], "p-visible");
     });
 
-    const sccSelect = lineItemRows()[0].querySelectorAll("td")[1].querySelector(
-      "select",
-    ) as HTMLSelectElement;
     await act(async () => {
-      setSelectValue(sccSelect, "1");
+      setSccValue(lineItemRows()[0], "1");
     });
 
-    await flushUntil(() => sccSelect.value === "1");
+    await flushUntil(() => sccValue(lineItemRows()[0]) === "1");
 
     await act(async () => {
       findSaveButton().click();
@@ -2667,7 +2721,7 @@ describe("BillEdit coding suggestions", () => {
 
     renderBillEdit();
     await flushUntilHard(() => lineItemRows().length === 1, "line items loaded");
-    await flushUntilHard(() => sccSelect(lineItemRows()[0]).value === "10", "first prefill");
+    await flushUntilHard(() => sccValue(lineItemRows()[0]) === "10", "first prefill");
 
     const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
     await act(async () => {
@@ -2678,11 +2732,11 @@ describe("BillEdit coding suggestions", () => {
     });
     await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 2, "second suggest started");
 
-    const scc = sccSelect(lineItemRows()[0]);
+    const row = lineItemRows()[0];
     await act(async () => {
-      setSelectValue(scc, "");
+      setSccValue(row, "");
     });
-    await flushUntilHard(() => scc.value === "", "user cleared SCC");
+    await flushUntilHard(() => sccValue(row) === "", "user cleared SCC");
 
     await act(async () => {
       resolveSecond(codingSuggestionPayloadEdit());
@@ -2690,7 +2744,7 @@ describe("BillEdit coding suggestions", () => {
     });
     await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 2, "second suggest settled");
 
-    expect(scc.value).toBe("");
+    expect(sccValue(row)).toBe("");
   });
 
   it("r1-2 does not prefill project or SCC on unresolved_project_id lines", async () => {
@@ -2711,8 +2765,8 @@ describe("BillEdit coding suggestions", () => {
     });
 
     const row = lineItemRows()[0];
-    expect(sccSelect(row).value).toBe("");
-    expect(projectSelect(row).value).toBe("__unresolved_project__");
+    expect(sccValue(row)).toBe("");
+    expect(projectValue(row)).toBe("__unresolved_project__");
   });
 
   it("r2-P after reload editing held SCC on accepted line saves changed", async () => {
@@ -2731,13 +2785,13 @@ describe("BillEdit coding suggestions", () => {
     expect(container.querySelector(".status-badge.coding-suggested")).toBeNull();
     expect(container.querySelector("[class*='coding-budget-']")).toBeNull();
 
-    const scc = sccSelect(lineItemRows()[0]);
-    expect(scc.value).toBe("10");
+    const row = lineItemRows()[0];
+    expect(sccValue(row)).toBe("10");
 
     await act(async () => {
-      setSelectValue(scc, "1");
+      setSccValue(row, "1");
     });
-    await flushUntilHard(() => scc.value === "1", "SCC edited");
+    await flushUntilHard(() => sccValue(row) === "1", "SCC edited");
 
     await act(async () => {
       findSaveButton().click();
@@ -2771,7 +2825,7 @@ describe("BillEdit coding suggestions", () => {
 
     expect(container.querySelector(".status-badge.coding-suggested")).toBeNull();
     expect(container.querySelector("[class*='coding-budget-']")).toBeNull();
-    expect(sccSelect(lineItemRows()[0]).value).toBe("1");
+    expect(sccValue(lineItemRows()[0])).toBe("1");
   });
 
   it("r1-2 hides budget chip after editing line amount from a visible chip", async () => {
@@ -2833,9 +2887,11 @@ describe("BillEdit coding suggestions", () => {
     });
     await flushUntilHard(() => headerBudgetBadge() !== null, "budget chip visible");
 
-    const vendorSelect = container.querySelector("#vendor_public_id") as HTMLSelectElement;
     await act(async () => {
-      setSelectValue(vendorSelect, "v-2");
+      pickComboboxOptionByValue(
+        container.querySelector('[data-bo-field="vendor_public_id"]')!,
+        "v-2",
+      );
     });
     await flushUntilHard(() => mockSuggestCoding.mock.calls.length >= 2, "second suggest");
     await act(async () => {
@@ -2983,9 +3039,11 @@ describe("BillEdit coding suggestions", () => {
     it("vendor From file label shown while matching and hidden after vendor edit", async () => {
       await mountMatchingDraft();
       expect(headerFieldShowsFromFile("vendor_public_id")).toBe(true);
-      const vendor = container.querySelector('select[name="vendor_public_id"]') as HTMLSelectElement;
       await act(async () => {
-        setSelectValue(vendor, "v-2");
+        pickComboboxOptionByValue(
+          container.querySelector('[data-bo-field="vendor_public_id"]')!,
+          "v-2",
+        );
       });
       await flushUntilHard(
         () => !headerFieldShowsFromFile("vendor_public_id"),
@@ -3295,7 +3353,7 @@ describe("BillEdit coding suggestions", () => {
         "form flipped to not-draft",
       );
       expect(lineItemRows()).toHaveLength(1);
-      expect(sccSelect(lineItemRows()[0]).value).toBe("10");
+      expect(sccValue(lineItemRows()[0])).toBe("10");
       expect(container.querySelector(".line-item-badge-slot .bill-line-chip")).toBeNull();
     });
 
@@ -3304,7 +3362,7 @@ describe("BillEdit coding suggestions", () => {
       renderBillEdit();
       await flushUntilHard(() => lineItemRows().length === 1, "line ready");
       await act(async () => {
-        setSelectValue(projectSelect(lineItemRows()[0]), "p-visible");
+        setProjectValue(lineItemRows()[0], "p-visible");
       });
       await flushUntilHard(
         () =>
@@ -3821,7 +3879,7 @@ describe("U-708 saveAll line sync and cache merge", () => {
     renderBillEdit();
     await waitForPdf();
     await flushUntil(() => lineItemRows().length === 1);
-    await flushUntil(() => sccSelect(lineItemRows()[0]).value === "10");
+    await flushUntil(() => sccValue(lineItemRows()[0]) === "10");
 
     await act(async () => {
       findSaveButton().click();
@@ -3829,9 +3887,9 @@ describe("U-708 saveAll line sync and cache merge", () => {
     await flushUntil(() => pendingLinePuts.length === 1);
 
     await act(async () => {
-      setSelectValue(sccSelect(lineItemRows()[0]), "1");
+      setSccValue(lineItemRows()[0], "1");
     });
-    await flushUntil(() => sccSelect(lineItemRows()[0]).value === "1");
+    await flushUntil(() => sccValue(lineItemRows()[0]) === "1");
 
     pendingLinePuts[0]!.resolve({
       public_id: "li-1",

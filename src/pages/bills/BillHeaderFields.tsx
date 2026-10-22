@@ -66,7 +66,7 @@ export default function BillHeaderFields({
     {
       key: "vendor_public_id",
       label: "Vendor",
-      type: "select",
+      type: "combobox",
       options: vendorOptions,
       required: mode === "create",
       adornment:

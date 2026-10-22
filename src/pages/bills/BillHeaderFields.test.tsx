@@ -82,6 +82,10 @@ describe("BillHeaderFields", () => {
   };
 
   function required(name: string): boolean {
+    const comboboxInput = container.querySelector(
+      `[data-bo-field="${name}"] input.bo-combobox-input, #${name}.bo-combobox-input`,
+    ) as HTMLInputElement | null;
+    if (comboboxInput) return comboboxInput.hasAttribute("required");
     return container.querySelector(`[name="${name}"]`)?.hasAttribute("required") ?? false;
   }
 
@@ -116,9 +120,17 @@ describe("BillHeaderFields", () => {
         paymentTermOptions: [{ value: "pt-1", label: "Net 30" }],
       }),
     );
-    expect(markup).toMatchInlineSnapshot(
-      `"<div class="detail-fields-form"><div class="form-group"><label for="vendor_public_id">Vendor<span class="required">*</span></label><select id="vendor_public_id" name="vendor_public_id" required=""><option value="">Select...</option><option value="v-1" selected="">Vendor One</option></select></div><div class="form-group"><label for="bill_number">Bill Number<span class="required">*</span></label><input id="bill_number" type="text" required="" name="bill_number" value="B-100"/></div><div class="form-group"><label for="bill_date">Bill Date<span class="required">*</span></label><input id="bill_date" type="date" required="" name="bill_date" value="2026-01-15"/></div><div class="form-group"><label for="payment_term_public_id">Payment Term</label><select id="payment_term_public_id" name="payment_term_public_id"><option value="">Select...</option><option value="pt-1" selected="">Net 30</option></select></div><div class="full-width"><div class="form-group"><label for="memo">Memo</label><textarea id="memo" name="memo" rows="3">note</textarea></div></div></div>"`,
-    );
+    expect(markup).toContain('label for="vendor_public_id"');
+    expect(markup).toContain('label for="bill_number"');
+    expect(markup).toContain('label for="bill_date"');
+    expect(markup).toContain('label for="payment_term_public_id"');
+    expect(markup).toContain('name="memo"');
+    expect(markup).toContain("bo-combobox");
+    expect(markup).toContain('value="Vendor One"');
+    expect(markup).toContain('value="B-100"');
+    expect(markup).toContain('value="2026-01-15"');
+    expect(markup).toContain('type="hidden" name="vendor_public_id" value="v-1"');
+    expect(markup).not.toMatch(/<select id="vendor_public_id"/);
   });
 
   it("create mode requires vendor, bill number, and bill date", () => {

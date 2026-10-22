@@ -6,7 +6,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import BillCreate from "./BillCreate";
 import { flushUntil } from "../../__testutils__/flush";
-import { dispatchDrop, setInputValue, setSelectValue, setTextareaValue } from "../../__testutils__/domEvents";
+import { dispatchDrop, setInputValue, setTextareaValue } from "../../__testutils__/domEvents";
+import {
+  clearCombobox,
+  getComboboxValue,
+  pickComboboxOptionByValue,
+  tabAwayFromCombobox,
+} from "../../test/combobox";
 import { deferred } from "../../hooks/__testutils__/renderHook";
 import { Modules } from "../../shared/modules";
 import type { CurrentUser, CurrentUserModule } from "../../types/api";
@@ -185,18 +191,33 @@ function selectChange(select: HTMLSelectElement, value: string) {
   select.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
+function vendorCombobox(): Element {
+  return container.querySelector('[data-bo-field="vendor_public_id"]')!;
+}
+
+function setVendorValue(value: string) {
+  if (!value) clearCombobox(vendorCombobox());
+  else pickComboboxOptionByValue(vendorCombobox(), value);
+}
+
 function fillHeader() {
-  const vendorSelect = container.querySelector("#vendor_public_id") as HTMLSelectElement;
-  selectChange(vendorSelect, "v-1");
+  pickComboboxOptionByValue(vendorCombobox(), "v-1");
   setInputValue(container.querySelector("#bill_number") as HTMLInputElement, "B-100");
   setInputValue(container.querySelector("#bill_date") as HTMLInputElement, "2026-01-15");
 }
 
+function projectComboboxAt(rowIndex: number): Element {
+  const row = container.querySelectorAll("tbody tr")[rowIndex] as HTMLTableRowElement;
+  return row.querySelectorAll("td")[2].querySelector(".bo-combobox")!;
+}
+
 function fillLineRow(rowIndex: number, description: string, projectPublicId: string) {
   setInputValue(descriptionInputAt(rowIndex), description);
-  const row = container.querySelectorAll("tbody tr")[rowIndex] as HTMLTableRowElement;
-  const projectSelect = row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
-  selectChange(projectSelect, projectPublicId);
+  if (projectPublicId) {
+    pickComboboxOptionByValue(projectComboboxAt(rowIndex), projectPublicId);
+  } else if (getComboboxValue(projectComboboxAt(rowIndex)) !== "") {
+    clearCombobox(projectComboboxAt(rowIndex));
+  }
 }
 
 /**
@@ -301,6 +322,11 @@ function headerBudgetBadge(): Element | null {
   return container.querySelector(".inline-li-header-actions [class*='coding-budget-']");
 }
 
+async function flushUntilHard(check: () => boolean, label: string): Promise<void> {
+  await flushUntil(check);
+  expect(check(), label).toBe(true);
+}
+
 function lineBudgetBadge(rowIndex: number): Element | null {
   const row = container.querySelectorAll("tbody tr")[rowIndex];
   return row?.querySelector("[class*='coding-budget-']") ?? null;
@@ -319,18 +345,22 @@ function completeBillButton(): HTMLButtonElement {
  * having both project and SCC; this owns the column index the same way
  * rateInputAt / descriptionInputAt do.
  */
-function sccSelectAt(rowIndex: number): HTMLSelectElement {
+function sccComboboxAt(rowIndex: number): Element {
   const row = container.querySelectorAll("tbody tr")[rowIndex] as HTMLTableRowElement;
-  return row.querySelectorAll("td")[1].querySelector("select") as HTMLSelectElement;
+  return row.querySelectorAll("td")[1].querySelector(".bo-combobox")!;
+}
+
+function sccValueAt(rowIndex: number): string {
+  return getComboboxValue(sccComboboxAt(rowIndex));
 }
 
 function fillLineScc(rowIndex: number, sccId: string) {
-  selectChange(sccSelectAt(rowIndex), sccId);
+  if (!sccId) clearCombobox(sccComboboxAt(rowIndex));
+  else pickComboboxOptionByValue(sccComboboxAt(rowIndex), sccId);
 }
 
 function projectSelectValueAt(rowIndex: number): string {
-  const row = container.querySelectorAll("tbody tr")[rowIndex] as HTMLTableRowElement;
-  return (row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement).value;
+  return getComboboxValue(projectComboboxAt(rowIndex));
 }
 
 function lineProjectForIndex(index: number): string {
@@ -448,11 +478,7 @@ describe("BillCreate submit-for-review", () => {
     await arrangeTwoLineBill();
 
     // Assert propagation BEFORE outcome (U-152).
-    const rows = container.querySelectorAll("tbody tr");
-    const line2ProjectSelect = rows[1].querySelectorAll("td")[2].querySelector(
-      "select",
-    ) as HTMLSelectElement;
-    expect(line2ProjectSelect.value).toBe("p-2");
+    expect(projectSelectValueAt(1)).toBe("p-2");
     expect(submitForReviewButton().disabled).toBe(false);
 
     await act(async () => {
@@ -513,6 +539,7 @@ describe("BillCreate submit-for-review", () => {
 
     await act(async () => {
       await attachPdf();
+      // Empty projectPublicId skips project pick; line already has no project for this gate.
       fillLineRow(0, "Desc only", "");
     });
 
@@ -603,10 +630,7 @@ describe("BillCreate submit-for-review", () => {
       await arrangeOneLineBill("p-1");
 
       // Assert propagation BEFORE outcome (U-152).
-      const projectSelect = container.querySelectorAll("tbody tr")[0]
-        .querySelectorAll("td")[2]
-        .querySelector("select") as HTMLSelectElement;
-      expect(projectSelect.value).toBe("p-1");
+      expect(projectSelectValueAt(0)).toBe("p-1");
 
       await flushUntil(() => submitForReviewButton()?.disabled === true);
       expect(submitForReviewButton().disabled).toBe(true);
@@ -768,10 +792,7 @@ describe("BillCreate partial line failure and submit guard", () => {
   it("a double click fires only one create", async () => {
     await arrangeOneLineBill();
 
-    const projectSelect = container.querySelectorAll("tbody tr")[0]
-      .querySelectorAll("td")[2]
-      .querySelector("select") as HTMLSelectElement;
-    expect(projectSelect.value).toBe("p-1");
+    expect(projectSelectValueAt(0)).toBe("p-1");
     expect(findButton("Save For Later").disabled).toBe(false);
 
     await act(async () => {
@@ -960,6 +981,29 @@ function codingSuggestionPayload() {
 }
 
 describe("BillCreate coding suggestions", () => {
+  it("suggests after vendor is set when the line project was filled first", async () => {
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
+    renderPage();
+    await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+
+    await act(async () => {
+      fillLineRow(0, "Line one", "p-1");
+    });
+    expect(mockSuggestCoding).not.toHaveBeenCalled();
+
+    await act(async () => {
+      setVendorValue("v-1");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    await flushUntil(() => sccValueAt(0) === "10");
+    expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
+    expect(mockSuggestCoding).toHaveBeenCalledWith(
+      expect.objectContaining({ vendor_public_id: "v-1", project_public_id: "p-1" }),
+    );
+  });
+
   it("prefills empty line cells and shows Suggested badge after vendor is set", async () => {
     mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
     renderPage();
@@ -968,14 +1012,14 @@ describe("BillCreate coding suggestions", () => {
     await act(async () => {
       fillHeader();
     });
+    await act(async () => {
+    });
 
     await flushUntil(() =>
       container.querySelector(".status-badge.coding-suggested") !== null,
     );
-    expect(sccSelectAt(0).value).toBe("10");
-    const row = container.querySelectorAll("tbody tr")[0];
-    const projectSelect = row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
-    expect(projectSelect.value).toBe("");
+    expect(sccValueAt(0)).toBe("10");
+    expect(projectSelectValueAt(0)).toBe("");
     expect(container.textContent).toContain("Suggested 72%");
     expect(mockSuggestCoding).toHaveBeenCalledWith(
       expect.objectContaining({ vendor_public_id: "v-1" }),
@@ -992,6 +1036,11 @@ describe("BillCreate coding suggestions", () => {
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
+      fillHeader();
+    });
+    await act(async () => {
+    });
+    await act(async () => {
       fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "60");
       findButton("+ Add Line").click();
@@ -999,14 +1048,19 @@ describe("BillCreate coding suggestions", () => {
     await act(async () => {
       fillLineRow(1, "Line two", "p-1");
       fillLineRate(1, "40");
-      fillHeader();
     });
+    expect(projectSelectValueAt(0)).toBe("p-1");
+    expect(projectSelectValueAt(1)).toBe("p-1");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
+      await Promise.resolve();
     });
+    expect(mockSuggestCoding.mock.calls.length).toBeGreaterThan(0);
 
-    await flushUntil(() => headerBudgetBadge() !== null);
-    expect(container.textContent).toContain("Within budget");
+    await flushUntilHard(
+      () => headerBudgetBadge()?.textContent?.includes("Within budget") === true,
+      "header budget chip",
+    );
     expect(lineBudgetBadge(0)).toBeNull();
     expect(lineBudgetBadge(1)).toBeNull();
     expect(mockSuggestCoding).toHaveBeenCalledWith(
@@ -1021,17 +1075,15 @@ describe("BillCreate coding suggestions", () => {
 
     await act(async () => {
       fillLineScc(0, "99");
-      selectChange(container.querySelector("#vendor_public_id") as HTMLSelectElement, "v-1");
+      setVendorValue("v-1");
     });
 
     await act(async () => {
       await Promise.resolve();
     });
 
-    expect(sccSelectAt(0).value).toBe("99");
-    const row = container.querySelectorAll("tbody tr")[0];
-    const projectSelect = row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
-    expect(projectSelect.value).toBe("");
+    expect(sccValueAt(0)).toBe("99");
+    expect(projectSelectValueAt(0)).toBe("");
   });
 
   it("U-676k Save For Later sends coding_prefill_state prefilled while suggestions are untouched", async () => {
@@ -1042,7 +1094,9 @@ describe("BillCreate coding suggestions", () => {
     await act(async () => {
       fillHeader();
     });
-    await flushUntil(() => sccSelectAt(0).value === "10");
+    await act(async () => {
+    });
+    await flushUntil(() => sccValueAt(0) === "10");
     await act(async () => {
       await attachPdf();
     });
@@ -1061,15 +1115,17 @@ describe("BillCreate coding suggestions", () => {
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
       fillHeader();
     });
-    await flushUntil(() => sccSelectAt(0).value === "10");
+    await act(async () => {
+      fillLineRow(0, "Line one", "p-1");
+    });
+    await flushUntil(() => sccValueAt(0) === "10");
     await act(async () => {
       await attachPdf();
     });
 
-    expect(sccSelectAt(0).value).toBe("10");
+    expect(sccValueAt(0)).toBe("10");
     expect(submitForReviewButton().disabled).toBe(false);
     expect(completeBillButton().disabled).toBe(false);
   });
@@ -1080,10 +1136,12 @@ describe("BillCreate coding suggestions", () => {
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
       fillHeader();
     });
-    await flushUntil(() => sccSelectAt(0).value === "10");
+    await act(async () => {
+      fillLineRow(0, "Line one", "p-1");
+    });
+    await flushUntil(() => sccValueAt(0) === "10");
     await act(async () => {
       await attachPdf();
     });
@@ -1102,18 +1160,19 @@ describe("BillCreate coding suggestions", () => {
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
       fillHeader();
     });
-    await flushUntil(() => sccSelectAt(0).value === "10");
+    await act(async () => {
+      fillLineRow(0, "Line one", "p-1");
+    });
+    await flushUntil(() => sccValueAt(0) === "10");
     await act(async () => {
       await attachPdf();
     });
 
-    const row = container.querySelectorAll("tbody tr")[0];
-    const projectSelect = row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
+    // project combobox
     await act(async () => {
-      selectChange(projectSelect, "p-2");
+      pickComboboxOptionByValue(projectComboboxAt(0), "p-2");
     });
 
     await act(async () => {
@@ -1131,10 +1190,12 @@ describe("BillCreate coding suggestions", () => {
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
       fillHeader();
     });
-    await flushUntil(() => sccSelectAt(0).value === "10");
+    await act(async () => {
+      fillLineRow(0, "Line one", "p-1");
+    });
+    await flushUntil(() => sccValueAt(0) === "10");
     await act(async () => {
       await attachPdf();
     });
@@ -1167,7 +1228,9 @@ describe("BillCreate coding suggestions", () => {
     await act(async () => {
       fillHeader();
     });
-    await flushUntil(() => sccSelectAt(0).value === "10");
+    await act(async () => {
+    });
+    await flushUntil(() => sccValueAt(0) === "10");
 
     await act(async () => {
       setTextareaValue(
@@ -1180,18 +1243,17 @@ describe("BillCreate coding suggestions", () => {
     });
     await flushUntil(() => mockSuggestCoding.mock.calls.length >= 2);
 
-    const scc = sccSelectAt(0);
     await act(async () => {
-      setSelectValue(scc, "");
+      clearCombobox(sccComboboxAt(0));
     });
-    await flushUntil(() => scc.value === "");
+    await flushUntil(() => sccValueAt(0) === "");
 
     await act(async () => {
       resolveSecond(codingSuggestionPayload());
       await vi.advanceTimersByTimeAsync(0);
     });
 
-    expect(scc.value).toBe("");
+    expect(sccValueAt(0)).toBe("");
   });
 
   it("r5-2 editing either line amount hides the chip immediately then returns after debounced re-suggest", async () => {
@@ -1215,9 +1277,11 @@ describe("BillCreate coding suggestions", () => {
       findButton("+ Add Line").click();
     });
     await act(async () => {
+      fillHeader();
+    });
+    await act(async () => {
       fillLineRow(1, "Line two", "p-1");
       fillLineRate(1, "40");
-      fillHeader();
     });
     await flushUntil(() => headerBudgetBadge() !== null);
 
@@ -1246,9 +1310,11 @@ describe("BillCreate coding suggestions", () => {
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
+      fillHeader();
+    });
+    await act(async () => {
       fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "100");
-      fillHeader();
     });
     await flushUntil(() => headerBudgetBadge() !== null);
     await act(async () => {
@@ -1283,9 +1349,11 @@ describe("BillCreate coding suggestions", () => {
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
+      fillHeader();
+    });
+    await act(async () => {
       fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "60");
-      fillHeader();
     });
     await flushUntil(() => headerBudgetBadge() !== null);
     const callsBefore = mockSuggestCoding.mock.calls.length;
@@ -1331,14 +1399,17 @@ describe("BillCreate coding suggestions", () => {
     expect(mockSuggestCoding).not.toHaveBeenCalled();
 
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
       fillHeader();
+      fillLineRow(0, "Line one", "p-1");
     });
-    expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
+    // Vendor pick and project pick commit on separate renders, like a real user — two hook calls.
+    const suggestCallsAfterFill = mockSuggestCoding.mock.calls.length;
+    expect(suggestCallsAfterFill).toBe(2);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(600);
     });
+    expect(mockSuggestCoding.mock.calls.length).toBe(suggestCallsAfterFill);
     expect(headerBudgetBadge()).toBeNull();
 
     await act(async () => {
@@ -1349,10 +1420,47 @@ describe("BillCreate coding suggestions", () => {
       } as unknown as ReturnType<typeof codingSuggestionPayload>);
       await Promise.resolve();
     });
-    await flushUntil(() => headerBudgetBadge() !== null);
-    expect(container.textContent).toContain("Within budget");
-    expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
-    expect(sccSelectAt(0).value).toBe("10");
+    await flushUntilHard(
+      () => headerBudgetBadge()?.textContent?.includes("Within budget") === true,
+      "deferred budget chip",
+    );
+    expect(mockSuggestCoding.mock.calls.length).toBe(suggestCallsAfterFill);
+    expect(sccValueAt(0)).toBe("10");
+  });
+
+  it("tabbing through vendor and empty line pickers does not block later coding suggest", async () => {
+    mockSuggestCoding.mockImplementation(
+      () => new Promise(() => {
+        /* hold responses until after tab-through */
+      }),
+    );
+    renderPage();
+    await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+    expect(sccValueAt(0)).toBe("");
+    expect(getComboboxValue(projectComboboxAt(0))).toBe("");
+
+    await act(async () => {
+      tabAwayFromCombobox(vendorCombobox());
+      tabAwayFromCombobox(sccComboboxAt(0));
+      tabAwayFromCombobox(projectComboboxAt(0));
+    });
+    const callsAfterTab = mockSuggestCoding.mock.calls.length;
+
+    mockSuggestCoding.mockResolvedValue(codingSuggestionPayload());
+    await act(async () => {
+      fillHeader();
+      setInputValue(descriptionInputAt(0), "Line one");
+      fillLineRate(0, "50");
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    await flushUntilHard(
+      () => mockSuggestCoding.mock.calls.length > callsAfterTab,
+      "coding suggest fires after the tab-through",
+    );
+    await flushUntilHard(
+      () => sccValueAt(0) === "10",
+      "suggestion still fills the tabbed-through line (not marked touched)",
+    );
   });
 
   it("r6-2 covered lines netting negative omits amount but still prefills SCC without chip", async () => {
@@ -1370,16 +1478,18 @@ describe("BillCreate coding suggestions", () => {
       findButton("+ Add Line").click();
     });
     await act(async () => {
+      fillHeader();
+    });
+    await act(async () => {
       fillLineRow(1, "Charge", "p-1");
       fillLineRate(1, "-100");
-      fillHeader();
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
     });
     await flushUntil(() => mockSuggestCoding.mock.calls.length >= 1);
     expect(mockSuggestCoding.mock.calls.at(-1)?.[0].amount).toBeUndefined();
-    await flushUntil(() => sccSelectAt(0).value === "10");
+    await flushUntil(() => sccValueAt(0) === "10");
     expect(headerBudgetBadge()).toBeNull();
   });
 
@@ -1402,59 +1512,71 @@ describe("BillCreate coding suggestions", () => {
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      fillLineRow(0, "Line one", "p-1");
-      fillLineRate(0, "100");
       fillHeader();
     });
-    await flushUntil(() => sccSelectAt(0).value === "10");
+    await act(async () => {
+      fillLineRow(0, "Line one", "p-1");
+      fillLineRate(0, "100");
+    });
+    await flushUntil(() => sccValueAt(0) === "10");
     await flushUntil(() => headerBudgetBadge() !== null);
 
-    const row = container.querySelectorAll("tbody tr")[0];
-    const projectSelect = row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
+    // project combobox
     await act(async () => {
-      selectChange(projectSelect, "p-2");
+      pickComboboxOptionByValue(projectComboboxAt(0), "p-2");
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
     });
     await flushUntil(() => mockSuggestCoding.mock.calls.length >= 2);
-    expect(sccSelectAt(0).value).toBe("10");
+    expect(sccValueAt(0)).toBe("10");
     expect(headerBudgetBadge()).toBeNull();
   });
 
   it("r6-3 same suggested SCC on moved line shows chip after p-2 response", async () => {
-    mockSuggestCoding
-      .mockResolvedValueOnce({
-        ...codingSuggestionPayload(),
-        budget_check: "fits" as const,
-        budget_remaining: "1.00",
-      })
-      .mockResolvedValueOnce({
-        ...codingSuggestionPayload(),
-        project_public_id: "p-2",
-        sub_cost_code_public_id: "scc-pub",
-        budget_check: "fits" as const,
-        budget_remaining: "2.00",
-      });
+    mockSuggestCoding.mockImplementation(async (args: Record<string, unknown>) => {
+      if (args.project_public_id === "p-2") {
+        return {
+          ...codingSuggestionPayload(),
+          project_public_id: "p-2",
+          sub_cost_code_public_id: "scc-pub",
+          budget_check: "fits" as const,
+          budget_remaining: "2.00",
+        };
+      }
+      if (args.amount === "100.00") {
+        return {
+          ...codingSuggestionPayload(),
+          budget_check: "fits" as const,
+          budget_remaining: "1.00",
+        };
+      }
+      return null;
+    });
     renderPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
+      fillHeader();
       fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "100");
-      fillHeader();
     });
-    await flushUntil(() => sccSelectAt(0).value === "10");
+    await flushUntil(() => sccValueAt(0) === "10");
 
-    const row = container.querySelectorAll("tbody tr")[0];
-    const projectSelect = row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
+    // project combobox
     await act(async () => {
-      selectChange(projectSelect, "p-2");
+      pickComboboxOptionByValue(projectComboboxAt(0), "p-2");
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
+      await Promise.resolve();
     });
-    await flushUntil(() => headerBudgetBadge() !== null);
+    await flushUntil(() => mockSuggestCoding.mock.calls.length >= 2);
+    expect(projectSelectValueAt(0)).toBe("p-2");
+    await flushUntilHard(
+      () => headerBudgetBadge()?.textContent?.includes("Within budget") === true,
+      "header budget chip after p-2",
+    );
     expect(container.textContent).toContain("Within budget");
   });
 
@@ -1468,9 +1590,11 @@ describe("BillCreate coding suggestions", () => {
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
+      fillHeader();
+    });
+    await act(async () => {
       fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "100");
-      fillHeader();
     });
     await flushUntil(() => headerBudgetBadge() !== null);
 
@@ -1479,15 +1603,13 @@ describe("BillCreate coding suggestions", () => {
     });
     await flushUntil(() => container.querySelectorAll("tbody tr").length >= 2);
 
-    const row1 = container.querySelectorAll("tbody tr")[1];
-    const projectSelect1 = row1.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
     await act(async () => {
-      selectChange(projectSelect1, "p-2");
+      pickComboboxOptionByValue(projectComboboxAt(1), "p-2");
     });
     expect(headerBudgetBadge()).toBeNull();
 
     await act(async () => {
-      selectChange(projectSelect1, "");
+      clearCombobox(projectComboboxAt(1));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
@@ -1499,36 +1621,41 @@ describe("BillCreate coding suggestions", () => {
     );
   });
 
-  it("r5-5 moving a covered line to p-2 hides chip immediately including when vendor cleared", async () => {
+  it("r5-5 moving a covered line to p-2 hides chip; Change file clearing vendor keeps chip hidden", async () => {
     mockSuggestCoding.mockResolvedValue({
       ...codingSuggestionPayload(),
       budget_check: "fits" as const,
       budget_remaining: "1.00",
     });
+    mockReadBillAttachment.mockResolvedValue(okReadFromFile());
     renderPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
+      await attachPdf();
+      await vi.advanceTimersByTimeAsync(20);
+    });
+    await flushUntilHard(() => getComboboxValue(vendorCombobox()) === "v-1", "PDF prefill set the vendor");
+    await act(async () => {
+      setInputValue(container.querySelector("#bill_number") as HTMLInputElement, "B-100");
+      setInputValue(container.querySelector("#bill_date") as HTMLInputElement, "2026-01-15");
       fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "100");
-      fillHeader();
     });
     await flushUntil(() => headerBudgetBadge() !== null);
 
-    const row = container.querySelectorAll("tbody tr")[0];
-    const projectSelect = row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
     await act(async () => {
-      selectChange(projectSelect, "p-2");
+      pickComboboxOptionByValue(projectComboboxAt(0), "p-2");
     });
     expect(headerBudgetBadge()).toBeNull();
 
-    const vendorSelect = container.querySelector("#vendor_public_id") as HTMLSelectElement;
-    const callsBefore = mockSuggestCoding.mock.calls.length;
+    const callsBeforeChangeFile = mockSuggestCoding.mock.calls.length;
     await act(async () => {
-      selectChange(vendorSelect, "");
+      findButton("Change file").click();
     });
-    expect(mockSuggestCoding.mock.calls.length).toBe(callsBefore);
+    expect(getComboboxValue(vendorCombobox())).toBe("");
     expect(headerBudgetBadge()).toBeNull();
+    expect(mockSuggestCoding.mock.calls.length).toBe(callsBeforeChangeFile);
   });
 
   it("r5-6 no chip without project hint, wrong response project, no_project check, or invalid amount", async () => {
@@ -1543,6 +1670,8 @@ describe("BillCreate coding suggestions", () => {
 
     await act(async () => {
       fillHeader();
+    });
+    await act(async () => {
     });
     await flushUntil(() => mockSuggestCoding.mock.calls.length >= 1);
     expect(headerBudgetBadge()).toBeNull();
@@ -1593,9 +1722,11 @@ describe("BillCreate coding suggestions", () => {
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
+      fillHeader();
+    });
+    await act(async () => {
       fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "100");
-      fillHeader();
     });
     await flushUntil(() => mockSuggestCoding.mock.calls.length >= 1);
 
@@ -1627,9 +1758,11 @@ describe("BillCreate coding suggestions", () => {
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
+      fillHeader();
+    });
+    await act(async () => {
       fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "100");
-      fillHeader();
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
@@ -1647,32 +1780,38 @@ describe("BillCreate coding suggestions", () => {
   });
 
   it("r1-5 clears budget chip when vendor changes and suggest returns none", async () => {
-    mockSuggestCoding
-      .mockResolvedValueOnce({
-        ...codingSuggestionPayload(),
-        budget_check: "fits" as const,
-        budget_remaining: "1.00",
-      })
-      .mockResolvedValueOnce(null);
+    mockSuggestCoding.mockImplementation(async (args: Record<string, unknown>) => {
+      if (args.vendor_public_id === "v-2") return null;
+      if (args.amount === "100.00") {
+        return {
+          ...codingSuggestionPayload(),
+          budget_check: "fits" as const,
+          budget_remaining: "1.00",
+        };
+      }
+      return null;
+    });
 
     renderPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
+      fillHeader();
       fillLineRow(0, "Line one", "p-1");
       fillLineRate(0, "100");
-      fillHeader();
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
+      await Promise.resolve();
     });
 
-    await flushUntil(() => headerBudgetBadge() !== null);
-    expect(container.textContent).toContain("Within budget");
+    await flushUntilHard(
+      () => headerBudgetBadge()?.textContent?.includes("Within budget") === true,
+      "initial budget chip",
+    );
 
-    const vendorSelect = container.querySelector("#vendor_public_id") as HTMLSelectElement;
     await act(async () => {
-      selectChange(vendorSelect, "v-2");
+      setVendorValue("v-2");
     });
     await flushUntil(() => mockSuggestCoding.mock.calls.length >= 2);
     await act(async () => {
@@ -1720,17 +1859,18 @@ describe("BillCreate coding suggestions", () => {
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
-    const vendorSelect = container.querySelector("#vendor_public_id") as HTMLSelectElement;
     await act(async () => {
       setTextareaValue(memo, "final memo");
-      selectChange(vendorSelect, "v-1");
+    });
+    await act(async () => {
+      setVendorValue("v-1");
     });
     expect(mockSuggestCoding).not.toHaveBeenCalled();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
     });
-    await flushUntil(() => mockSuggestCoding.mock.calls.length === 1);
+    await flushUntilHard(() => mockSuggestCoding.mock.calls.length === 1, "vendor suggest");
     expect(mockSuggestCoding.mock.calls[0][0]).toEqual(
       expect.objectContaining({ memo: "final memo", vendor_public_id: "v-1" }),
     );
@@ -1791,7 +1931,7 @@ describe("BillCreate PDF read attachment", () => {
     await flushUntil(() => container.textContent?.includes("From file"));
     expect((container.querySelector("#bill_number") as HTMLInputElement).value).toBe("INV-42");
     expect((container.querySelector("#bill_date") as HTMLInputElement).value).toBe("2026-03-10");
-    expect(sccSelectAt(0).value).toBe("10");
+    expect(sccValueAt(0)).toBe("10");
   });
 
   it("single-file drop judges only the first file: [pdf, txt] attaches the pdf", async () => {
@@ -1894,7 +2034,7 @@ describe("BillCreate PDF read attachment", () => {
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
 
     await act(async () => {
-      selectChange(container.querySelector("#vendor_public_id") as HTMLSelectElement, "v-2");
+      setVendorValue("v-2");
       setInputValue(container.querySelector("#bill_number") as HTMLInputElement, "USER-N");
       setInputValue(container.querySelector("#bill_date") as HTMLInputElement, "2026-01-01");
       setInputValue(descriptionInputAt(0), "User desc");
@@ -1903,7 +2043,7 @@ describe("BillCreate PDF read attachment", () => {
     });
     await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
 
-    expect((container.querySelector("#vendor_public_id") as HTMLSelectElement).value).toBe("v-2");
+    expect(getComboboxValue(vendorCombobox())).toBe("v-2");
     expect((container.querySelector("#bill_number") as HTMLInputElement).value).toBe("USER-N");
     expect(descriptionInputAt(0).value).toBe("User desc");
     expect(rateInputAt(0).value).toBe("99");
@@ -2031,11 +2171,11 @@ describe("BillCreate PDF read attachment", () => {
     renderPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
-    await flushUntil(() => sccSelectAt(0).value === "10");
+    await flushUntil(() => sccValueAt(0) === "10");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
     });
-    expect(sccSelectAt(0).value).toBe("10");
+    expect(sccValueAt(0)).toBe("10");
   });
 
   it("Save sends line_amount and total from file rate without accept controls", async () => {
@@ -2176,9 +2316,9 @@ describe("BillCreate PDF read attachment", () => {
       await vi.advanceTimersByTimeAsync(10);
     });
     await flushUntil(
-      () => (container.querySelector("#vendor_public_id") as HTMLSelectElement).value === "v-1",
+      () => getComboboxValue(vendorCombobox()) === "v-1",
     );
-    expect(sccSelectAt(0).value).toBe("10");
+    expect(sccValueAt(0)).toBe("10");
   });
 
   it("partial read status still fills header fields from the file", async () => {
@@ -2226,8 +2366,8 @@ describe("BillCreate PDF read attachment", () => {
     });
     await flushUntil(() => container.querySelectorAll("tbody tr").length === 2);
     await attachPdf();
-    await flushUntil(() => sccSelectAt(0).value === "10");
-    expect(sccSelectAt(1).value).toBe("");
+    await flushUntil(() => sccValueAt(0) === "10");
+    expect(sccValueAt(1)).toBe("");
   });
 
   async function acceptEachVisibleFileCheck() {
@@ -2263,7 +2403,7 @@ describe("BillCreate PDF read attachment", () => {
       setInputValue(descriptionInputAt(0), "edited");
       setInputValue(container.querySelector("#bill_number") as HTMLInputElement, "X1");
       setInputValue(container.querySelector("#bill_date") as HTMLInputElement, "2026-03-11");
-      selectChange(container.querySelector("#vendor_public_id") as HTMLSelectElement, "v-2");
+      setVendorValue("v-2");
       fillLineScc(0, "99");
     });
     await flushUntil(() => !findButton("Save For Later").disabled);
@@ -2282,11 +2422,11 @@ describe("BillCreate PDF read attachment", () => {
     renderPage();
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
-    await flushUntil(() => sccSelectAt(0).value === "10");
+    await flushUntil(() => sccValueAt(0) === "10");
     await act(async () => {
       findButton("Change file").click();
     });
-    expect(sccSelectAt(0).value).toBe("");
+    expect(sccValueAt(0)).toBe("");
     expect(container.textContent?.includes("From file")).toBe(false);
     await attachPdf();
     await act(async () => {
@@ -2302,8 +2442,8 @@ describe("BillCreate PDF read attachment", () => {
       );
       await vi.advanceTimersByTimeAsync(20);
     });
-    await flushUntil(() => sccSelectAt(0).value === "99");
-    expect(sccSelectAt(0).value).toBe("99");
+    await flushUntil(() => sccValueAt(0) === "99");
+    expect(sccValueAt(0)).toBe("99");
   });
 
   it("does not apply a deferred read after Change file when lookups were loading", async () => {
@@ -2326,7 +2466,7 @@ describe("BillCreate PDF read attachment", () => {
       await vi.advanceTimersByTimeAsync(20);
     });
     expect((container.querySelector("#bill_number") as HTMLInputElement).value).toBe("");
-    expect(sccSelectAt(0).value).toBe("");
+    expect(sccValueAt(0)).toBe("");
     expect(container.textContent?.includes("From file")).toBe(false);
   });
 
@@ -2381,7 +2521,7 @@ describe("BillCreate PDF read attachment", () => {
     await flushUntil(() => container.textContent?.includes("Reading invoice"));
     // Precondition: the read is really deferred (still reading, nothing applied yet).
     expect(container.textContent).toContain("Reading invoice");
-    expect((container.querySelector("#vendor_public_id") as HTMLSelectElement).value).toBe("");
+    expect(getComboboxValue(vendorCombobox())).toBe("");
     delete (globalThis as { __billCreateEmptyLookups?: boolean }).__billCreateEmptyLookups;
     await act(async () => {
       setTextareaValue(container.querySelector("textarea") as HTMLTextAreaElement, "m");
@@ -2391,7 +2531,7 @@ describe("BillCreate PDF read attachment", () => {
     });
     await flushUntil(() => container.textContent?.includes("From file"));
     // Precondition: the deferred result really was applied (vendor from the file).
-    expect((container.querySelector("#vendor_public_id") as HTMLSelectElement).value).toBe("v-1");
+    expect(getComboboxValue(vendorCombobox())).toBe("v-1");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(20);
     });
@@ -2410,14 +2550,14 @@ describe("BillCreate PDF read attachment", () => {
     renderPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     await act(async () => {
-      selectChange(container.querySelector("#vendor_public_id") as HTMLSelectElement, "v-1");
+      setVendorValue("v-1");
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
     // Precondition: the hook prefilled line 1.
-    await flushUntil(() => sccSelectAt(0).value !== "");
-    const hookScc = sccSelectAt(0).value;
+    await flushUntil(() => sccValueAt(0) !== "");
+    const hookScc = sccValueAt(0);
     expect(hookScc).not.toBe("");
     await attachPdf();
     await act(async () => {
@@ -2429,7 +2569,7 @@ describe("BillCreate PDF read attachment", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(20);
     });
-    expect(sccSelectAt(0).value).toBe(hookScc);
+    expect(sccValueAt(0)).toBe(hookScc);
   });
 
   it("file read replaces an unaccepted hook SCC with the file project+SCC pair", async () => {
@@ -2450,12 +2590,12 @@ describe("BillCreate PDF read attachment", () => {
     renderPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     await act(async () => {
-      selectChange(container.querySelector("#vendor_public_id") as HTMLSelectElement, "v-1");
+      setVendorValue("v-1");
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
-    await flushUntil(() => sccSelectAt(0).value !== "");
+    await flushUntil(() => sccValueAt(0) !== "");
     expect(projectSelectValueAt(0)).toBe("");
     await attachPdf();
     await act(async () => {
@@ -2466,14 +2606,14 @@ describe("BillCreate PDF read attachment", () => {
       await vi.advanceTimersByTimeAsync(20);
     });
     await flushUntil(() => projectSelectValueAt(0) === "p-1");
-    expect(sccSelectAt(0).value).toBe("10");
+    expect(sccValueAt(0)).toBe("10");
     await act(async () => {
       findButton("Change file").click();
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(20);
     });
-    expect(sccSelectAt(0).value).toBe("");
+    expect(sccValueAt(0)).toBe("");
     expect(projectSelectValueAt(0)).toBe("");
   });
 
@@ -2506,18 +2646,18 @@ describe("BillCreate PDF read attachment", () => {
     renderPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     await act(async () => {
-      selectChange(container.querySelector("#vendor_public_id") as HTMLSelectElement, "v-1");
+      setVendorValue("v-1");
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
     await attachPdf();
-    await flushUntil(() => sccSelectAt(0).value === "99");
+    await flushUntil(() => sccValueAt(0) === "99");
     await act(async () => {
       resolveRead(okReadFromFile());
       await vi.advanceTimersByTimeAsync(20);
     });
-    expect(sccSelectAt(0).value).toBe("10");
+    expect(sccValueAt(0)).toBe("10");
     expect(projectSelectValueAt(0)).toBe("p-1");
   });
 
@@ -2574,9 +2714,9 @@ describe("BillCreate PDF read attachment", () => {
     await attachPdf();
     await flushUntil(() => container.textContent?.includes("From file"));
     const descInput = (row: number) =>
-      container
-        .querySelectorAll("tbody tr")
-        [row]!.querySelector(".line-item-control input.inline-li-input") as HTMLInputElement;
+      (container.querySelectorAll("tbody tr")[row] as HTMLTableRowElement).querySelector(
+        ".line-item-control input.inline-li-input",
+      ) as HTMLInputElement;
     expect(descInput(0).value).toBe("From PDF");
 
     await act(async () => {
@@ -2623,10 +2763,8 @@ describe("BillCreate PDF read attachment", () => {
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
-    const row = container.querySelectorAll("tbody tr")[0];
-    const projectSelect = row.querySelectorAll("td")[2].querySelector("select") as HTMLSelectElement;
-    expect(projectSelect.value).toBe("");
-    expect(sccSelectAt(0).value).toBe("");
+    expect(projectSelectValueAt(0)).toBe("");
+    expect(sccValueAt(0)).toBe("");
   });
 
   it("does not refill a header field cleared by the user before the read lands", async () => {
@@ -2794,24 +2932,24 @@ describe("BillCreate PDF read attachment", () => {
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
-    expect(sccSelectAt(0).value).toBe("");
+    expect(sccValueAt(0)).toBe("");
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     await act(async () => {
-      selectChange(container.querySelector("#vendor_public_id") as HTMLSelectElement, "v-1");
+      setVendorValue("v-1");
       findButton("+ Add Line").click();
     });
     await flushUntil(() => container.querySelectorAll("tbody tr").length === 2);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
-    expect(sccSelectAt(0).value).toBe("");
+    expect(sccValueAt(0)).toBe("");
     await act(async () => {
       fillLineRow(1, "Second line", "p-1");
       await vi.advanceTimersByTimeAsync(400);
     });
-    await flushUntil(() => sccSelectAt(1).value === "99");
-    expect(sccSelectAt(0).value).toBe("");
-    expect(sccSelectAt(1).value).toBe("99");
+    await flushUntil(() => sccValueAt(1) === "99");
+    expect(sccValueAt(0)).toBe("");
+    expect(sccValueAt(1)).toBe("99");
   });
 
   it("live auto memo updates do not re-call suggestCoding", async () => {
@@ -2824,7 +2962,7 @@ describe("BillCreate PDF read attachment", () => {
     renderPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     await act(async () => {
-      selectChange(container.querySelector("#vendor_public_id") as HTMLSelectElement, "v-1");
+      setVendorValue("v-1");
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
@@ -2834,7 +2972,7 @@ describe("BillCreate PDF read attachment", () => {
     const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
     await flushUntil(() => memo.value.length > 0);
     const callsAfterRead = mockSuggestCoding.mock.calls.length;
-    const row = container.querySelectorAll("tbody tr")[0];
+    const row = container.querySelectorAll("tbody tr")[0] as HTMLTableRowElement;
     const descInput = row.querySelectorAll("td")[0].querySelector("input") as HTMLInputElement;
     await act(async () => {
       setInputValue(descInput, "Extra words");
@@ -2932,6 +3070,8 @@ describe("BillCreate PDF read attachment", () => {
     await act(async () => {
       fillHeader();
     });
+    await act(async () => {
+    });
     await flushUntil(() => container.textContent?.includes("Suggested 72%"));
     expect(container.textContent).not.toContain("From file ·");
   });
@@ -2963,15 +3103,11 @@ describe("BillCreate PDF read attachment", () => {
     renderPage();
     await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
     await act(async () => {
-      selectChange(container.querySelector("#vendor_public_id") as HTMLSelectElement, "v-1");
+      setVendorValue("v-1");
     });
     await flushUntil(() => container.querySelectorAll("tbody tr").length >= 1);
-    const projectSelect = container
-      .querySelectorAll("tbody tr")[0]!
-      .querySelectorAll("td")[2]
-      .querySelector("select") as HTMLSelectElement;
     await act(async () => {
-      setSelectValue(projectSelect, "p-2");
+      pickComboboxOptionByValue(projectComboboxAt(0), "p-2");
     });
     await flushUntil(
       () =>

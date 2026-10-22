@@ -3,12 +3,14 @@ import FormField from "./FormField";
 import DateField from "./DateField";
 import TextareaField from "./TextareaField";
 import SelectField from "./SelectField";
+import Combobox from "./ui/Combobox";
 
 export type DocumentHeaderFieldType =
   | "text"
   | "date"
   | "number"
   | "select"
+  | "combobox"
   | "textarea"
   | "checkbox";
 
@@ -55,6 +57,21 @@ export default function DocumentHeaderFields({
                 name={field.key}
                 value={stringValue}
                 onChange={stringOnChange}
+                options={field.options ?? []}
+                required={field.required}
+                adornment={field.adornment}
+              />
+            );
+            break;
+          case "combobox":
+            control = (
+              <Combobox
+                variant="form"
+                label={field.label}
+                name={field.key}
+                id={field.key}
+                value={stringValue}
+                onChange={(v) => stringOnChange(field.key, v)}
                 options={field.options ?? []}
                 required={field.required}
                 adornment={field.adornment}
