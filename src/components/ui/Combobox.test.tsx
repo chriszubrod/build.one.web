@@ -76,6 +76,23 @@ describe("comboboxFilter", () => {
     expect(items).toHaveLength(50);
     expect(truncatedCount).toBe(10);
   });
+
+  it("Infinity maxResults returns every match with zero truncatedCount", () => {
+    const many = Array.from({ length: 120 }, (_, i) => ({
+      value: String(i),
+      label: `Item ${i}`,
+    }));
+    const open = filterRankComboboxOptions(many, "", Infinity);
+    expect(open.items).toHaveLength(120);
+    expect(open.truncatedCount).toBe(0);
+
+    const filtered = filterRankComboboxOptions(many, "Item 6", Infinity);
+    expect(filtered.items).toHaveLength(11);
+    expect(filtered.truncatedCount).toBe(0);
+    expect(filtered.items.map((o) => o.value)).toEqual(
+      ["6", "60", "61", "62", "63", "64", "65", "66", "67", "68", "69"],
+    );
+  });
 });
 
 describe("Combobox", () => {
@@ -142,6 +159,54 @@ describe("Combobox", () => {
         }),
       );
     });
+  });
+
+  it("maxResults Infinity lists every option with no truncation hint", () => {
+    const many = Array.from({ length: 120 }, (_, i) => ({
+      value: String(i),
+      label: `SCC ${i}`,
+    }));
+    act(() => {
+      root.render(
+        createElement(Combobox, {
+          ariaLabel: "SCC",
+          variant: "inline",
+          options: many,
+          maxResults: Infinity,
+          value: "",
+          onChange,
+        }),
+      );
+    });
+    act(() => {
+      (container.querySelector(".bo-combobox-trigger") as HTMLButtonElement)?.click();
+    });
+    const labels = visibleOptionLabels().filter(Boolean);
+    expect(labels).toHaveLength(120);
+    expect(document.querySelector(".bo-combobox-truncated-hint")).toBeNull();
+
+    const mixed = [
+      ...Array.from({ length: 70 }, (_, i) => ({ value: `m${i}`, label: `Match ${i}` })),
+      ...Array.from({ length: 50 }, (_, i) => ({ value: `o${i}`, label: `Other ${i}` })),
+    ];
+    act(() => {
+      root.render(
+        createElement(Combobox, {
+          ariaLabel: "SCC",
+          variant: "inline",
+          options: mixed,
+          maxResults: Infinity,
+          value: "",
+          onChange,
+        }),
+      );
+    });
+    act(() => {
+      typeInCombobox(container, "Match");
+    });
+    const filtered = visibleOptionLabels().filter(Boolean);
+    expect(filtered).toHaveLength(70);
+    expect(document.querySelector(".bo-combobox-truncated-hint")).toBeNull();
   });
 
   it("shows truncation hint row when filtered list exceeds maxResults", () => {

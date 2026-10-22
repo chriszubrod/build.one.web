@@ -181,6 +181,7 @@ function BillLineProjectCombobox({
       variant="inline"
       ariaLabel="Project"
       options={projectOptions}
+      maxResults={Infinity}
       value={projectValue ?? ""}
       placeholder="—"
       onChange={(value) => {
@@ -234,6 +235,7 @@ export function buildBillLineFields(
           variant="inline"
           ariaLabel="Sub Cost Code"
           options={opts.sccOptions}
+          maxResults={Infinity}
           value={li.sub_cost_code_id ?? ""}
           onChange={(v) => update(v)}
           placeholder="—"

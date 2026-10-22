@@ -30,6 +30,8 @@ type ComboboxPropsBase = {
   options: ComboboxOption[];
   value: string;
   onChange: (value: string) => void;
+  /** Max options in the list; default 50. Pass Infinity for uncapped short lists. */
+  maxResults?: number;
   placeholder?: string;
   required?: boolean;
   name?: string;
@@ -58,6 +60,7 @@ export default function Combobox({
   id,
   variant = "form",
   adornment,
+  maxResults = MAX_COMBOBOX_RESULTS,
 }: ComboboxProps) {
   const fieldId = id ?? name;
 
@@ -81,8 +84,8 @@ export default function Combobox({
     menuOpen && displayInputValue === selectedLabel ? "" : displayInputValue;
 
   const { items, truncatedCount } = useMemo(
-    () => filterRankComboboxOptions(options, filterQuery, MAX_COMBOBOX_RESULTS),
-    [options, filterQuery],
+    () => filterRankComboboxOptions(options, filterQuery, maxResults),
+    [options, filterQuery, maxResults],
   );
 
   const listItems = useMemo(() => {

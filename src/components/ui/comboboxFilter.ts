@@ -47,6 +47,11 @@ export interface RankedFilterResult {
   truncatedCount: number;
 }
 
+function truncatedCountAfterCap(matchCount: number, maxResults: number): number {
+  if (!Number.isFinite(maxResults)) return 0;
+  return Math.max(0, matchCount - maxResults);
+}
+
 /**
  * Filter and rank options for the combobox list. Empty query returns the first
  * maxResults options in original order.
@@ -63,7 +68,10 @@ export function filterRankComboboxOptions(
 
   if (!hasQuery) {
     const items = prepared.options.slice(0, maxResults);
-    return { items, truncatedCount: Math.max(0, prepared.options.length - maxResults) };
+    return {
+      items,
+      truncatedCount: truncatedCountAfterCap(prepared.options.length, maxResults),
+    };
   }
 
   const ranked: { opt: ComboboxOption; rank: number; index: number }[] = [];
@@ -75,6 +83,5 @@ export function filterRankComboboxOptions(
   ranked.sort((a, b) => a.rank - b.rank || a.index - b.index);
 
   const items = ranked.slice(0, maxResults).map((r) => r.opt);
-  const truncatedCount = Math.max(0, ranked.length - maxResults);
-  return { items, truncatedCount };
+  return { items, truncatedCount: truncatedCountAfterCap(ranked.length, maxResults) };
 }
