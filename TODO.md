@@ -1,3 +1,9 @@
+## U-717 follow-ups — bill next-draft queue (booked 2026-10-23, shipped `209e866`)
+
+- [ ] **A failed next-draft lookup reads as "Submitted — no more drafts."** — `nextDraftPathFromList` returns the Draft-tab fallback on error too, and BillEdit / ExpenseView pick the toast by `target.startsWith(list)`. Return a reason (`next` | `empty` | `error`) and say "couldn't load the next draft" on error.
+- [ ] **Submit from BillView** — dropped from U-717 at review: View has no project-required gate (blank BCC-only notification) and no prefill-reviewed save (server refuses UnreviewedPrefill on submit/advance). Needs both before View can submit.
+- [ ] **Stale test stub** — `BillEdit.test.tsx` (~1732) still calls `props.onAfterSubmit`; production no longer passes it. Harmless; tidy when touching that suite.
+
 ## U-716b follow-ups — expense receipt drop/match panel (booked 2026-10-23, shipped `f30b304`)
 
 - [ ] **ExpenseView still formats date-only values via `new Date(v)`** (UTC midnight → a day early in US zones). Move it (and other page-local `fmtDate` copies) onto `pages/expenses/expenseFormat.ts` — behaviour change, own unit. ~15 page-local fmtDate/fmtMoney copies differ ("—" vs "$0.00").
