@@ -1,3 +1,8 @@
+## U-719 / U-720 follow-ups (booked 2026-10-23, shipped `1846fd0` + `9fefd3b`)
+
+- [ ] **Bill coding suggestion persistence** — U-719 stopped persisting the EXPENSE suggestion (live budget reading). Check whether the bill suggestion/budget chip query is persisted to IndexedDB too; if so, exclude it the same way (`persistPolicy.ts`).
+- [ ] **Picker on iPhone Safari** (U-720) — verified in a desktop browser only; check open side, scroll-in-list and the keyboard-open case on a real device. `overscroll-behavior: contain` needs iOS 16+.
+
 ## U-717 follow-ups — bill next-draft queue (booked 2026-10-23, shipped `209e866`)
 
 - [ ] **A failed next-draft lookup reads as "Submitted — no more drafts."** — `nextDraftPathFromList` returns the Draft-tab fallback on error too, and BillEdit / ExpenseView pick the toast by `target.startsWith(list)`. Return a reason (`next` | `empty` | `error`) and say "couldn't load the next draft" on error.
