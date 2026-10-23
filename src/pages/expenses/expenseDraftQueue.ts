@@ -1,5 +1,5 @@
-import { getList } from "../../api/client";
 import type { Expense } from "../../types/api";
+import { nextDraftPathFromList } from "../../shared/draftQueue";
 import { expenseListPath, expenseListQuery } from "./expenseStatusTabs";
 
 /**
@@ -7,14 +7,12 @@ import { expenseListPath, expenseListQuery } from "./expenseStatusTabs";
  * can work a queue without returning to the list between items.
  */
 export async function nextDraftPath(currentPublicId?: string): Promise<string> {
-  try {
-    const res = await getList<Expense>(
-      `/api/v1/get/expenses${expenseListQuery("draft")}&page=1&page_size=2`,
-    );
-    const next = res.data.find((e) => e.public_id !== currentPublicId);
-    if (next) return `/expense/${next.public_id}`;
-  } catch {
-    // Fall through — the Draft tab is the right place either way.
-  }
-  return expenseListPath("draft");
+  return nextDraftPathFromList<Expense>(
+    {
+      listPath: `/api/v1/get/expenses${expenseListQuery("draft")}&page=1&page_size=2`,
+      itemPath: (id) => `/expense/${id}`,
+      fallbackPath: expenseListPath("draft"),
+    },
+    currentPublicId,
+  );
 }

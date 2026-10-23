@@ -237,6 +237,9 @@ function setupMocks(lineItems: BillLineItem[]) {
     if (path === BILL_LINE_ITEMS_PATH) {
       return Promise.resolve(lineItemsListResponse(lineItems));
     }
+    if (path === "/api/v1/get/bills?status=draft&page=1&page_size=2") {
+      return Promise.resolve({ data: [], count: 0 });
+    }
     return Promise.reject(new Error(`unexpected getList: ${path}`));
   });
 
@@ -3566,8 +3569,41 @@ describe("U-700 BillEdit navigation and reference data", () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  it("handleSubmitForReview success navigates to /bill/list without detouring to bill view", async () => {
+  it("handleSubmitForReview success advances to the next draft edit page (U-717)", async () => {
     setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+    mockGetList.mockImplementation((path: string) => {
+      if (path === "/api/v1/get/bills?status=draft&page=1&page_size=2") {
+        return Promise.resolve({ data: [sampleBill({ public_id: "bill-next" })], count: 1 });
+      }
+      if (path === BILL_LINE_ITEMS_PATH) {
+        return Promise.resolve(lineItemsListResponse([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]));
+      }
+      if (path === "/api/v1/get/vendors") {
+        return Promise.resolve({
+          data: [
+            { id: 1, public_id: "v-1", name: "V" },
+            { id: 2, public_id: "v-2", name: "V2" },
+          ],
+          count: 2,
+        });
+      }
+      if (path === "/api/v1/get/payment-terms") {
+        return Promise.resolve({ data: [{ id: 1, public_id: "pt-1", name: "Net 30" }], count: 1 });
+      }
+      if (path === "/api/v1/get/sub-cost-codes") {
+        return Promise.resolve({
+          data: [
+            { id: 1, public_id: "scc-1", name: "SCC", number: "01" },
+            { id: 10, public_id: "scc-pub", name: "Suggested SCC", number: "01-100" },
+          ],
+          count: 2,
+        });
+      }
+      if (path === "/api/v1/get/projects") {
+        return Promise.resolve({ data: [VISIBLE_PROJECT], count: 1 });
+      }
+      return Promise.reject(new Error(`unexpected getList: ${path}`));
+    });
     mockPost.mockImplementation((path: string) => {
       if (path === "/api/v1/submit/review/bill/bill-1") {
         return Promise.resolve({});
@@ -3586,7 +3622,11 @@ describe("U-700 BillEdit navigation and reference data", () => {
     await flushUntil(() =>
       mockPost.mock.calls.some((c) => c[0] === "/api/v1/submit/review/bill/bill-1"),
     );
-    expect(mockNavigate).toHaveBeenCalledWith("/bill/list");
+    await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill/bill-next/edit"));
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-next/edit");
+    expect(String(mockToast.mock.calls.find((c) => String(c[0]).includes("next draft"))?.[0])).toContain(
+      "next draft",
+    );
     expect(mockNavigate).not.toHaveBeenCalledWith("/bill/bill-1");
   });
 
@@ -3624,7 +3664,7 @@ describe("U-700 BillEdit navigation and reference data", () => {
     expect(mockNavigate).not.toHaveBeenCalledWith("/bill/list");
   });
 
-  it("ReviewTimeline onAfterSubmit navigates to /bill/list", async () => {
+  it("ReviewTimeline onAfterAction advances to the next draft after save (U-717)", async () => {
     vi.mocked(ReviewTimeline).mockImplementation((props) =>
       createElement(
         "button",
@@ -3637,13 +3677,46 @@ describe("U-700 BillEdit navigation and reference data", () => {
               if (!ok) return;
             }
             await mockPost(REVIEW_SUBMIT_PATH, { comments: null });
-            props.onAfterSubmit?.();
+            await props.onAfterAction?.("submit");
           },
         },
         "Submit",
       ),
     );
     setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+    mockGetList.mockImplementation((path: string) => {
+      if (path === "/api/v1/get/bills?status=draft&page=1&page_size=2") {
+        return Promise.resolve({ data: [sampleBill({ public_id: "bill-next" })], count: 1 });
+      }
+      if (path === BILL_LINE_ITEMS_PATH) {
+        return Promise.resolve(lineItemsListResponse([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]));
+      }
+      if (path === "/api/v1/get/vendors") {
+        return Promise.resolve({
+          data: [
+            { id: 1, public_id: "v-1", name: "V" },
+            { id: 2, public_id: "v-2", name: "V2" },
+          ],
+          count: 2,
+        });
+      }
+      if (path === "/api/v1/get/payment-terms") {
+        return Promise.resolve({ data: [{ id: 1, public_id: "pt-1", name: "Net 30" }], count: 1 });
+      }
+      if (path === "/api/v1/get/sub-cost-codes") {
+        return Promise.resolve({
+          data: [
+            { id: 1, public_id: "scc-1", name: "SCC", number: "01" },
+            { id: 10, public_id: "scc-pub", name: "Suggested SCC", number: "01-100" },
+          ],
+          count: 2,
+        });
+      }
+      if (path === "/api/v1/get/projects") {
+        return Promise.resolve({ data: [VISIBLE_PROJECT], count: 1 });
+      }
+      return Promise.reject(new Error(`unexpected getList: ${path}`));
+    });
     mockPost.mockImplementation((path: string) => {
       if (path === REVIEW_SUBMIT_PATH) {
         return Promise.resolve({});
@@ -3657,8 +3730,147 @@ describe("U-700 BillEdit navigation and reference data", () => {
     await act(async () => {
       stub.click();
     });
-    await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill/list"));
-    expect(mockNavigate).toHaveBeenCalledWith("/bill/list");
+    await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill/bill-next/edit"));
+    expect(mockPut).toHaveBeenCalledWith("/api/v1/update/bill/bill-1", expect.anything());
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-next/edit");
+  });
+
+  it("ReviewTimeline submit with no drafts left returns to the Draft tab (U-717)", async () => {
+    vi.mocked(ReviewTimeline).mockImplementation((props) =>
+      createElement(
+        "button",
+        {
+          type: "button",
+          "data-testid": "review-submit-stub",
+          onClick: async () => {
+            if (props.onBeforeAction) {
+              const ok = await props.onBeforeAction("submit", true);
+              if (!ok) return;
+            }
+            await props.onAfterAction?.("submit");
+          },
+        },
+        "Submit",
+      ),
+    );
+    setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+    await mountBillEdit();
+    await waitForReady();
+    const stub = container.querySelector('[data-testid="review-submit-stub"]') as HTMLButtonElement;
+    await act(async () => {
+      stub.click();
+    });
+    await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill/list?status=draft"));
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/list?status=draft");
+    expect(String(mockToast.mock.calls[0]?.[0])).toContain("no more drafts");
+  });
+
+  it("a double ReviewTimeline submit advances only once (U-717)", async () => {
+    vi.mocked(ReviewTimeline).mockImplementation((props) =>
+      createElement(
+        "button",
+        {
+          type: "button",
+          "data-testid": "review-submit-stub",
+          onClick: async () => {
+            if (props.onBeforeAction) {
+              const ok = await props.onBeforeAction("submit", true);
+              if (!ok) return;
+            }
+            await props.onAfterAction?.("submit");
+          },
+        },
+        "Submit",
+      ),
+    );
+    setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+    mockGetList.mockImplementation((path: string) => {
+      if (path === "/api/v1/get/bills?status=draft&page=1&page_size=2") {
+        return Promise.resolve({ data: [sampleBill({ public_id: "bill-next" })], count: 1 });
+      }
+      if (path === BILL_LINE_ITEMS_PATH) {
+        return Promise.resolve(lineItemsListResponse([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]));
+      }
+      if (path === "/api/v1/get/vendors") {
+        return Promise.resolve({
+          data: [
+            { id: 1, public_id: "v-1", name: "V" },
+            { id: 2, public_id: "v-2", name: "V2" },
+          ],
+          count: 2,
+        });
+      }
+      if (path === "/api/v1/get/payment-terms") {
+        return Promise.resolve({ data: [{ id: 1, public_id: "pt-1", name: "Net 30" }], count: 1 });
+      }
+      if (path === "/api/v1/get/sub-cost-codes") {
+        return Promise.resolve({
+          data: [
+            { id: 1, public_id: "scc-1", name: "SCC", number: "01" },
+            { id: 10, public_id: "scc-pub", name: "Suggested SCC", number: "01-100" },
+          ],
+          count: 2,
+        });
+      }
+      if (path === "/api/v1/get/projects") {
+        return Promise.resolve({ data: [VISIBLE_PROJECT], count: 1 });
+      }
+      return Promise.reject(new Error(`unexpected getList: ${path}`));
+    });
+    await mountBillEdit();
+    await waitForReady();
+    const stub = container.querySelector('[data-testid="review-submit-stub"]') as HTMLButtonElement;
+    await act(async () => {
+      await Promise.all([stub.click(), stub.click()]);
+    });
+    await flushUntil(() => mockNavigate.mock.calls.length >= 1);
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
+  });
+
+  it("footer Submit does nothing while a ReviewTimeline submit is advancing (U-717)", async () => {
+    vi.mocked(ReviewTimeline).mockImplementation((props) =>
+      createElement(
+        "button",
+        {
+          type: "button",
+          "data-testid": "review-submit-stub",
+          onClick: async () => {
+            await props.onAfterAction?.("submit");
+          },
+        },
+        "Submit",
+      ),
+    );
+    setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+    let releaseNext: (v: unknown) => void = () => {};
+    const baseGetList = mockGetList.getMockImplementation();
+    mockGetList.mockImplementation((path: string, ...rest: unknown[]) => {
+      if (path === "/api/v1/get/bills?status=draft&page=1&page_size=2") {
+        return new Promise((resolve) => {
+          releaseNext = resolve;
+        });
+      }
+      return baseGetList ? baseGetList(path, ...rest) : Promise.reject(new Error(path));
+    });
+    await mountBillEdit();
+    await waitForReady();
+    const stub = container.querySelector('[data-testid="review-submit-stub"]') as HTMLButtonElement;
+    await act(async () => {
+      stub.click();
+    });
+    const footer = Array.from(container.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("Submit for Review"),
+    ) as HTMLButtonElement;
+    mockPost.mockClear();
+    await act(async () => {
+      footer.click();
+    });
+    await act(async () => {
+      releaseNext({ data: [sampleBill({ public_id: "bill-next" })], count: 1 });
+    });
+    await flushUntil(() => mockNavigate.mock.calls.length >= 1);
+    expect(mockPost.mock.calls.some((c) => c[0] === REVIEW_SUBMIT_PATH)).toBe(false);
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
   });
 
   it("Complete navigates to /bill/list only after poll reports completion", async () => {

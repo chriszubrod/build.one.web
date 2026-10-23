@@ -43,6 +43,7 @@ import {
 } from "./codingSuggestion";
 import { useBillCodingSuggestion } from "./useBillCodingSuggestion";
 import { documentStatus } from "../../shared/documentLifecycle";
+import { nextDraftPath } from "./billDraftQueue";
 import { createEmptyHeaderPrefill, createEmptyLine1Prefill } from "./headerPrefill";
 import {
   applyReadAttachmentResult,
@@ -210,6 +211,7 @@ export default function BillEdit() {
   const [rereadingAttachment, setRereadingAttachment] = useState(false);
   const rereadInFlightRef = useRef(false);
   const mountedRef = useRef(true);
+  const advancingRef = useRef(false);
   const publicIdRef = useRef(publicId);
   publicIdRef.current = publicId;
   useEffect(() => {
@@ -848,18 +850,38 @@ export default function BillEdit() {
     }
   };
 
+  const advanceToNextDraftAfterSubmit = async () => {
+    if (advancingRef.current) return;
+    advancingRef.current = true;
+    const target = await nextDraftPath(publicId);
+    if (!mountedRef.current) return;
+    toast(
+      target.startsWith("/bill/list")
+        ? "Submitted — no more drafts."
+        : "Submitted — opening the next draft.",
+    );
+    navigate(target);
+  };
+
+  const handleAfterReviewAction = async (action: ReviewActionKind) => {
+    if (action !== "submit" || advancingRef.current) return;
+    await advanceToNextDraftAfterSubmit();
+  };
+
   const handleSubmitForReview = async () => {
     // Flush pending edits before submitting — otherwise the notification
     // would resolve recipients against stale line items. Same discipline
     // the Complete handler follows.
+    // A ReviewTimeline submit may already be advancing to the next draft (U-717):
+    // a second POST here would 409 and flash an error as the page leaves.
+    if (advancingRef.current) return;
     const saved = await saveAll({ recordReviewedPrefill: true });
     if (!saved) return;
     setSubmitting(true);
     setSaveError("");
     try {
       await post(`/api/v1/submit/review/bill/${publicId}`, {});
-      toast("Submitted for review — notification queued.");
-      navigate("/bill/list");
+      await advanceToNextDraftAfterSubmit();
     } catch (err: any) {
       setSaveError(err.message);
       setSubmitting(false);
@@ -981,7 +1003,7 @@ export default function BillEdit() {
             parentType="bill"
             parentPublicId={publicId}
             onBeforeAction={beforeReviewAction}
-            onAfterSubmit={() => navigate("/bill/list")}
+            onAfterAction={handleAfterReviewAction}
           />
         )}
 
