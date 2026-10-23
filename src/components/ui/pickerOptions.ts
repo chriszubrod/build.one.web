@@ -6,12 +6,19 @@ export function vendorComboboxOptions(
   return vendors.map((v) => ({ value: v.public_id, label: v.name ?? "" }));
 }
 
+export function sccOptionLabel(code: {
+  number?: string | null;
+  name?: string | null;
+}): string {
+  return code.number ? `${code.number} — ${code.name ?? ""}` : (code.name ?? "");
+}
+
 export function sccComboboxOptions(
   codes: { id: number; number?: string | null; name: string }[],
 ): ComboboxOption[] {
   return codes.map((s) => ({
     value: String(s.id),
-    label: s.number ? `${s.number} — ${s.name ?? ""}` : (s.name ?? ""),
+    label: sccOptionLabel(s),
   }));
 }
 

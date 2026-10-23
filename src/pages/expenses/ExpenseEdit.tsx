@@ -41,6 +41,9 @@ import {
   getEliaLinkForLine,
   type EliaLink,
 } from "./expenseReceipt";
+import { useExpenseCodingSuggestion } from "./useExpenseCodingSuggestion";
+import ExpenseLineCodingSuggestionChip from "./ExpenseLineCodingSuggestionChip";
+import { expenseHasEmptyCodingField } from "./expenseCodingSuggestion";
 
 interface LineItemRow {
   uid: string;
@@ -464,6 +467,48 @@ export default function ExpenseEdit() {
     [projectFor],
   );
 
+  const codingSuggestEnabled =
+    actions.canEdit &&
+    !!form?.is_draft &&
+    !!id &&
+    linesHydrated > 0 &&
+    expenseHasEmptyCodingField(lineItems);
+
+  const { data: expenseCodingSuggestion } = useExpenseCodingSuggestion({
+    expensePublicId: id,
+    enabled: codingSuggestEnabled,
+  });
+
+  const acceptCodingSuggestion = useCallback(
+    (uid: string, field: "sub_cost_code_id" | "project_id", value: string) => {
+      handleLineItemsChange(
+        lineItemsRef.current.map((row) => (row.uid === uid ? { ...row, [field]: value } : row)),
+      );
+    },
+    [handleLineItemsChange],
+  );
+
+  const codingChip = useCallback(
+    (field: "sub_cost_code_id" | "project_id") => (row: LineItemRow) =>
+      form?.is_draft ? (
+        <ExpenseLineCodingSuggestionChip
+          field={field}
+          line={row}
+          suggestion={expenseCodingSuggestion}
+          sccCatalog={fullSubCostCodes}
+          projectCatalog={fullProjects}
+          onAccept={acceptCodingSuggestion}
+        />
+      ) : null,
+    [
+      form?.is_draft,
+      expenseCodingSuggestion,
+      fullSubCostCodes,
+      fullProjects,
+      acceptCodingSuggestion,
+    ],
+  );
+
   const sccOptions = useMemo(
     () => sccComboboxOptions(fullSubCostCodes),
     [fullSubCostCodes],
@@ -484,6 +529,7 @@ export default function ExpenseEdit() {
         options: sccOptions,
         maxResults: Infinity,
         placeholder: "—",
+        adornment: codingChip("sub_cost_code_id"),
       },
       {
         key: "project_id",
@@ -493,6 +539,7 @@ export default function ExpenseEdit() {
         options: projectOptions,
         maxResults: Infinity,
         placeholder: "—",
+        adornment: codingChip("project_id"),
       },
       { key: "quantity", label: "Qty", width: "70px", type: "number", align: "right" },
       { key: "rate", label: "Rate", width: "90px", type: "number", align: "right" },
@@ -507,7 +554,12 @@ export default function ExpenseEdit() {
         hint: (row) => billableHint(row, projectFor(row.project_id)),
       },
     ];
-  }, [sccOptions, projectOptions, projectFor]);
+  }, [
+    sccOptions,
+    projectOptions,
+    projectFor,
+    codingChip,
+  ]);
 
   const vendorOptions = useMemo(
     () => vendorComboboxOptions(lookups?.vendors ?? []),

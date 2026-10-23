@@ -28,6 +28,7 @@ import { entityItemKey } from "../../hooks/useEntity";
 
 const EXPENSE_GET_PATH = "/api/v1/get/expense/exp-1";
 const EXPENSE_UPDATE_PATH = "/api/v1/update/expense/exp-1";
+const EXPENSE_CODING_SUGGEST_PATH = "/api/v1/expense/exp-1/coding/suggest";
 const LINE_CREATE_PATH = "/api/v1/create/expense_line_item";
 const ELIA_BY_LINE_PREFIX = "/api/v1/get/expense-line-item-attachment/by-expense-line-item/";
 const ELIA_CREATE_PATH = "/api/v1/create/expense-line-item-attachment";
@@ -1829,9 +1830,17 @@ describe("ExpenseEdit receipt re-homing on line delete (U-171 / U-476)", () => {
         "li-C": null,
       },
     );
-    mockPost.mockImplementation((path: string) =>
-      Promise.reject(new Error(`unexpected post: ${path}`)),
-    );
+    mockPost.mockImplementation((path: string) => {
+      if (path === EXPENSE_CODING_SUGGEST_PATH) {
+        return Promise.resolve({
+          status: "none",
+          sub_cost_code: null,
+          project: null,
+          confidence: null,
+        });
+      }
+      return Promise.reject(new Error(`unexpected post: ${path}`));
+    });
 
     renderExpenseEdit(root);
     await flushUntil(() => inlineLineItemRows(container).length === 3);
@@ -1848,7 +1857,7 @@ describe("ExpenseEdit receipt re-homing on line delete (U-171 / U-476)", () => {
 
     await clickSave(container);
 
-    expect(mockPost).not.toHaveBeenCalled();
+    expect(mockPost.mock.calls.every((c) => c[0] === EXPENSE_CODING_SUGGEST_PATH)).toBe(true);
     expect(mockDel).not.toHaveBeenCalled();
     expect(expenseHeaderPutBodies()).toHaveLength(0);
     expect(container.textContent).toContain(
@@ -3451,6 +3460,518 @@ describe("ExpenseEdit Billable default when projects arrive mid-load (U-647, Cod
 
     const box = container.querySelector('td input[type="checkbox"]') as HTMLInputElement;
     expect(box.checked).toBe(true);   // the project default, not the Ramp NotBillable mirror
+  });
+});
+
+function emptyCodingLineMocks(
+  suggestResponse: unknown,
+  expenseOverrides: Partial<Expense> = {},
+) {
+  mockGetOne.mockImplementation((path: string) => {
+    const elia404 = elia404IfMatch(path);
+    if (elia404) return elia404;
+    if (path === EXPENSE_GET_PATH) {
+      return Promise.resolve(sampleExpense({ is_draft: true, vendor_id: 1, ...expenseOverrides }));
+    }
+    return Promise.reject(new Error(`unexpected getOne: ${path}`));
+  });
+
+  mockGetList.mockImplementation((path: string) => {
+    const catalog = codingCatalogGetList(path);
+    if (catalog) return Promise.resolve(catalog);
+    if (path === SUB_COST_CODES_PATH) {
+      return Promise.resolve({
+        data: [{ id: 21, public_id: "scc-21", name: "Siding Material", number: "21.00" }],
+        count: 1,
+      });
+    }
+    if (path === PROJECTS_PATH) {
+      return Promise.resolve({
+        data: [
+          {
+            id: 144,
+            public_id: PROJECT_144_PUBLIC_ID,
+            name: "Main Street",
+            abbreviation: "HP2",
+          },
+        ],
+        count: 1,
+      });
+    }
+    if (path === "/api/v1/get/expense_line_items/expense/1") {
+      return Promise.resolve({
+        data: [
+          expenseLineItemFixture("li-empty", "Uncoded line", "50.00", {
+            sub_cost_code_id: null,
+            project_id: null,
+          }),
+        ],
+        count: 1,
+      });
+    }
+    return Promise.reject(new Error(`unexpected getList: ${path}`));
+  });
+
+  mockPost.mockImplementation((path: string) => {
+    if (path === EXPENSE_CODING_SUGGEST_PATH) {
+      return Promise.resolve(suggestResponse);
+    }
+    if (path === REVIEW_SUBMIT_PATH) return Promise.resolve({});
+    return Promise.reject(new Error(`unexpected post: ${path}`));
+  });
+}
+
+describe("ExpenseEdit coding suggestions (U-715)", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  const defaultMockCurrentUser = {
+    is_admin: true,
+    modules: [] as import("../../types/api").CurrentUserModule[],
+    auth: { public_id: "a", username: "admin" },
+    user: { id: 1, public_id: "u", firstname: "A", lastname: "D" },
+    role: null as null,
+    accessible_project_ids: [] as number[],
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    mockCurrentUserData = { ...defaultMockCurrentUser, modules: [...defaultMockCurrentUser.modules] };
+
+    vi.mocked(ReviewTimeline).mockImplementation((props: { onBeforeAction?: () => Promise<boolean> }) =>
+      createElement(
+        "button",
+        {
+          type: "button",
+          "data-testid": "review-submit-stub",
+          onClick: async () => {
+            if (props.onBeforeAction) {
+              const ok = await props.onBeforeAction();
+              if (!ok) return;
+            }
+            await mockPost(REVIEW_SUBMIT_PATH, { comments: null });
+          },
+        },
+        "Submit for Review",
+      ),
+    );
+
+    mockPut.mockImplementation((path: string) => {
+      if (path === EXPENSE_UPDATE_PATH) {
+        return Promise.resolve(sampleExpense({ row_version: "rv-2", is_draft: true, vendor_id: 1 }));
+      }
+      if (path.startsWith("/api/v1/update/expense_line_item/")) {
+        return Promise.resolve({
+          public_id: path.split("/").pop(),
+          row_version: "rv-li-upd",
+        });
+      }
+      return Promise.reject(new Error("unexpected put: " + path));
+    });
+    mockDel.mockResolvedValue({});
+
+    vi.stubGlobal("confirm", vi.fn(() => true));
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    mockCurrentUserData = { ...defaultMockCurrentUser, modules: [...defaultMockCurrentUser.modules] };
+    vi.mocked(ReviewTimeline).mockImplementation(() => null);
+    act(() => {
+      root.unmount();
+    });
+    document.body.removeChild(container);
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  async function waitForCodingSuggestUi() {
+    await waitForCondition(() => findSaveButton(container) !== undefined);
+    await flushUntilHard(() => inlineLineItemRows(container).length === 1, "one line row");
+    await act(async () => {
+      await waitForCombobox(sccComboboxInRow(firstLineItemRow(container)));
+    });
+  }
+
+  it("memo_shorthand SCC shows a prominent chip; Accept fills SCC and Save PUT carries sub_cost_code_id", async () => {
+    emptyCodingLineMocks({
+      status: "suggested",
+      sub_cost_code: {
+        id: 21,
+        source: "memo_shorthand",
+        confidence: 0.9,
+        reason: "Memo shorthand",
+      },
+      project: null,
+      confidence: 0.9,
+    });
+
+    renderExpenseEdit(root);
+    await waitForCodingSuggestUi();
+
+    await flushUntilHard(
+      () => container.querySelector(".status-badge.coding-suggested") !== null,
+      "memo SCC suggestion chip",
+    );
+    expect(container.querySelector(".expense-coding-vendor-hint")).toBeNull();
+
+    const acceptBtn = container.querySelector(
+      'button[aria-label="Accept suggested sub cost code 21.00 — Siding Material"]',
+    ) as HTMLButtonElement;
+    expect(acceptBtn).not.toBeNull();
+
+    await act(async () => {
+      acceptBtn.click();
+    });
+    await flushUntilHard(
+      () => getComboboxValue(sccComboboxInRow(firstLineItemRow(container))) === "21",
+      "SCC combobox filled",
+    );
+    expect(container.querySelector(".status-badge.coding-suggested")).toBeNull();
+
+    await clickSave(container);
+    const linePut = mockPut.mock.calls.find(
+      (c) => c[0] === "/api/v1/update/expense_line_item/li-empty",
+    );
+    expect(linePut).toBeDefined();
+    expect((linePut![1] as Record<string, unknown>).sub_cost_code_id).toBe(21);
+  });
+
+  it("vendor_history SCC shows low-key vendor hint styling; Accept fills SCC the same way", async () => {
+    emptyCodingLineMocks({
+      status: "suggested",
+      sub_cost_code: {
+        id: 21,
+        source: "vendor_history",
+        confidence: 0.72,
+        reason: "Vendor pattern",
+      },
+      project: null,
+      confidence: 0.72,
+    });
+
+    renderExpenseEdit(root);
+    await waitForCodingSuggestUi();
+
+    await flushUntilHard(
+      () => container.querySelector(".expense-coding-vendor-hint") !== null,
+      "vendor hint visible",
+    );
+    expect(container.textContent).toContain("Vendor usually 21.00 — Siding Material");
+    expect(container.querySelector(".status-badge.coding-suggested")).toBeNull();
+
+    const acceptBtn = container.querySelector(
+      'button[aria-label="Accept suggested sub cost code 21.00 — Siding Material"]',
+    ) as HTMLButtonElement;
+    await act(async () => {
+      acceptBtn.click();
+    });
+    await flushUntilHard(
+      () => getComboboxValue(sccComboboxInRow(firstLineItemRow(container))) === "21",
+      "vendor-history accept fills SCC",
+    );
+  });
+
+  it("memo_code project suggestion on empty Project; Accept fills internal id; Save sends project_public_id", async () => {
+    emptyCodingLineMocks({
+      status: "suggested",
+      sub_cost_code: null,
+      project: {
+        id: 144,
+        source: "memo_code",
+        confidence: 0.88,
+        reason: "HP2 in memo",
+      },
+      confidence: 0.88,
+    });
+
+    renderExpenseEdit(root);
+    await waitForCodingSuggestUi();
+
+    await flushUntilHard(
+      () =>
+        container.querySelector(
+          'button[aria-label="Accept suggested project HP2 — Main Street"]',
+        ) !== null,
+      "project suggestion accept control",
+    );
+
+    const acceptBtn = container.querySelector(
+      'button[aria-label="Accept suggested project HP2 — Main Street"]',
+    ) as HTMLButtonElement;
+    await act(async () => {
+      acceptBtn.click();
+    });
+    await flushUntilHard(
+      () => getComboboxValue(projectComboboxInRow(firstLineItemRow(container))) === "144",
+      "project combobox filled with internal id",
+    );
+
+    await clickSave(container);
+    const linePut = mockPut.mock.calls.find(
+      (c) => c[0] === "/api/v1/update/expense_line_item/li-empty",
+    );
+    expect((linePut![1] as Record<string, unknown>).project_public_id).toBe(PROJECT_144_PUBLIC_ID);
+  });
+
+  it("does not show a chip when the field is already filled", async () => {
+    emptyCodingLineMocks({
+      status: "suggested",
+      sub_cost_code: {
+        id: 21,
+        source: "memo_shorthand",
+        confidence: 0.9,
+        reason: "Memo shorthand",
+      },
+      project: null,
+      confidence: 0.9,
+    });
+
+    mockGetList.mockImplementation((path: string) => {
+      const catalog = codingCatalogGetList(path);
+      if (catalog) return Promise.resolve(catalog);
+      if (path === SUB_COST_CODES_PATH) {
+        return Promise.resolve({
+          data: [{ id: 21, public_id: "scc-21", name: "Siding Material", number: "21.00" }],
+          count: 1,
+        });
+      }
+      if (path === PROJECTS_PATH) {
+        return Promise.resolve({ data: [], count: 0 });
+      }
+      if (path === "/api/v1/get/expense_line_items/expense/1") {
+        return Promise.resolve({
+          data: [
+            expenseLineItemFixture("li-coded", "Already coded", "50.00", {
+              sub_cost_code_id: 21,
+              project_id: null,
+            }),
+          ],
+          count: 1,
+        });
+      }
+      return Promise.reject(new Error(`unexpected getList: ${path}`));
+    });
+
+    renderExpenseEdit(root);
+    await waitForCodingSuggestUi();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(mockPost.mock.calls.some((c) => c[0] === EXPENSE_CODING_SUGGEST_PATH)).toBe(true);
+    expect(container.querySelector('button[aria-label^="Accept suggested sub cost code"]')).toBeNull();
+  });
+
+  it("does not call the suggest endpoint for non-draft expenses", async () => {
+    emptyCodingLineMocks(
+      {
+        status: "not_draft",
+        sub_cost_code: null,
+        project: null,
+        confidence: null,
+      },
+      { is_draft: false },
+    );
+
+    renderExpenseEdit(root);
+    await flushUntilHard(
+      () => inlineLineItemRows(container).length === 1,
+      "expense edit form with line items",
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+
+    expect(mockPost.mock.calls.some((c) => c[0] === EXPENSE_CODING_SUGGEST_PATH)).toBe(false);
+  });
+
+  it("survives suggest endpoint failure with no chip and a working form", async () => {
+    emptyCodingLineMocks({});
+    let releaseSuggest!: () => void;
+    const suggestGate = new Promise<void>((r) => {
+      releaseSuggest = r;
+    });
+    let suggestProcessed!: () => void;
+    const suggestSettled = new Promise<void>((r) => {
+      suggestProcessed = r;
+    });
+    mockPost.mockImplementation(async (path: string) => {
+      if (path === EXPENSE_CODING_SUGGEST_PATH) {
+        await suggestGate;
+        suggestProcessed();
+        return Promise.reject(new Error("suggest failed"));
+      }
+      if (path === REVIEW_SUBMIT_PATH) return Promise.resolve({});
+      return Promise.reject(new Error(`unexpected post: ${path}`));
+    });
+
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    renderExpenseEdit(root);
+    await waitForCodingSuggestUi();
+    await flushUntilHard(
+      () => mockPost.mock.calls.some((c) => c[0] === EXPENSE_CODING_SUGGEST_PATH),
+      "suggest POST attempted",
+    );
+    releaseSuggest();
+    await act(async () => {
+      await suggestSettled;
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await flushUntilHard(
+      () =>
+        errSpy.mock.calls.some((c) =>
+          String(c[0]).includes("Expense coding suggest failed"),
+        ),
+      "suggest failure handled after POST settled",
+    );
+    expect(container.querySelector('button[aria-label^="Accept"]')).toBeNull();
+    expect(findSaveButton(container).disabled).toBe(false);
+    errSpy.mockRestore();
+  });
+
+  it("hides suggestions when the suggested id is not in the user's catalog", async () => {
+    const suggestBody = {
+      status: "suggested",
+      sub_cost_code: {
+        id: 21,
+        source: "memo_shorthand",
+        confidence: 0.95,
+        reason: "Visible SCC",
+      },
+      project: {
+        id: 8888,
+        source: "memo_code",
+        confidence: 0.95,
+        reason: "Hidden project",
+      },
+      confidence: 0.95,
+    };
+    emptyCodingLineMocks(suggestBody);
+    let releaseSuggest!: () => void;
+    const suggestGate = new Promise<void>((r) => {
+      releaseSuggest = r;
+    });
+    let suggestProcessed!: () => void;
+    const suggestSettled = new Promise<void>((r) => {
+      suggestProcessed = r;
+    });
+    mockPost.mockImplementation(async (path: string) => {
+      if (path === EXPENSE_CODING_SUGGEST_PATH) {
+        await suggestGate;
+        suggestProcessed();
+        return suggestBody;
+      }
+      if (path === REVIEW_SUBMIT_PATH) return Promise.resolve({});
+      return Promise.reject(new Error(`unexpected post: ${path}`));
+    });
+
+    renderExpenseEdit(root);
+    await waitForCodingSuggestUi();
+    await flushUntilHard(
+      () => mockPost.mock.calls.some((c) => c[0] === EXPENSE_CODING_SUGGEST_PATH),
+      "suggest POST in flight",
+    );
+    releaseSuggest();
+    await act(async () => {
+      await suggestSettled;
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await flushUntilHard(
+      () =>
+        container.querySelector(
+          'button[aria-label="Accept suggested sub cost code 21.00 — Siding Material"]',
+        ) !== null,
+      "in-catalog SCC suggestion rendered after response",
+    );
+    expect(container.querySelector('button[aria-label^="Accept suggested project"]')).toBeNull();
+  });
+
+  it("does not call coding suggest when the user cannot edit", async () => {
+    const { Modules } = await import("../../shared/modules");
+    mockCurrentUserData = {
+      is_admin: false,
+      modules: [
+        {
+          public_id: "mod-exp",
+          name: Modules.EXPENSES,
+          route: null,
+          can_create: false,
+          can_read: true,
+          can_update: false,
+          can_delete: false,
+          can_submit: false,
+          can_approve: false,
+          can_complete: false,
+          can_view_team: false,
+        },
+      ],
+      auth: { public_id: "a", username: "reader" },
+      user: { id: 2, public_id: "u2", firstname: "R", lastname: "O" },
+      role: null,
+      accessible_project_ids: [],
+    };
+
+    emptyCodingLineMocks({
+      status: "suggested",
+      sub_cost_code: {
+        id: 21,
+        source: "memo_shorthand",
+        confidence: 0.9,
+        reason: "Memo shorthand",
+      },
+      project: null,
+      confidence: 0.9,
+    });
+
+    renderExpenseEdit(root);
+    await flushUntilHard(
+      () =>
+        container.textContent?.includes("You don't have permission to edit this expense.") ??
+        false,
+      "read-only permission page rendered",
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    expect(mockPost.mock.calls.some((c) => c[0] === EXPENSE_CODING_SUGGEST_PATH)).toBe(false);
+  });
+
+  it("merely loading and showing suggestions sends no PUT on Submit for Review (U-621b)", async () => {
+    emptyCodingLineMocks({
+      status: "suggested",
+      sub_cost_code: {
+        id: 21,
+        source: "memo_shorthand",
+        confidence: 0.9,
+        reason: "Memo shorthand",
+      },
+      project: null,
+      confidence: 0.9,
+    });
+
+    renderExpenseEdit(root);
+    await waitForCodingSuggestUi();
+    await flushUntilHard(
+      () => container.querySelector(".status-badge.coding-suggested") !== null,
+      "suggestion visible before submit",
+    );
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="review-submit-stub"]')!.click();
+    });
+    await flushUntilHard(
+      () => mockPost.mock.calls.some((c) => c[0] === REVIEW_SUBMIT_PATH),
+      "review submit POST",
+    );
+
+    expect(mockPut.mock.calls).toHaveLength(0);
   });
 });
 

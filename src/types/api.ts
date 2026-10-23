@@ -893,6 +893,28 @@ export interface ReadAttachmentResult {
   model: string | null;
 }
 
+/** POST /api/v1/expense/{public_id}/coding/suggest (U-715). */
+export interface ExpenseCodingSuggestSubCostCode {
+  id: number;
+  source: "memo_shorthand" | "vendor_history";
+  confidence: number | null;
+  reason: string;
+}
+
+export interface ExpenseCodingSuggestProject {
+  id: number;
+  source: "memo_code" | "memo_address";
+  confidence: number | null;
+  reason: string;
+}
+
+export interface ExpenseCodingSuggestResponse {
+  status: "suggested" | "flagged" | "none" | "not_draft";
+  sub_cost_code: ExpenseCodingSuggestSubCostCode | null;
+  project: ExpenseCodingSuggestProject | null;
+  confidence: number | null;
+}
+
 export interface Expense {
   id: number;
   public_id: string;

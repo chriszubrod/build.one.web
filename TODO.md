@@ -41,6 +41,14 @@ The API-side list, including the cross-repo items, is in `build.one.api/TODO.md`
 - [ ] 🟡 **(deferred)** — API endpoint returning an expense's receipt (ExpenseView can make up to N+1 GETs when line 1 has no receipt).
 - [ ] 🟡 **(deferred)** — BillView still uses the first-line-only receipt lookup.
 
+## U-715 (web) residuals — expense coding suggestions (booked 2026-10-22)
+
+- [ ] 🟡 **P3 — Suggestion is expense-level** (`useExpenseCodingSuggestion` keyed by expense public id): the same
+  SCC/project suggestion appears on every empty line of a multi-line draft, not per line. Accept still applies only
+  to the row where the user clicks.
+- [ ] 🟡 **P3 — Failed suggest fetch is cached for the session** (`staleTime`/`gcTime` `Infinity`, `retry: false`):
+  a transient error shows nothing with no in-app retry until reload or a new expense id.
+
 ## U-710 follow-ups — searchable picker / shared UI library (booked 2026-10-22, shipped `2338046`)
 
 - [ ] 🟠 **Pre-existing vacuous tests (on `main` before U-710): `BillCreate.test.tsx` r6-3 "SCRATCH-E moved line…" and

@@ -370,11 +370,23 @@ export default function InlineLineItems<T extends UidRow>(props: InlineLineItems
                   ? fields.map((f) => (
                       <Fragment key={f.key}>{renderMeasuredFieldCell(item, rowIdx, f)}</Fragment>
                     ))
-                  : fields.map((f) => (
-                      <td key={f.key} style={{ textAlign: f.align ?? "left" }}>
-                        {renderDefaultCell(item, rowIdx, f)}
-                      </td>
-                    ))}
+                  : fields.map((f) => {
+                      const control = renderDefaultCell(item, rowIdx, f);
+                      if (!f.adornment) {
+                        return (
+                          <td key={f.key} style={{ textAlign: f.align ?? "left" }}>
+                            {control}
+                          </td>
+                        );
+                      }
+                      const badge = f.adornment(item, rowIdx) ?? null;
+                      return (
+                        <td key={f.key} style={{ textAlign: f.align ?? "left" }}>
+                          <div className="line-item-control">{control}</div>
+                          {badge ? <div className="line-item-badge-slot">{badge}</div> : null}
+                        </td>
+                      );
+                    })}
                 {extraColumn &&
                   (isMeasured
                     ? measuredCell(extraColumn.render(item, rowIdx), null)
