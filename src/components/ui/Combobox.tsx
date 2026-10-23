@@ -209,7 +209,8 @@ export default function Combobox({
           ▾
         </Button>
       </Group>
-      <Popover className="bo-combobox-popover">
+      {/* maxHeight must match index.css 16rem — react-aria sets inline max-height for placement; without this prop it ignores the stylesheet cap. */}
+      <Popover className="bo-combobox-popover" maxHeight={256}>
         <ListBox<ComboboxOption> className="bo-combobox-listbox">
           {(item) => (
             <ListBoxItem

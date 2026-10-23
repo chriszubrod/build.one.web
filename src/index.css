@@ -5771,6 +5771,8 @@ a.buildone-record-header-link:hover .buildone-record-name {
 .bo-combobox-popover {
   width: var(--trigger-width, 100%);
   max-height: 16rem;
+  /* Scroll chaining to the page closes the popover (react-aria listens for page scroll). */
+  overscroll-behavior: contain;
   overflow: auto;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);

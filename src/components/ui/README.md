@@ -13,4 +13,5 @@ In-house primitives for Build One web. Pages and feature components import **the
 
 - **Controlled values:** pass `value` + `onChange`. Combobox calls `onChange(nextValue: string)` with the option key or `""` when cleared. Older form fields often use `onChange(name, value)` — do not mix the two shapes on new components.
 - **Combobox `maxResults`:** defaults to 50; pass `Infinity` for short catalogs where every match should appear (no truncation hint row).
+- **Combobox popover height:** the 256px (16rem) cap is set on `<Popover maxHeight={256}>` and mirrored in `.bo-combobox-popover` CSS so placement and scrolling stay consistent.
 - **`InlineLineItems` `type: "combobox"`:** same value path as `select`; memoize `options` on the field def.

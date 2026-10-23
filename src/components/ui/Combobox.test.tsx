@@ -1,3 +1,7 @@
+/// <reference types="node" />
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -459,6 +463,80 @@ describe("Combobox", () => {
       comboboxInput(container).blur();
     });
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("open popover inline max-height is at most 256px", async () => {
+    const prevInnerHeight = window.innerHeight;
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 2000 });
+    const layoutRect = (top: number, height: number, width = 400): DOMRect =>
+      ({
+        top,
+        left: 0,
+        right: width,
+        bottom: top + height,
+        width,
+        height,
+        x: 0,
+        y: top,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    const origGetRect = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (this === document.body || this === document.documentElement) {
+        return layoutRect(0, 2000);
+      }
+      if (container.contains(this) || this.classList.contains("bo-combobox-popover")) {
+        return layoutRect(500, 36);
+      }
+      return origGetRect.call(this);
+    };
+    const prevVisualViewport = window.visualViewport;
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: { height: 2000, width: 800, offsetTop: 0, offsetLeft: 0 },
+    });
+    try {
+      renderCombo();
+      act(() => {
+        (container.querySelector(".bo-combobox-trigger") as HTMLButtonElement)?.click();
+      });
+      let popover: HTMLElement | null = null;
+      await act(async () => {
+        for (let i = 0; i < 30; i++) {
+          await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => resolve());
+          });
+          popover = document.querySelector(".bo-combobox-popover") as HTMLElement | null;
+          const mh = popover?.style.maxHeight ?? "";
+          if (mh && mh !== "0px") return;
+        }
+      });
+      expect(popover).not.toBeNull();
+      const mh = popover!.style.maxHeight;
+      expect(mh).not.toBe("2000px");
+      const px = parseInt(mh, 10);
+      expect(Number.isFinite(px)).toBe(true);
+      expect(px).toBeLessThanOrEqual(256);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = origGetRect;
+      Object.defineProperty(window, "visualViewport", {
+        configurable: true,
+        value: prevVisualViewport,
+      });
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: prevInnerHeight,
+      });
+    }
+  });
+
+  it("index.css .bo-combobox-popover uses overscroll-behavior: contain", () => {
+    // Read from disk: vitest stubs CSS `?raw` imports to "".
+    const indexCss = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../../index.css"),
+      "utf-8",
+    );
+    expect(indexCss).toMatch(/\.bo-combobox-popover\s*\{[^}]*overscroll-behavior:\s*contain/);
   });
 
   it('form variant does not list "Select..." as a pickable option', () => {
