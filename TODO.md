@@ -1,3 +1,10 @@
+## U-716b follow-ups — expense receipt drop/match panel (booked 2026-10-23, shipped `f30b304`)
+
+- [ ] **ExpenseView still formats date-only values via `new Date(v)`** (UTC midnight → a day early in US zones). Move it (and other page-local `fmtDate` copies) onto `pages/expenses/expenseFormat.ts` — behaviour change, own unit. ~15 page-local fmtDate/fmtMoney copies differ ("—" vs "$0.00").
+- [ ] **TZ coverage** — vitest is pinned to America/Chicago (catches UTC-negative bugs only); a second CI run under a UTC-positive zone (e.g. Asia/Tokyo) would catch the other class.
+- [ ] **HEIC receipts preview** — HEIC/HEIF are accepted and readable server-side, but browsers other than Safari cannot render them in the attachment viewer.
+- [ ] **Pass 2 skip: gate `ExpenseReceiptMatch` at the call site** (`{canUpdate && <ExpenseReceiptMatch/>}`, drop the prop) — skipped to keep the tests stable.
+
 ## U-621 (web) residuals — found 2026-10-03, verified in code, NOT fixed (booked)
 
 The approved scope (submit from View, zero-PUT submit, flush-first saveAll, id-keyed receipt chain,
