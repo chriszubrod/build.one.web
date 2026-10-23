@@ -6,6 +6,7 @@ import { useCurrentUser } from "../hooks/useCurrentUser";
 import { hasModulePermission } from "../shared/permissions";
 import { Modules, type ModuleName } from "../shared/modules";
 import type { Review, ReviewParentType } from "../types/api";
+import { DuplicateDialogCancelled } from "../pages/bills/possibleDuplicate";
 
 export type ReviewActionKind = "submit" | "advance" | "decline";
 
@@ -24,6 +25,8 @@ interface ReviewTimelineProps {
    * owning the review POST itself.
    */
   onAfterAction?: (action: ReviewActionKind) => void | Promise<void>;
+  /** When set, performs the review POST (e.g. BillEdit duplicate confirm flow). */
+  reviewPost?: (path: string, body: Record<string, unknown>) => Promise<Review>;
 }
 
 // API URL slug per parent type. Three of four match snake_case; bill_credit
@@ -99,6 +102,7 @@ export default function ReviewTimeline({
   onBeforeAction,
   onAfterSubmit,
   onAfterAction,
+  reviewPost,
 }: ReviewTimelineProps) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
@@ -178,7 +182,11 @@ export default function ReviewTimeline({
       // Decline auto-resolves the target server-side when only one declined
       // status is configured. If a multi-decline scenario lands, surface
       // a picker here; today there's nothing to choose.
-      await post<Review>(path, body);
+      if (reviewPost) {
+        await reviewPost(path, body);
+      } else {
+        await post<Review>(path, body);
+      }
       await fetchReviews();
       // U-464: a review transition WRITES THE PARENT ROW — `CreateReview`
       // sets the parent's Status — which bumps its ROWVERSION. This component
@@ -193,6 +201,10 @@ export default function ReviewTimeline({
       await queryClient.invalidateQueries({ queryKey: entityItemKey(parentItemPath) });
       setDialog(null);
     } catch (err: unknown) {
+      if (err instanceof DuplicateDialogCancelled) {
+        setDialog({ ...dialog, busy: false, error: "" });
+        return;
+      }
       const msg =
         err instanceof ApiError ? err.detail : err instanceof Error ? err.message : "Action failed.";
       setDialog({ ...dialog, busy: false, error: msg });

@@ -2,6 +2,11 @@ import { useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { filePrefillLabel } from "./filePrefillLabels";
 import { post, put, uploadFile } from "../../api/client";
+import {
+  DuplicateDialogCancelled,
+  postWithDuplicatePrompt,
+  usePossibleDuplicateDialog,
+} from "./usePossibleDuplicateDialog";
 import PdfDropZone from "../../components/PdfDropZone";
 import {
   useAttachmentRead,
@@ -94,6 +99,7 @@ export default function BillCreate() {
   const meRef = useRef(me);
   meRef.current = me;
   const { toast } = useToast();
+  const { promptIfDuplicate, dialog: duplicateDialog } = usePossibleDuplicateDialog();
   // Complete bypasses Review entirely — straight to IsDraft=False + outbox
   // (SharePoint, Excel, QBO). The API gates it on Modules.BILLS.can_complete;
   // we mirror that here so the button only shows when it would actually work.
@@ -610,11 +616,17 @@ export default function BillCreate() {
           file,
         );
         attId = attachment.public_id;
+        setAttachmentPublicId(attId);
       }
-      const created = await post<Bill>("/api/v1/create/bill", {
-        ...buildBody(action),
-        attachment_public_id: attId,
-      });
+      const created = await postWithDuplicatePrompt<Bill>(
+        post,
+        "/api/v1/create/bill",
+        {
+          ...buildBody(action),
+          attachment_public_id: attId,
+        },
+        promptIfDuplicate,
+      );
 
       // Additional populated lines beyond the inline summary. Each one is
       // its own POST — the API has no batch-create-with-lines endpoint. If
@@ -729,8 +741,16 @@ export default function BillCreate() {
           // blob storage, base64-encoded it, and wrote up to 5.73 MB into
           // ms.Outbox.Payload inside the request. /complete/bill returns 202
           // and drains in the background.
-          await post(followUp.path, {});
+          await postWithDuplicatePrompt(post, followUp.path, {}, promptIfDuplicate);
         } catch (err: any) {
+          if (err instanceof DuplicateDialogCancelled) {
+            toast(
+              `Bill saved as draft. ${followUp.label} was cancelled (possible duplicate). ${followUp.retry}`,
+              "error",
+            );
+            navigate(`/bill/${created.public_id}/edit`);
+            return;
+          }
           // Bill + all lines were created OK but the follow-up action failed.
           // Re-creating would hit a (vendor, bill_number, date) uniqueness 409;
           // a submit retry could also 409 if a review row already exists. Send
@@ -760,6 +780,10 @@ export default function BillCreate() {
           : "/bill/list",
       );
     } catch (err: any) {
+      if (err instanceof DuplicateDialogCancelled) {
+        endAction();
+        return;
+      }
       setSaveError(err.message);
       endAction();
     }
@@ -960,6 +984,7 @@ export default function BillCreate() {
           )}
         </div>
       </form>
+      {duplicateDialog}
     </div>
   );
 }

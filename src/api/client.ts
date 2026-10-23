@@ -10,13 +10,33 @@ const CSRF_HEADER = "X-CSRF-Token";
 export class ApiError extends Error {
   status: number;
   detail: string;
+  errorCode?: string;
+  body?: unknown;
 
-  constructor(status: number, detail: string) {
+  constructor(
+    status: number,
+    detail: string,
+    opts?: { errorCode?: string; body?: unknown },
+  ) {
     super(detail);
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
+    this.errorCode = opts?.errorCode;
+    this.body = opts?.body;
   }
+}
+
+function apiErrorFromJsonBody(
+  status: number,
+  body: Record<string, unknown>,
+  fallbackDetail: string,
+): ApiError {
+  const detail =
+    typeof body.detail === "string" ? body.detail : fallbackDetail;
+  const errorCode =
+    typeof body.error_code === "string" ? body.error_code : undefined;
+  return new ApiError(status, detail, { errorCode, body });
 }
 
 /**
@@ -266,8 +286,10 @@ async function request<T>(
   if (res.status === 401) await redirectToLogin();
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new ApiError(res.status, body.detail ?? "Request failed");
+    const body = (await res.json().catch(() => ({
+      detail: res.statusText,
+    }))) as Record<string, unknown>;
+    throw apiErrorFromJsonBody(res.status, body, "Request failed");
   }
 
   if (res.status === 204) return undefined as T;
@@ -349,8 +371,10 @@ export async function uploadFile<T>(
   if (res.status === 401) await redirectToLogin();
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new ApiError(res.status, body.detail ?? "Upload failed");
+    const body = (await res.json().catch(() => ({
+      detail: res.statusText,
+    }))) as Record<string, unknown>;
+    throw apiErrorFromJsonBody(res.status, body, "Upload failed");
   }
 
   const envelope = await res.json();
@@ -381,11 +405,10 @@ export async function fetchViewAttachmentBlob(publicId: string): Promise<Blob> {
   if (res.status === 401) await redirectToLogin();
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new ApiError(
-      res.status,
-      typeof body.detail === "string" ? body.detail : "Request failed",
-    );
+    const body = (await res.json().catch(() => ({
+      detail: res.statusText,
+    }))) as Record<string, unknown>;
+    throw apiErrorFromJsonBody(res.status, body, "Request failed");
   }
 
   return res.blob();

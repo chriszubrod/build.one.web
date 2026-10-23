@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import BillCreate from "./BillCreate";
+import { ApiError } from "../../api/client";
 import { flushUntil } from "../../__testutils__/flush";
 import { dispatchDrop, setInputValue, setTextareaValue } from "../../__testutils__/domEvents";
 import {
@@ -36,11 +37,15 @@ vi.mock("react-router-dom", async (importOriginal) => {
   };
 });
 
-vi.mock("../../api/client", () => ({
-  post: (...args: unknown[]) => mockPost(...args),
-  put: (...args: unknown[]) => mockPut(...args),
-  uploadFile: (...args: unknown[]) => mockUploadFile(...args),
-}));
+vi.mock("../../api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/client")>();
+  return {
+    ...actual,
+    post: (...args: unknown[]) => mockPost(...args),
+    put: (...args: unknown[]) => mockPut(...args),
+    uploadFile: (...args: unknown[]) => mockUploadFile(...args),
+  };
+});
 
 vi.mock("../../hooks/useLookups", () => ({
   useLookups: () =>
@@ -82,6 +87,30 @@ vi.mock("./readAttachment", async (importOriginal) => {
   return {
     ...actual,
     readBillAttachment: (...args: unknown[]) => mockReadBillAttachment(...args),
+  };
+});
+
+/** When true, PDF drop skips read-path upload so handleSubmit's fallback upload runs. */
+let skipAttachmentReadUpload = false;
+
+vi.mock("../../hooks/useAttachmentRead", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../hooks/useAttachmentRead")>();
+  return {
+    ...actual,
+    useAttachmentRead: () => {
+      const real = actual.useAttachmentRead();
+      if (!skipAttachmentReadUpload) return real;
+      return {
+        ...real,
+        begin: (file: File, _read: unknown, callbacks: { onError: () => void }) => {
+          void file;
+          queueMicrotask(() => {
+            callbacks.onError();
+          });
+          return 1;
+        },
+      };
+    },
   };
 });
 
@@ -327,6 +356,14 @@ function findButton(label: string): HTMLButtonElement {
   ) as HTMLButtonElement;
 }
 
+function findDuplicateDialogButton(label: string): HTMLButtonElement {
+  const scope =
+    container.querySelector(".possible-duplicate-list")?.closest(".sheet-body") ?? container;
+  return Array.from(scope.querySelectorAll("button")).find(
+    (b) => b.textContent?.trim() === label,
+  ) as HTMLButtonElement;
+}
+
 function headerBudgetBadge(): Element | null {
   return container.querySelector(".inline-li-header-actions [class*='coding-budget-']");
 }
@@ -441,6 +478,7 @@ async function arrangeOneLineBill(project = "p-1") {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  skipAttachmentReadUpload = false;
   codingSuggestHookCalls.length = 0;
   delete (globalThis as { __billCreateEmptyLookups?: boolean }).__billCreateEmptyLookups;
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -3164,6 +3202,186 @@ describe("BillCreate intake_source on create", () => {
     expect(createBillBody().intake_source).toBe("pdf_drop");
   });
 
+});
+
+describe("BillCreate possible duplicate (U-723b)", () => {
+  const dupMatch = {
+    public_id: "dup-bill-1",
+    bill_number: "B-DUP",
+    bill_date: "2026-01-15",
+    total_amount: "100.00",
+    status: "completed",
+    vendor_name: "Acme",
+    project_names: ["P1"],
+    created_datetime: "2026-01-01",
+    reasons: ["vendor_date_amount"],
+  };
+
+  function duplicate422(hidden = 0) {
+    return new ApiError(422, "Possible duplicate bill", {
+      errorCode: "possible_duplicate",
+      body: {
+        error_code: "possible_duplicate",
+        duplicate_matches: [dupMatch],
+        hidden_match_count: hidden,
+      },
+    });
+  }
+
+  it("422 → cancel → retry does not re-upload after handleSubmit fallback upload", async () => {
+    skipAttachmentReadUpload = true;
+    let createAttempts = 0;
+    stubPost({
+      "/api/v1/create/bill": async () => {
+        createAttempts += 1;
+        if (createAttempts === 1) throw duplicate422();
+        return { public_id: "bill-1", id: 1, row_version: "rv-create-1" };
+      },
+    });
+    await arrangeOneLineBill();
+    await flushUntilHard(
+      () => container.textContent?.includes("Could not upload this PDF") ?? false,
+      "read upload error shown",
+    );
+    await act(async () => {
+      findButton("Save For Later").click();
+    });
+    await flushUntilHard(
+      () => container.querySelector(".possible-duplicate-list") !== null,
+      "duplicate dialog visible",
+    );
+    expect(mockUploadFile).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      findDuplicateDialogButton("Cancel").click();
+    });
+    await flushUntil(() => container.querySelector(".possible-duplicate-list") === null);
+
+    await act(async () => {
+      findButton("Save For Later").click();
+    });
+    await flushUntilHard(
+      () => mockNavigate.mock.calls.some((c) => c[0] === "/bill/bill-1/edit"),
+      "navigated to edit after retry",
+    );
+    expect(mockUploadFile).toHaveBeenCalledTimes(1);
+    expect(createAttempts).toBe(2);
+  });
+
+  it("422 confirm re-POSTs with confirm fields when read-path upload failed", async () => {
+    skipAttachmentReadUpload = true;
+    let createAttempts = 0;
+    stubPost({
+      "/api/v1/create/bill": async () => {
+        createAttempts += 1;
+        if (createAttempts === 1) throw duplicate422();
+        return { public_id: "bill-1", id: 1, row_version: "rv-create-1" };
+      },
+    });
+    await arrangeOneLineBill();
+    await flushUntilHard(
+      () => container.textContent?.includes("Could not upload this PDF") ?? false,
+      "read upload error shown",
+    );
+    await act(async () => {
+      findButton("Save For Later").click();
+    });
+    await flushUntilHard(
+      () => container.querySelector(".possible-duplicate-list") !== null,
+      "duplicate dialog visible",
+    );
+    expect(mockUploadFile).toHaveBeenCalledTimes(1);
+    // BillCreate passes the 422's matches into the dialog.
+    expect(container.querySelector('.possible-duplicate-list a[href="/bill/dup-bill-1"]')).not.toBeNull();
+
+    await act(async () => {
+      findButton("It's not a duplicate — continue").click();
+    });
+    await flushUntilHard(
+      () => mockPost.mock.calls.filter((c) => c[0] === "/api/v1/create/bill").length >= 2,
+      "create retried",
+    );
+    expect(mockUploadFile).toHaveBeenCalledTimes(1);
+    const retryBody = mockPost.mock.calls
+      .filter((c) => c[0] === "/api/v1/create/bill")
+      .at(-1)![1] as Record<string, unknown>;
+    expect(retryBody.confirm_not_duplicate).toBe(true);
+    expect(retryBody.confirmed_duplicate_public_ids).toEqual(["dup-bill-1"]);
+  });
+
+  it("follow-up duplicate cancel navigates to edit with create POSTed once", async () => {
+    let createCalls = 0;
+    stubPost({
+      "/api/v1/create/bill": async () => {
+        createCalls += 1;
+        return { public_id: "bill-created", id: 1, row_version: "rv-create-1" };
+      },
+      "/api/v1/submit/review/bill/bill-created": async () => {
+        throw duplicate422();
+      },
+    });
+    await arrangeOneLineBill();
+    await act(async () => {
+      submitForReviewButton().click();
+    });
+    await flushUntilHard(
+      () => container.querySelector(".possible-duplicate-list") !== null,
+      "duplicate dialog on follow-up",
+    );
+    await act(async () => {
+      findDuplicateDialogButton("Cancel").click();
+    });
+    await flushUntilHard(
+      () => mockNavigate.mock.calls.some((c) => c[0] === "/bill/bill-created/edit"),
+      "navigated to edit",
+    );
+    expect(createCalls).toBe(1);
+    expect(mockPost.mock.calls.filter((c) => c[0] === "/api/v1/create/bill")).toHaveLength(1);
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.stringMatching(/saved as draft.*cancelled.*possible duplicate/i),
+      "error",
+    );
+  });
+
+  it("cancel on duplicate dialog keeps the form intact", async () => {
+    stubPost({
+      "/api/v1/create/bill": async () => {
+        throw duplicate422();
+      },
+    });
+    await arrangeOneLineBill();
+    const billNumBefore = (container.querySelector("#bill_number") as HTMLInputElement).value;
+    await act(async () => {
+      findButton("Save For Later").click();
+    });
+    await flushUntilHard(
+      () => container.querySelector(".possible-duplicate-list") !== null,
+      "duplicate dialog visible",
+    );
+    await act(async () => {
+      findButton("Cancel").click();
+    });
+    await flushUntil(() => container.querySelector(".possible-duplicate-list") === null);
+    expect((container.querySelector("#bill_number") as HTMLInputElement).value).toBe(billNumBefore);
+    expect(mockPost.mock.calls.filter((c) => c[0] === "/api/v1/create/bill")).toHaveLength(1);
+  });
+
+  it("non-duplicate errors still surface as saveError", async () => {
+    stubPost({
+      "/api/v1/create/bill": async () => {
+        throw new ApiError(400, "Bad vendor");
+      },
+    });
+    await arrangeOneLineBill();
+    await act(async () => {
+      findButton("Save For Later").click();
+    });
+    await flushUntilHard(
+      () => container.textContent?.includes("Bad vendor") ?? false,
+      "error shown",
+    );
+    expect(container.querySelector(".possible-duplicate-list")).toBeNull();
+  });
 });
 
 describe("projectOptionLabel (U-676k)", () => {

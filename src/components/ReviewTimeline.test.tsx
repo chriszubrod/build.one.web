@@ -3,8 +3,10 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ReviewTimeline, { type ReviewActionKind } from "./ReviewTimeline";
+import type { Review } from "../types/api";
 import { entityItemKey } from "../hooks/useEntity";
 import { flushUntil, flushUntilHard } from "../__testutils__/flush";
+import { DuplicateDialogCancelled } from "../pages/bills/possibleDuplicate";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -63,6 +65,7 @@ function render(
     ) => Promise<boolean>;
     onAfterSubmit?: () => void;
     onAfterAction?: (action: ReviewActionKind) => void | Promise<void>;
+    reviewPost?: (path: string, body: Record<string, unknown>) => Promise<Review>;
   } = {},
 ) {
   act(() => {
@@ -117,6 +120,34 @@ async function submitForReview() {
   });
   await flushUntil(() => mockPost.mock.calls.length > 0);
 }
+
+describe("ReviewTimeline — duplicate dialog cancelled (U-723b)", () => {
+  it("reviewPost DuplicateDialogCancelled keeps the modal open, idle, with no error text", async () => {
+    const reviewPost = vi.fn().mockRejectedValue(new DuplicateDialogCancelled());
+    render("bill", "bill-1", { reviewPost });
+    await flushUntil(() => buttonWithText("Submit for Review") !== undefined);
+    await act(async () => {
+      buttonWithText("Submit for Review")!.click();
+    });
+    await flushUntil(() => container.querySelector("textarea") !== null);
+    const confirmButtons = Array.from(container.querySelectorAll("button")).filter(
+      (b) => b.textContent?.trim() === "Submit for Review",
+    );
+    await act(async () => {
+      confirmButtons[confirmButtons.length - 1].click();
+    });
+    await flushUntilHard(() => reviewPost.mock.calls.length === 1, "reviewPost invoked");
+    // The review modal stays open (not busy) so the user can retry or close it.
+    expect(container.querySelector("textarea")).not.toBeNull();
+    expect(container.textContent ?? "").not.toContain("Duplicate check cancelled.");
+    expect(container.textContent ?? "").not.toContain("Action failed.");
+    const workingBtn = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent?.trim() === "Working…",
+    );
+    expect(workingBtn).toBeUndefined();
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+});
 
 describe("ReviewTimeline — onAfterSubmit (U-700)", () => {
   it("calls onAfterSubmit only after a successful submit-for-review", async () => {

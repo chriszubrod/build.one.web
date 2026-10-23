@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import BillEdit from "./BillEdit";
 import ReviewTimeline from "../../components/ReviewTimeline";
 import { ApiError } from "../../api/client";
+import { possibleDuplicateFromError } from "./possibleDuplicate";
 import { flushUntil } from "../../__testutils__/flush";
 import { setInputValue, setTextareaValue } from "../../__testutils__/domEvents";
 import {
@@ -47,22 +48,17 @@ vi.mock("react-router-dom", async (importOriginal) => {
   };
 });
 
-vi.mock("../../api/client", () => ({
-  getList: (...args: unknown[]) => mockGetList(...args),
-  getOne: (...args: unknown[]) => mockGetOne(...args),
-  post: (...args: unknown[]) => mockPost(...args),
-  put: (...args: unknown[]) => mockPut(...args),
-  del: (...args: unknown[]) => mockDel(...args),
-  ApiError: class ApiError extends Error {
-    status: number;
-    detail: string;
-    constructor(status: number, detail: string) {
-      super(detail);
-      this.status = status;
-      this.detail = detail;
-    }
-  },
-}));
+vi.mock("../../api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/client")>();
+  return {
+    ...actual,
+    getList: (...args: unknown[]) => mockGetList(...args),
+    getOne: (...args: unknown[]) => mockGetOne(...args),
+    post: (...args: unknown[]) => mockPost(...args),
+    put: (...args: unknown[]) => mockPut(...args),
+    del: (...args: unknown[]) => mockDel(...args),
+  };
+});
 
 vi.mock("../../hooks/useLookups", () => ({
   useLookups: (include: string) => {
@@ -3954,6 +3950,325 @@ describe("U-700 BillEdit navigation and reference data", () => {
     );
     expect(container.textContent).toContain("Completion failed: poll failed");
     expect(mockNavigate).not.toHaveBeenCalledWith("/bill/list");
+  });
+
+  describe("possible duplicate (U-723b)", () => {
+    const dupMatch = {
+      public_id: "dup-bill-1",
+      bill_number: "B-DUP",
+      bill_date: "2026-01-15",
+      total_amount: "100.00",
+      status: "completed",
+      vendor_name: "Acme",
+      project_names: ["P1"],
+      created_datetime: "2026-01-01",
+      reasons: ["vendor_date_amount"],
+    };
+
+    function duplicate422() {
+      return new ApiError(422, "Possible duplicate bill", {
+        errorCode: "possible_duplicate",
+        body: {
+          error_code: "possible_duplicate",
+          duplicate_matches: [dupMatch],
+          hidden_match_count: 0,
+        },
+      });
+    }
+
+    function findDupDialogButton(label: string): HTMLButtonElement {
+      const sheet = container.querySelector(".possible-duplicate-list")?.closest(".sheet-card");
+      expect(sheet).toBeTruthy();
+      return Array.from(sheet!.querySelectorAll("button")).find(
+        (b) => b.textContent?.trim() === label,
+      ) as HTMLButtonElement;
+    }
+
+    it("Complete 422 → confirm → POST with confirm body then polling starts", async () => {
+      expect(possibleDuplicateFromError(duplicate422())).not.toBeNull();
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+      let completeAttempts = 0;
+      mockPost.mockImplementation((path: string) => {
+        if (path === "/api/v1/complete/bill/bill-1") {
+          completeAttempts += 1;
+          if (completeAttempts === 1) return Promise.reject(duplicate422());
+          return Promise.resolve({});
+        }
+        return Promise.reject(new Error(`unexpected post: ${path}`));
+      });
+      await mountBillEdit();
+      await waitForReady();
+      const completeBtn = Array.from(container.querySelectorAll("button")).find(
+        (b) => b.textContent === "Complete Bill",
+      )!;
+      await act(async () => {
+        completeBtn.click();
+      });
+      await flushUntilHard(
+        () => container.querySelector(".possible-duplicate-list") !== null,
+        "duplicate dialog",
+      );
+      await act(async () => {
+        findDupDialogButton("It's not a duplicate — continue").click();
+      });
+      await flushUntilHard(() => completeAttempts >= 2, "complete retried");
+      const retryBody = mockPost.mock.calls
+        .filter((c) => c[0] === "/api/v1/complete/bill/bill-1")
+        .at(-1)![1] as Record<string, unknown>;
+      expect(retryBody.confirm_not_duplicate).toBe(true);
+      expect(retryBody.confirmed_duplicate_public_ids).toEqual(["dup-bill-1"]);
+    });
+
+    it("footer Submit 422 → confirm → re-POST with confirm body → next-draft advance", async () => {
+      let submitAttempts = 0;
+      setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+      mockGetList.mockImplementation((path: string) => {
+        if (path === BILL_LINE_ITEMS_PATH) {
+          return Promise.resolve(
+            lineItemsListResponse([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]),
+          );
+        }
+        if (path === "/api/v1/get/bills?status=draft&page=1&page_size=2") {
+          return Promise.resolve({ data: [sampleBill({ public_id: "bill-next" })], count: 1 });
+        }
+        if (path === "/api/v1/get/vendors") {
+          return Promise.resolve({
+            data: [
+              { id: 1, public_id: "v-1", name: "V" },
+              { id: 2, public_id: "v-2", name: "V2" },
+            ],
+            count: 2,
+          });
+        }
+        if (path === "/api/v1/get/payment-terms") {
+          return Promise.resolve({ data: [{ id: 1, public_id: "pt-1", name: "Net 30" }], count: 1 });
+        }
+        if (path === "/api/v1/get/sub-cost-codes") {
+          return Promise.resolve({
+            data: [
+              { id: 1, public_id: "scc-1", name: "SCC", number: "01" },
+              { id: 10, public_id: "scc-pub", name: "Suggested SCC", number: "01-100" },
+            ],
+            count: 2,
+          });
+        }
+        if (path === "/api/v1/get/projects") {
+          return Promise.resolve({ data: [VISIBLE_PROJECT], count: 1 });
+        }
+        return Promise.reject(new Error(`unexpected getList: ${path}`));
+      });
+      mockPost.mockImplementation((path: string) => {
+        if (path === REVIEW_SUBMIT_PATH) {
+          submitAttempts += 1;
+          if (submitAttempts === 1) return Promise.reject(duplicate422());
+          return Promise.resolve({});
+        }
+        return Promise.reject(new Error(`unexpected post: ${path}`));
+      });
+      await mountBillEdit();
+      await waitForReady();
+      const submitBtn = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+        (b) => b.textContent === "Submit for Review" && !b.dataset.testid,
+      )!;
+      await flushUntil(() => !submitBtn.disabled);
+      await act(async () => {
+        submitBtn.click();
+      });
+      await flushUntilHard(
+        () => container.querySelector(".possible-duplicate-list") !== null,
+        "duplicate dialog",
+      );
+      await act(async () => {
+        findDupDialogButton("It's not a duplicate — continue").click();
+      });
+      await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill/bill-next/edit"));
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+      expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-next/edit");
+      const retryBody = mockPost.mock.calls
+        .filter((c) => c[0] === REVIEW_SUBMIT_PATH)
+        .at(-1)![1] as Record<string, unknown>;
+      expect(retryBody.confirm_not_duplicate).toBe(true);
+      expect(retryBody.confirmed_duplicate_public_ids).toEqual(["dup-bill-1"]);
+    });
+
+    it("ReviewTimeline submit 422 → confirm → re-POST with confirm body → next-draft advance", async () => {
+      let submitAttempts = 0;
+      vi.mocked(ReviewTimeline).mockImplementation((props) =>
+        createElement(
+          "button",
+          {
+            type: "button",
+            "data-testid": "review-submit-stub",
+            onClick: async () => {
+              if (props.onBeforeAction) {
+                const ok = await props.onBeforeAction("submit", true);
+                if (!ok) return;
+              }
+              if (props.reviewPost) {
+                await props.reviewPost(REVIEW_SUBMIT_PATH, { comments: null });
+              } else {
+                await mockPost(REVIEW_SUBMIT_PATH, { comments: null });
+              }
+              await props.onAfterAction?.("submit");
+            },
+          },
+          "Submit",
+        ),
+      );
+      setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+      mockGetList.mockImplementation((path: string) => {
+        if (path === "/api/v1/get/bills?status=draft&page=1&page_size=2") {
+          return Promise.resolve({ data: [sampleBill({ public_id: "bill-next" })], count: 1 });
+        }
+        if (path === BILL_LINE_ITEMS_PATH) {
+          return Promise.resolve(
+            lineItemsListResponse([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]),
+          );
+        }
+        if (path === "/api/v1/get/vendors") {
+          return Promise.resolve({
+            data: [
+              { id: 1, public_id: "v-1", name: "V" },
+              { id: 2, public_id: "v-2", name: "V2" },
+            ],
+            count: 2,
+          });
+        }
+        if (path === "/api/v1/get/payment-terms") {
+          return Promise.resolve({ data: [{ id: 1, public_id: "pt-1", name: "Net 30" }], count: 1 });
+        }
+        if (path === "/api/v1/get/sub-cost-codes") {
+          return Promise.resolve({
+            data: [
+              { id: 1, public_id: "scc-1", name: "SCC", number: "01" },
+              { id: 10, public_id: "scc-pub", name: "Suggested SCC", number: "01-100" },
+            ],
+            count: 2,
+          });
+        }
+        if (path === "/api/v1/get/projects") {
+          return Promise.resolve({ data: [VISIBLE_PROJECT], count: 1 });
+        }
+        return Promise.reject(new Error(`unexpected getList: ${path}`));
+      });
+      mockPost.mockImplementation((path: string) => {
+        if (path === REVIEW_SUBMIT_PATH) {
+          submitAttempts += 1;
+          if (submitAttempts === 1) return Promise.reject(duplicate422());
+          return Promise.resolve({});
+        }
+        return Promise.reject(new Error(`unexpected post: ${path}`));
+      });
+      await mountBillEdit();
+      await waitForReady();
+      const stub = container.querySelector('[data-testid="review-submit-stub"]') as HTMLButtonElement;
+      await act(async () => {
+        stub.click();
+      });
+      await flushUntilHard(
+        () => container.querySelector(".possible-duplicate-list") !== null,
+        "duplicate dialog",
+      );
+      await act(async () => {
+        findDupDialogButton("It's not a duplicate — continue").click();
+      });
+      await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill/bill-next/edit"));
+      expect(submitAttempts).toBeGreaterThanOrEqual(2);
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+      expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-next/edit");
+      const retryBody = mockPost.mock.calls
+        .filter((c) => c[0] === REVIEW_SUBMIT_PATH)
+        .at(-1)![1] as Record<string, unknown>;
+      expect(retryBody.confirm_not_duplicate).toBe(true);
+      expect(retryBody.confirmed_duplicate_public_ids).toEqual(["dup-bill-1"]);
+    });
+
+    it("Complete duplicate cancel clears completing state without error toast", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+      mockPost.mockImplementation((path: string) => {
+        if (path === "/api/v1/complete/bill/bill-1") {
+          return Promise.reject(duplicate422());
+        }
+        return Promise.reject(new Error(`unexpected post: ${path}`));
+      });
+      await mountBillEdit();
+      await waitForReady();
+      const completeBtn = Array.from(container.querySelectorAll("button")).find(
+        (b) => b.textContent === "Complete Bill",
+      )!;
+      await act(async () => {
+        completeBtn.click();
+      });
+      await flushUntilHard(
+        () => container.querySelector(".possible-duplicate-list") !== null,
+        "duplicate dialog",
+      );
+      await act(async () => {
+        findDupDialogButton("Cancel").click();
+      });
+      await flushUntil(() => container.querySelector(".possible-duplicate-list") === null);
+      await flushUntilHard(() => completeBtn.textContent === "Complete Bill", "complete idle");
+      expect(completeBtn.textContent).toBe("Complete Bill");
+      expect(container.textContent ?? "").not.toMatch(/complete failed/i);
+      expect(mockToast).not.toHaveBeenCalledWith(expect.stringMatching(/fail/i), "error");
+      expect(mockPost.mock.calls.filter((c) => c[0] === "/api/v1/complete/bill/bill-1")).toHaveLength(1);
+    });
+
+    it("footer Submit duplicate cancel clears submitting state without error toast", async () => {
+      setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+      mockPost.mockImplementation((path: string) => {
+        if (path === REVIEW_SUBMIT_PATH) {
+          return Promise.reject(duplicate422());
+        }
+        return Promise.reject(new Error(`unexpected post: ${path}`));
+      });
+      await mountBillEdit();
+      await waitForReady();
+      const submitBtn = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+        (b) => b.textContent === "Submit for Review" && !b.dataset.testid,
+      )!;
+      await flushUntil(() => !submitBtn.disabled);
+      await act(async () => {
+        submitBtn.click();
+      });
+      await flushUntilHard(
+        () => container.querySelector(".possible-duplicate-list") !== null,
+        "duplicate dialog",
+      );
+      await act(async () => {
+        findDupDialogButton("Cancel").click();
+      });
+      await flushUntil(() => container.querySelector(".possible-duplicate-list") === null);
+      await flushUntilHard(() => submitBtn.textContent === "Submit for Review", "submit idle");
+      expect(submitBtn.textContent).toBe("Submit for Review");
+      expect(container.textContent ?? "").not.toContain("Submit failed.");
+      expect(mockToast).not.toHaveBeenCalledWith(expect.stringMatching(/fail/i), "error");
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(mockPost.mock.calls.filter((c) => c[0] === REVIEW_SUBMIT_PATH)).toHaveLength(1);
+    });
+
+    it("non-duplicate submit errors behave as before", async () => {
+      setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+      mockPost.mockImplementation((path: string) => {
+        if (path === REVIEW_SUBMIT_PATH) {
+          return Promise.reject(new Error("submit failed"));
+        }
+        return Promise.reject(new Error(`unexpected post: ${path}`));
+      });
+      await mountBillEdit();
+      await waitForReady();
+      const submitBtn = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+        (b) => b.textContent === "Submit for Review" && !b.dataset.testid,
+      )!;
+      await flushUntil(() => !submitBtn.disabled);
+      await act(async () => {
+        submitBtn.click();
+      });
+      await flushUntil(() => container.textContent?.includes("submit failed") ?? false);
+      expect(container.querySelector(".possible-duplicate-list")).toBeNull();
+    });
   });
 });
 

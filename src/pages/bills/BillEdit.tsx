@@ -32,7 +32,12 @@ import {
 import ReviewTimeline from "../../components/ReviewTimeline";
 import RecordChangedBanner from "../../components/RecordChangedBanner";
 import Breadcrumb from "../../components/Breadcrumb";
-import type { Bill, BillIntakePrediction, BillLineItem } from "../../types/api";
+import type { Bill, BillIntakePrediction, BillLineItem, Review } from "../../types/api";
+import {
+  DuplicateDialogCancelled,
+  postWithDuplicatePrompt,
+  usePossibleDuplicateDialog,
+} from "./usePossibleDuplicateDialog";
 import type { HeaderFormSlice } from "./filePrefillLabels";
 import type { ReviewActionKind } from "../../components/ReviewTimeline";
 import {
@@ -226,6 +231,14 @@ export default function BillEdit() {
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const { promptIfDuplicate, dialog: duplicateDialog } = usePossibleDuplicateDialog();
+
+  const reviewPost = useCallback(
+    async (path: string, body: Record<string, unknown>): Promise<Review> => {
+      return postWithDuplicatePrompt<Review>(post, path, body, promptIfDuplicate);
+    },
+    [promptIfDuplicate],
+  );
   const [saveError, setSaveError] = useState("");
   const [projectHintForSuggest, setProjectHintForSuggest] = useState<string | undefined>();
   const [lineUserEditEpoch, setLineUserEditEpoch] = useState(0);
@@ -842,10 +855,19 @@ export default function BillEdit() {
     cancelAutoSave();
     setSaveError("");
     try {
-      await post(`/api/v1/complete/bill/${publicId}`, {});
+      await postWithDuplicatePrompt(
+        post,
+        `/api/v1/complete/bill/${publicId}`,
+        {},
+        promptIfDuplicate,
+      );
       startPolling();
-    } catch (err: any) {
-      setSaveError(err.message);
+    } catch (err: unknown) {
+      if (err instanceof DuplicateDialogCancelled) {
+        setCompleting(false);
+        return;
+      }
+      setSaveError(err instanceof Error ? err.message : "Complete failed.");
       setCompleting(false);
     }
   };
@@ -880,10 +902,19 @@ export default function BillEdit() {
     setSubmitting(true);
     setSaveError("");
     try {
-      await post(`/api/v1/submit/review/bill/${publicId}`, {});
+      await postWithDuplicatePrompt(
+        post,
+        `/api/v1/submit/review/bill/${publicId}`,
+        {},
+        promptIfDuplicate,
+      );
       await advanceToNextDraftAfterSubmit();
-    } catch (err: any) {
-      setSaveError(err.message);
+    } catch (err: unknown) {
+      if (err instanceof DuplicateDialogCancelled) {
+        setSubmitting(false);
+        return;
+      }
+      setSaveError(err instanceof Error ? err.message : "Submit failed.");
       setSubmitting(false);
     }
   };
@@ -1004,6 +1035,7 @@ export default function BillEdit() {
             parentPublicId={publicId}
             onBeforeAction={beforeReviewAction}
             onAfterAction={handleAfterReviewAction}
+            reviewPost={reviewPost}
           />
         )}
 
@@ -1152,6 +1184,7 @@ export default function BillEdit() {
           )}
         </div>
       )}
+      {duplicateDialog}
     </div>
   );
 }
