@@ -140,3 +140,22 @@ describe("main.tsx wiring", () => {
     expect(m![1]).not.toBe("bo-rq-v1");
   });
 });
+
+describe("U-719 — the expense coding suggestion is never persisted", () => {
+  it("refuses a fresh successful expense-coding-suggest query (live budget reading)", () => {
+    expect(
+      shouldDehydrateQuery(
+        { queryKey: ["expense-coding-suggest", "exp-1"], state: { status: "success", dataUpdatedAt: 1000 } },
+        2000,
+      ),
+    ).toBe(false);
+  });
+  it("still persists an ordinary list query of the same age", () => {
+    expect(
+      shouldDehydrateQuery(
+        { queryKey: ["list", "/api/v1/get/expenses"], state: { status: "success", dataUpdatedAt: 1000 } },
+        2000,
+      ),
+    ).toBe(true);
+  });
+});

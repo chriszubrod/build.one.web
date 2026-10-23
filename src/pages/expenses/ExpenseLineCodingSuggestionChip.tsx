@@ -2,7 +2,9 @@ import type { ExpenseCodingSuggestResponse, Project, SubCostCode } from "../../t
 import {
   acceptProjectAriaLabel,
   acceptSccAriaLabel,
+  expenseBudgetChip,
   expenseLineProjectSuggestionLabel,
+  expenseLineShowsBudgetChip,
   expenseLineSccSuggestionLabel,
   formatMemoCodingBadgeLabel,
   memoCodingBadgeClassName,
@@ -53,11 +55,24 @@ export default function ExpenseLineCodingSuggestionChip({
     const value = String(scc.id);
     const conf = parseConfidence(scc.confidence);
     const accept = () => onAccept(line.uid, "sub_cost_code_id", value);
+    const budgetBadge = expenseLineShowsBudgetChip(line, suggestion)
+      ? expenseBudgetChip(suggestion?.budget)
+      : null;
+    const budgetBadgeEl = budgetBadge ? (
+      <span className={budgetBadge.className}>{budgetBadge.label}</span>
+    ) : null;
 
     if (scc.source === "vendor_history") {
       return (
-        <div className="expense-coding-vendor-hint">
-          Vendor usually {label}{" "}
+        <div
+          className={
+            budgetBadge
+              ? "expense-coding-vendor-hint coding-suggestion-actions coding-suggestion-actions-compact"
+              : "expense-coding-vendor-hint"
+          }
+        >
+          <span>Vendor usually {label}</span>
+          {budgetBadgeEl}
           <AcceptControl ariaLabel={acceptSccAriaLabel(label)} onAccept={accept} />
         </div>
       );
@@ -68,6 +83,7 @@ export default function ExpenseLineCodingSuggestionChip({
         <span className={memoCodingBadgeClassName(conf)} title={scc.reason}>
           {formatMemoCodingBadgeLabel(scc.confidence)}
         </span>
+        {budgetBadgeEl}
         <AcceptControl ariaLabel={acceptSccAriaLabel(label)} onAccept={accept} />
       </div>
     );

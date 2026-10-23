@@ -10,6 +10,8 @@ import {
 
 export { BILL_LINE_CHIP_CLASS };
 
+export { expenseBudgetChip } from "../../shared/budgetChip";
+
 export function expenseCodingSuggestPath(expensePublicId: string): string {
   return `/api/v1/expense/${expensePublicId}/coding/suggest`;
 }
@@ -18,6 +20,18 @@ export function expenseHasEmptyCodingField(
   lines: { sub_cost_code_id: string; project_id: string }[],
 ): boolean {
   return lines.some((li) => li.sub_cost_code_id === "" || li.project_id === "");
+}
+
+/** Show budget chip only when server budget.project_id matches the line (or line project is empty). */
+export function expenseLineShowsBudgetChip(
+  line: { project_id: string },
+  suggestion: ExpenseCodingSuggestResponse | null | undefined,
+): boolean {
+  const budgetProjectId = suggestion?.budget?.project_id;
+  if (budgetProjectId == null) return false;
+  const lineProj = line.project_id;
+  if (lineProj === "") return true;
+  return Number(lineProj) === budgetProjectId;
 }
 
 export function expenseLineSccSuggestionLabel(

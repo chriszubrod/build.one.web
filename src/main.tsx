@@ -72,7 +72,7 @@ const queryClient = new QueryClient({
 // after this deploy would still rehydrate a stale bill and stay wedged. The
 // buster discards the whole persisted blob on restore, so the fix takes effect
 // immediately for every user instead of after their cache happens to turn over.
-const PERSISTER_BUSTER = "bo-rq-v2";
+const PERSISTER_BUSTER = "bo-rq-v3"; // v3 (U-719): drop persisted expense coding suggestions carrying a live budget
 
 /**
  * Persisted-cache policy — see `src/persistPolicy.ts`, which owns it and is

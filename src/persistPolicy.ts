@@ -33,6 +33,9 @@
 /** Query-key head for a single entity read — `entityItemKey` in hooks/useEntity. */
 export const ITEM_KEY_PREFIX = "item";
 
+/** Query-key head for the expense coding suggestion (useExpenseCodingSuggestion). */
+export const EXPENSE_CODING_SUGGEST_KEY_PREFIX = "expense-coding-suggest";
+
 const ONE_HOUR_MS = 60 * 60 * 1000;
 export const ONE_DAY_MS = 24 * ONE_HOUR_MS;
 
@@ -76,6 +79,11 @@ export function shouldDehydrateQuery(
   // unknown age is the wedge described at the top of this file. Lists are fine:
   // nothing writes from a list row.
   if (query.queryKey[0] === ITEM_KEY_PREFIX) return false;
+
+  // U-719: the expense coding suggestion carries a LIVE budget reading
+  // (fits / tight / over against the project's current spend). Rehydrating it
+  // from disk days later would show "Within budget" for a code that is now over.
+  if (query.queryKey[0] === EXPENSE_CODING_SUGGEST_KEY_PREFIX) return false;
 
   return now - query.state.dataUpdatedAt < maxAgeForQuery(query.queryKey);
 }

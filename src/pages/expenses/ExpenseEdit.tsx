@@ -41,7 +41,10 @@ import {
   getEliaLinkForLine,
   type EliaLink,
 } from "./expenseReceipt";
-import { useExpenseCodingSuggestion } from "./useExpenseCodingSuggestion";
+import {
+  expenseCodingSuggestQueryKey,
+  useExpenseCodingSuggestion,
+} from "./useExpenseCodingSuggestion";
 import ExpenseLineCodingSuggestionChip from "./ExpenseLineCodingSuggestionChip";
 import { expenseHasEmptyCodingField } from "./expenseCodingSuggestion";
 
@@ -653,6 +656,7 @@ export default function ExpenseEdit() {
 
       if (!linesNeedSync) {
         autoSaveArmedRef.current = true;
+        void queryClient.invalidateQueries({ queryKey: expenseCodingSuggestQueryKey(id) });
         return true;
       }
 
@@ -716,6 +720,7 @@ export default function ExpenseEdit() {
         }
       }
       autoSaveArmedRef.current = true;
+      void queryClient.invalidateQueries({ queryKey: expenseCodingSuggestQueryKey(id) });
       return true;
     } catch (err: unknown) {
       autoSaveArmedRef.current = false;

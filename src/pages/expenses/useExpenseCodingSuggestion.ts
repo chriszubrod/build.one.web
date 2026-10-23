@@ -1,7 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { post } from "../../api/client";
+import { EXPENSE_CODING_SUGGEST_KEY_PREFIX } from "../../persistPolicy";
 import type { ExpenseCodingSuggestResponse } from "../../types/api";
 import { expenseCodingSuggestPath } from "./expenseCodingSuggestion";
+
+export function expenseCodingSuggestQueryKey(expensePublicId: string | undefined) {
+  return [EXPENSE_CODING_SUGGEST_KEY_PREFIX, expensePublicId] as const;
+}
 
 /** Mirrors `can_update` on PUT `/api/v1/update/expense/{public_id}` (ExpenseEdit save path). */
 export async function fetchExpenseCodingSuggest(
@@ -11,7 +16,7 @@ export async function fetchExpenseCodingSuggest(
     return await post<ExpenseCodingSuggestResponse>(expenseCodingSuggestPath(expensePublicId), {});
   } catch (err) {
     console.error("Expense coding suggest failed", err);
-    return null;
+    throw err;
   }
 }
 
@@ -26,7 +31,7 @@ export function useExpenseCodingSuggestion({
   enabled,
 }: UseExpenseCodingSuggestionParams) {
   return useQuery({
-    queryKey: ["expense-coding-suggest", expensePublicId],
+    queryKey: expenseCodingSuggestQueryKey(expensePublicId),
     queryFn: () => fetchExpenseCodingSuggest(expensePublicId!),
     enabled: Boolean(expensePublicId && enabled),
     staleTime: Infinity,

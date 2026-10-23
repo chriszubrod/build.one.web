@@ -913,7 +913,18 @@ export interface ExpenseCodingSuggestResponse {
   sub_cost_code: ExpenseCodingSuggestSubCostCode | null;
   project: ExpenseCodingSuggestProject | null;
   confidence: number | null;
+  /** Live budget check for the suggested SCC; omitted on older API builds. */
+  budget?: ExpenseCodingBudgetPayload | null;
 }
+
+export type ExpenseCodingBudgetPayload = {
+  check: Exclude<BillCodingBudgetCheck, null>;
+  remaining: string | null;
+  /** Project the budget check was evaluated against; null for no_project. */
+  project_id: number | null;
+};
+
+export type ExpenseCodingBudget = ExpenseCodingBudgetPayload | null | undefined;
 
 export interface Expense {
   id: number;

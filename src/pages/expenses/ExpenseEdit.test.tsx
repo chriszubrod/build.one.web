@@ -191,6 +191,9 @@ const SUB_COST_CODES_PATH = "/api/v1/get/sub-cost-codes";
 const PROJECTS_PATH = "/api/v1/get/projects";
 const VENDORS_PATH = "/api/v1/get/vendors";
 const PROJECT_144_PUBLIC_ID = "11111111-2222-3333-4444-555555555555";
+const EXPENSE_SUGGEST_BUDGET_PROJECT = {
+  project_id: 144,
+} as const;
 const REVIEW_SUBMIT_PATH = "/api/v1/submit/review/expense/exp-1";
 const EXPENSE_DELETE_PATH = "/api/v1/delete/expense/exp-1";
 
@@ -3972,6 +3975,455 @@ describe("ExpenseEdit coding suggestions (U-715)", () => {
     );
 
     expect(mockPut.mock.calls).toHaveLength(0);
+  });
+
+  describe("budget chip on SCC suggestion (U-719b)", () => {
+    it("shows Within budget beside memo_shorthand SCC when budget fits", async () => {
+      emptyCodingLineMocks({
+        status: "suggested",
+        sub_cost_code: {
+          id: 21,
+          source: "memo_shorthand",
+          confidence: 0.9,
+          reason: "Memo shorthand",
+        },
+        project: null,
+        confidence: 0.9,
+        budget: { check: "fits", remaining: "500.00", ...EXPENSE_SUGGEST_BUDGET_PROJECT },
+      });
+
+      renderExpenseEdit(root);
+      await waitForCodingSuggestUi();
+      await flushUntilHard(
+        () => container.querySelector(".coding-budget-fits") !== null,
+        "budget fits chip",
+      );
+      expect(container.textContent).toContain("Within budget");
+    });
+
+    it("formats tight remaining as USD beside the suggestion chip", async () => {
+      emptyCodingLineMocks({
+        status: "suggested",
+        sub_cost_code: {
+          id: 21,
+          source: "memo_shorthand",
+          confidence: 0.9,
+          reason: "Memo shorthand",
+        },
+        project: null,
+        confidence: 0.9,
+        budget: { check: "tight", remaining: "1234.56", ...EXPENSE_SUGGEST_BUDGET_PROJECT },
+      });
+
+      renderExpenseEdit(root);
+      await waitForCodingSuggestUi();
+      await flushUntilHard(
+        () => container.querySelector(".coding-budget-tight") !== null,
+        "budget tight chip",
+      );
+      expect(container.textContent).toContain("Tight: $1,234.56 left");
+    });
+
+    it("shows no budget chip when check is no_budget", async () => {
+      emptyCodingLineMocks({
+        status: "suggested",
+        sub_cost_code: {
+          id: 21,
+          source: "memo_shorthand",
+          confidence: 0.9,
+          reason: "Memo shorthand",
+        },
+        project: null,
+        confidence: 0.9,
+        budget: {
+          check: "no_budget",
+          remaining: null,
+          project_id: null,
+        },
+      });
+
+      renderExpenseEdit(root);
+      await waitForCodingSuggestUi();
+      await flushUntilHard(
+        () => container.querySelector(".status-badge.coding-suggested") !== null,
+        "SCC suggestion visible",
+      );
+      expect(container.querySelector("[class*='coding-budget-']")).toBeNull();
+    });
+
+    it("shows Over by with positive USD and no minus sign when budget is over", async () => {
+      emptyCodingLineMocks({
+        status: "suggested",
+        sub_cost_code: {
+          id: 21,
+          source: "memo_shorthand",
+          confidence: 0.9,
+          reason: "Memo shorthand",
+        },
+        project: null,
+        confidence: 0.9,
+        budget: { check: "over", remaining: "-50.00", ...EXPENSE_SUGGEST_BUDGET_PROJECT },
+      });
+
+      renderExpenseEdit(root);
+      await waitForCodingSuggestUi();
+      await flushUntilHard(
+        () => container.querySelector(".coding-budget-over") !== null,
+        "budget over chip",
+      );
+      expect(container.textContent).toContain("Over by $50.00");
+      expect(container.textContent).not.toMatch(/Over by\s-\$/);
+    });
+
+    it("shows No budget line when check is unbudgeted", async () => {
+      emptyCodingLineMocks({
+        status: "suggested",
+        sub_cost_code: {
+          id: 21,
+          source: "memo_shorthand",
+          confidence: 0.9,
+          reason: "Memo shorthand",
+        },
+        project: null,
+        confidence: 0.9,
+        budget: { check: "unbudgeted", remaining: null, ...EXPENSE_SUGGEST_BUDGET_PROJECT },
+      });
+
+      renderExpenseEdit(root);
+      await waitForCodingSuggestUi();
+      await flushUntilHard(
+        () => container.querySelector(".coding-budget-none") !== null,
+        "unbudgeted chip",
+      );
+      expect(container.textContent).toContain("No budget line");
+    });
+
+    it("shows budget beside vendor_history SCC the same as memo_shorthand", async () => {
+      emptyCodingLineMocks({
+        status: "suggested",
+        sub_cost_code: {
+          id: 21,
+          source: "vendor_history",
+          confidence: 0.72,
+          reason: "Vendor pattern",
+        },
+        project: null,
+        confidence: 0.72,
+        budget: { check: "fits", remaining: "200.00", ...EXPENSE_SUGGEST_BUDGET_PROJECT },
+      });
+
+      renderExpenseEdit(root);
+      await waitForCodingSuggestUi();
+      await flushUntilHard(
+        () => container.querySelector(".expense-coding-vendor-hint") !== null,
+        "vendor hint",
+      );
+      expect(container.querySelector(".coding-budget-fits")).not.toBeNull();
+      expect(container.textContent).toContain("Within budget");
+      expect(container.querySelector(".expense-coding-vendor-hint")?.className).toContain(
+        "coding-suggestion-actions",
+      );
+    });
+
+    it("hides budget chip on a line whose project differs from budget.project_id", async () => {
+      emptyCodingLineMocks({
+        status: "suggested",
+        sub_cost_code: {
+          id: 21,
+          source: "memo_shorthand",
+          confidence: 0.9,
+          reason: "Memo shorthand",
+        },
+        project: { id: 144, source: "memo_code", confidence: 0.9, reason: "HP2" },
+        confidence: 0.9,
+        budget: { check: "fits", remaining: "500.00", ...EXPENSE_SUGGEST_BUDGET_PROJECT },
+      });
+      mockGetList.mockImplementation((path: string) => {
+        const catalog = codingCatalogGetList(path);
+        if (catalog) return Promise.resolve(catalog);
+        if (path === SUB_COST_CODES_PATH) {
+          return Promise.resolve({
+            data: [{ id: 21, public_id: "scc-21", name: "Siding Material", number: "21.00" }],
+            count: 1,
+          });
+        }
+        if (path === PROJECTS_PATH) {
+          return Promise.resolve({
+            data: [
+              {
+                id: 144,
+                public_id: PROJECT_144_PUBLIC_ID,
+                name: "Main Street",
+                abbreviation: "HP2",
+              },
+              {
+                id: 999,
+                public_id: "p-999",
+                name: "Other",
+                abbreviation: "OTH",
+              },
+            ],
+            count: 2,
+          });
+        }
+        if (path === "/api/v1/get/expense_line_items/expense/1") {
+          return Promise.resolve({
+            data: [
+              expenseLineItemFixture("li-wrong-proj", "Wrong project", "50.00", {
+                sub_cost_code_id: null,
+                project_id: 999,
+              }),
+            ],
+            count: 1,
+          });
+        }
+        return Promise.reject(new Error(`unexpected getList: ${path}`));
+      });
+
+      renderExpenseEdit(root);
+      await waitForCodingSuggestUi();
+      await flushUntilHard(
+        () => container.querySelector(".status-badge.coding-suggested") !== null,
+        "SCC suggestion on mismatched project line",
+      );
+      expect(container.querySelector("[class*='coding-budget-']")).toBeNull();
+    });
+
+    it("shows budget chip when the line project matches the suggestion project", async () => {
+      emptyCodingLineMocks({
+        status: "suggested",
+        sub_cost_code: {
+          id: 21,
+          source: "memo_shorthand",
+          confidence: 0.9,
+          reason: "Memo shorthand",
+        },
+        project: { id: 144, source: "memo_code", confidence: 0.9, reason: "HP2" },
+        confidence: 0.9,
+        budget: { check: "fits", remaining: "500.00", ...EXPENSE_SUGGEST_BUDGET_PROJECT },
+      });
+      mockGetList.mockImplementation((path: string) => {
+        const catalog = codingCatalogGetList(path);
+        if (catalog) return Promise.resolve(catalog);
+        if (path === SUB_COST_CODES_PATH) {
+          return Promise.resolve({
+            data: [{ id: 21, public_id: "scc-21", name: "Siding Material", number: "21.00" }],
+            count: 1,
+          });
+        }
+        if (path === PROJECTS_PATH) {
+          return Promise.resolve({
+            data: [
+              {
+                id: 144,
+                public_id: PROJECT_144_PUBLIC_ID,
+                name: "Main Street",
+                abbreviation: "HP2",
+              },
+            ],
+            count: 1,
+          });
+        }
+        if (path === "/api/v1/get/expense_line_items/expense/1") {
+          return Promise.resolve({
+            data: [
+              expenseLineItemFixture("li-match-proj", "Matching project", "50.00", {
+                sub_cost_code_id: null,
+                project_id: 144,
+              }),
+            ],
+            count: 1,
+          });
+        }
+        return Promise.reject(new Error(`unexpected getList: ${path}`));
+      });
+
+      renderExpenseEdit(root);
+      await waitForCodingSuggestUi();
+      await flushUntilHard(
+        () => container.querySelector(".coding-budget-fits") !== null,
+        "budget chip on matching project line",
+      );
+    });
+
+    it("refetches coding suggest after a successful save when the query stays enabled", async () => {
+      let suggestCalls = 0;
+      const firstSuggest = {
+        status: "suggested",
+        sub_cost_code: {
+          id: 21,
+          source: "memo_shorthand",
+          confidence: 0.9,
+          reason: "Memo shorthand",
+        },
+        project: null,
+        confidence: 0.9,
+        budget: { check: "fits", remaining: "500.00", ...EXPENSE_SUGGEST_BUDGET_PROJECT },
+      };
+      const secondSuggest = {
+        ...firstSuggest,
+        budget: { check: "tight", remaining: "25.00", ...EXPENSE_SUGGEST_BUDGET_PROJECT },
+      };
+      emptyCodingLineMocks(firstSuggest);
+      mockPost.mockImplementation((path: string) => {
+        if (path === EXPENSE_CODING_SUGGEST_PATH) {
+          suggestCalls += 1;
+          return Promise.resolve(suggestCalls === 1 ? firstSuggest : secondSuggest);
+        }
+        if (path === REVIEW_SUBMIT_PATH) return Promise.resolve({});
+        return Promise.reject(new Error(`unexpected post: ${path}`));
+      });
+
+      renderExpenseEdit(root);
+      await waitForCodingSuggestUi();
+      await flushUntilHard(
+        () => container.querySelector(".coding-budget-fits") !== null,
+        "initial budget chip",
+      );
+      expect(suggestCalls).toBe(1);
+
+      const descriptionInput = inlineLineItemInputForValue(container, "Uncoded line");
+      await act(async () => {
+        setInputValue(descriptionInput, "Edited after first suggest");
+      });
+      await clickSave(container);
+      await flushUntilHard(
+        () => suggestCalls >= 2,
+        "second coding suggest POST after save",
+      );
+      await flushUntilHard(
+        () => container.querySelector(".coding-budget-tight") !== null,
+        "refetched tight budget chip",
+      );
+      expect(container.textContent).toContain("Tight: $25.00 left");
+    });
+
+    it("keeps the budget chip when a post-save coding suggest refetch fails", async () => {
+      let suggestCalls = 0;
+      const suggestBody = {
+        status: "suggested",
+        sub_cost_code: {
+          id: 21,
+          source: "memo_shorthand",
+          confidence: 0.9,
+          reason: "Memo shorthand",
+        },
+        project: null,
+        confidence: 0.9,
+        budget: { check: "fits", remaining: "500.00", ...EXPENSE_SUGGEST_BUDGET_PROJECT },
+      };
+      emptyCodingLineMocks(suggestBody);
+      mockPost.mockImplementation((path: string) => {
+        if (path === EXPENSE_CODING_SUGGEST_PATH) {
+          suggestCalls += 1;
+          if (suggestCalls === 1) return Promise.resolve(suggestBody);
+          return Promise.reject(new Error("suggest refetch failed"));
+        }
+        if (path === REVIEW_SUBMIT_PATH) return Promise.resolve({});
+        return Promise.reject(new Error(`unexpected post: ${path}`));
+      });
+
+      renderExpenseEdit(root);
+      await waitForCodingSuggestUi();
+      await flushUntilHard(
+        () => container.querySelector(".coding-budget-fits") !== null,
+        "initial budget chip",
+      );
+
+      const descriptionInput = inlineLineItemInputForValue(container, "Uncoded line");
+      await act(async () => {
+        setInputValue(descriptionInput, "Edited after first suggest");
+      });
+      await clickSave(container);
+      await flushUntilHard(() => suggestCalls >= 2, "failed coding suggest refetch after save");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+
+      expect(container.querySelector(".coding-budget-fits")).not.toBeNull();
+      expect(container.textContent).toContain("Within budget");
+    });
+
+    it("shows no budget chip when SCC is already filled on the line", async () => {
+      emptyCodingLineMocks({
+        status: "suggested",
+        sub_cost_code: {
+          id: 21,
+          source: "memo_shorthand",
+          confidence: 0.9,
+          reason: "Memo shorthand",
+        },
+        project: null,
+        confidence: 0.9,
+        budget: { check: "fits", remaining: "100.00", ...EXPENSE_SUGGEST_BUDGET_PROJECT },
+      });
+      mockGetList.mockImplementation((path: string) => {
+        const catalog = codingCatalogGetList(path);
+        if (catalog) return Promise.resolve(catalog);
+        if (path === SUB_COST_CODES_PATH) {
+          return Promise.resolve({
+            data: [{ id: 21, public_id: "scc-21", name: "Siding Material", number: "21.00" }],
+            count: 1,
+          });
+        }
+        if (path === PROJECTS_PATH) {
+          return Promise.resolve({
+            data: [
+              {
+                id: 144,
+                public_id: PROJECT_144_PUBLIC_ID,
+                name: "Main Street",
+                abbreviation: "HP2",
+              },
+            ],
+            count: 1,
+          });
+        }
+        if (path === "/api/v1/get/expense_line_items/expense/1") {
+          return Promise.resolve({
+            data: [
+              expenseLineItemFixture("li-empty", "Coded line", "50.00", {
+                sub_cost_code_id: 21,
+                project_id: null,
+              }),
+            ],
+            count: 1,
+          });
+        }
+        return Promise.reject(new Error(`unexpected getList: ${path}`));
+      });
+
+      renderExpenseEdit(root);
+      await waitForCodingSuggestUi();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      expect(mockPost.mock.calls.filter((c) => c[0] === EXPENSE_CODING_SUGGEST_PATH).length).toBe(1);
+      expect(container.querySelector("[class*='coding-budget-']")).toBeNull();
+      expect(container.querySelector(".status-badge.coding-suggested")).toBeNull();
+    });
+
+    it("tolerates suggest response without budget key", async () => {
+      emptyCodingLineMocks({
+        status: "suggested",
+        sub_cost_code: {
+          id: 21,
+          source: "memo_shorthand",
+          confidence: 0.9,
+          reason: "Memo shorthand",
+        },
+        project: null,
+        confidence: 0.9,
+      });
+
+      renderExpenseEdit(root);
+      await waitForCodingSuggestUi();
+      await flushUntilHard(
+        () => container.querySelector(".status-badge.coding-suggested") !== null,
+        "SCC chip without budget key",
+      );
+      expect(container.querySelector("[class*='coding-budget-']")).toBeNull();
+    });
   });
 });
 

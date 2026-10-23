@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
+  expenseBudgetChip,
   expenseHasEmptyCodingField,
   expenseLineProjectSuggestionLabel,
+  expenseLineShowsBudgetChip,
   expenseLineSccSuggestionLabel,
   memoCodingBadgeClassName,
 } from "./expenseCodingSuggestion";
@@ -62,6 +64,46 @@ describe("expenseCodingSuggestion", () => {
     });
     expect(expenseLineProjectSuggestionLabel(line, ok, projectCatalog)).toBe("HP2 — Main Street");
     expect(expenseLineProjectSuggestionLabel({ project_id: "144" }, ok, projectCatalog)).toBeNull();
+  });
+
+  it("expenseLineShowsBudgetChip uses budget.project_id from the server", () => {
+    const withBudget = suggest({
+      budget: {
+        check: "fits",
+        remaining: "1.00",
+        project_id: 144,
+      },
+    });
+    expect(expenseLineShowsBudgetChip({ project_id: "" }, withBudget)).toBe(true);
+    expect(expenseLineShowsBudgetChip({ project_id: "144" }, withBudget)).toBe(true);
+    expect(expenseLineShowsBudgetChip({ project_id: "999" }, withBudget)).toBe(false);
+
+    const noProjectBudget = suggest({
+      budget: {
+        check: "no_project",
+        remaining: null,
+        project_id: null,
+      },
+    });
+    expect(expenseLineShowsBudgetChip({ project_id: "" }, noProjectBudget)).toBe(false);
+    expect(expenseLineShowsBudgetChip({ project_id: "144" }, noProjectBudget)).toBe(false);
+  });
+
+  it("re-exports expenseBudgetChip for suggest budget payloads", () => {
+    expect(
+      expenseBudgetChip({
+        check: "fits",
+        remaining: "1.00",
+        project_id: 144,
+      })?.label,
+    ).toBe("Within budget");
+    expect(
+      expenseBudgetChip({
+        check: "no_budget",
+        remaining: null,
+        project_id: null,
+      }),
+    ).toBeNull();
   });
 
   it("emphasizes high confidence badges at >= 0.85", () => {
