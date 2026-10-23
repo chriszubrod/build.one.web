@@ -8,12 +8,44 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { setInputValue } from "../../__testutils__/domEvents";
+import { flushUntil } from "../../__testutils__/flush";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
+import { Modules } from "../../shared/modules";
+import { makeModule, makeUserWithModules } from "../../__testutils__/currentUser";
+import type { CurrentUser } from "../../types/api";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const listHarness = vi.hoisted(() => {
+  const adminUser: CurrentUser = {
+    is_admin: true,
+    modules: [],
+    auth: { public_id: "a", username: "admin" },
+    user: { id: 1, public_id: "u", firstname: "A", lastname: "D" },
+    role: null,
+    accessible_project_ids: [],
+  };
+  return {
+    mockReload: vi.fn(),
+    currentUser: adminUser,
+    adminUser,
+  };
+});
+
+const mockUploadFile = vi.fn();
+const mockPost = vi.fn();
+
+vi.mock("../../api/client", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../../api/client")>();
+  return {
+    ...mod,
+    uploadFile: (...args: unknown[]) => mockUploadFile(...args),
+    post: (...args: unknown[]) => mockPost(...args),
+  };
+});
 
 /** Every URL ExpenseList asked usePaginatedList for, in order. */
 const requestedUrls: string[] = [];
@@ -24,6 +56,7 @@ let mockTotal = 0;
 let mockSearch = "";
 let mockLoading = false;
 let mockRefreshing = false;
+let mockError = "";
 let mockPage = 1;
 const setSearchSpy = vi.fn();
 const setPageSpy = vi.fn();
@@ -33,9 +66,9 @@ vi.mock("../../hooks/usePaginatedList", () => ({
     requestedUrls.push(url);
     return {
       items: mockItems, total: mockTotal, page: mockPage, pageSize: 50,
-      totalPages: 1, loading: mockLoading, refreshing: mockRefreshing, error: "",
+      totalPages: 1, loading: mockLoading, refreshing: mockRefreshing, error: mockError,
       setPage: setPageSpy, setSearch: setSearchSpy, search: mockSearch,
-      reload: vi.fn(),
+      reload: listHarness.mockReload,
     };
   },
 }));
@@ -46,36 +79,44 @@ vi.mock("../../hooks/useIdNameMap", () => ({
 
 vi.mock("../../hooks/useCurrentUser", () => ({
   useCurrentUser: () => ({
-    data: {
-      is_admin: true,
-      modules: [],
-      auth: { public_id: "a", username: "admin" },
-      user: { id: 1, public_id: "u", firstname: "A", lastname: "D" },
-      role: null,
-      accessible_project_ids: [],
-    },
+    data: listHarness.currentUser,
     isLoading: false,
   }),
 }));
 
 let lastContainer: HTMLDivElement;
 let lastRoot: Root | null = null;
+let lastMountPath = "/expense/list";
+let listQueryClient: QueryClient;
 
 async function mountAt(path: string): Promise<Root> {
+  lastMountPath = path;
   const { default: ExpenseList } = await import("./ExpenseList");
   const container = document.createElement("div");
   lastContainer = container;
   document.body.appendChild(container);
   const root = createRoot(container);
   lastRoot = root;
+  listQueryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await act(async () => {
     root.render(
-      createElement(QueryClientProvider, { client: new QueryClient() },
+      createElement(QueryClientProvider, { client: listQueryClient },
         createElement(MemoryRouter, { initialEntries: [path] },
           createElement(ExpenseList))),
     );
   });
   return root;
+}
+
+async function rerenderList(): Promise<void> {
+  const { default: ExpenseList } = await import("./ExpenseList");
+  await act(async () => {
+    lastRoot!.render(
+      createElement(QueryClientProvider, { client: listQueryClient },
+        createElement(MemoryRouter, { initialEntries: [lastMountPath] },
+          createElement(ExpenseList))),
+    );
+  });
 }
 
 describe("ExpenseList status tabs reach the API (U-470)", () => {
@@ -86,7 +127,10 @@ describe("ExpenseList status tabs reach the API (U-470)", () => {
     mockSearch = "";
     mockLoading = false;
     mockRefreshing = false;
+    mockError = "";
     mockPage = 1;
+    listHarness.mockReload.mockClear();
+    listHarness.currentUser = listHarness.adminUser;
     setSearchSpy.mockClear();
     setPageSpy.mockClear();
   });
@@ -370,5 +414,117 @@ describe("ExpenseList status tabs reach the API (U-470)", () => {
     const clear = Array.from(lastContainer.querySelectorAll("button"))
       .find((b) => b.textContent === "Clear") as HTMLButtonElement;
     expect(clear.disabled).toBe(true);
+  });
+});
+
+describe("ExpenseList receipt match panel (U-716b)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    requestedUrls.length = 0;
+    mockItems = [{ public_id: "e1", vendor_id: 10, is_draft: true, status: "draft", is_credit: false }];
+    mockTotal = 1;
+    mockSearch = "";
+    mockLoading = false;
+    mockRefreshing = false;
+    mockError = "";
+    mockPage = 1;
+    listHarness.mockReload.mockClear();
+    listHarness.currentUser = listHarness.adminUser;
+    mockUploadFile.mockImplementation(async (_path: string, file: File) => ({
+      public_id: `att-${file.name}`,
+    }));
+    mockPost.mockImplementation(async (path: string) => {
+      if (path === "/api/v1/expense/read-receipt") {
+        return {
+          status: "matched",
+          message: null,
+          fields: {
+            vendor_name: "Acme Supply",
+            expense_date: "2026-03-15",
+            total_amount: "42.50",
+            vendor_public_id: null,
+            reference_number: null,
+          },
+          candidates: [
+            {
+              public_id: "exp-c1",
+              vendor_name: "Acme Supply",
+              expense_date: "2026-03-15",
+              total_amount: "42.50",
+              reference_number: null,
+              is_draft: true,
+              status: "draft",
+              is_completed: false,
+              vendor_matches: true,
+              days_apart: 0,
+            },
+          ],
+        };
+      }
+      return {
+        expense_public_id: "exp-c1",
+        expense_line_item_public_id: "line-1",
+        attachment_public_id: "att-r.pdf",
+      };
+    });
+  });
+
+  afterEach(async () => {
+    if (lastRoot) {
+      await act(async () => { lastRoot!.unmount(); });
+      lastRoot = null;
+    }
+    lastContainer?.remove();
+    vi.useRealTimers();
+  });
+
+  async function enqueueReceiptPdf() {
+    const fileInput = lastContainer.querySelector(".drop-zone input[type='file']") as HTMLInputElement;
+    const file = new File(["p"], "r.pdf", { type: "application/pdf" });
+    Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
+    await act(async () => {
+      fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await flushUntil(() => lastContainer.querySelector(".receipt-match-candidate") !== null);
+  }
+
+  it("shows the drop zone with can_update and hides it with can_create only", async () => {
+    await mountAt("/expense/list?status=draft");
+    expect(lastContainer.querySelector(".drop-zone")).not.toBeNull();
+
+    listHarness.currentUser = makeUserWithModules([
+      makeModule(Modules.EXPENSES, { can_read: true, can_create: true, can_update: false }),
+    ]);
+    await rerenderList();
+    expect(lastContainer.querySelector(".drop-zone")).toBeNull();
+  });
+
+  it("keeps receipt match rows visible while the list is loading or in error", async () => {
+    await mountAt("/expense/list?status=draft");
+    await enqueueReceiptPdf();
+    expect(lastContainer.textContent).toContain("Acme Supply");
+
+    mockLoading = true;
+    await rerenderList();
+    expect(lastContainer.textContent).toContain("Loading");
+    expect(lastContainer.querySelector(".receipt-match-candidate")).not.toBeNull();
+
+    mockLoading = false;
+    mockError = "Could not load expenses";
+    await rerenderList();
+    expect(lastContainer.textContent).toContain("Could not load expenses");
+    expect(lastContainer.querySelector(".receipt-match-candidate")).not.toBeNull();
+  });
+
+  it("calls the list reload after a successful Attach", async () => {
+    await mountAt("/expense/list?status=draft");
+    await enqueueReceiptPdf();
+    const attach = lastContainer.querySelector(".receipt-match-candidate button") as HTMLButtonElement;
+    await act(async () => {
+      attach.click();
+    });
+    await flushUntil(() => listHarness.mockReload.mock.calls.length > 0);
+    expect(listHarness.mockReload).toHaveBeenCalled();
   });
 });

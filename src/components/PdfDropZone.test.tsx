@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import PdfDropZone, { isPdfFile } from "./PdfDropZone";
+import { withInferredReceiptType } from "./receiptFileTypes";
 import { dispatchDrop } from "../__testutils__/domEvents";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -175,5 +176,50 @@ describe("PdfDropZone", () => {
       dispatchDrop(h.zone(), [pdf]);
     });
     expect(h.onSelect).not.toHaveBeenCalled();
+  });
+
+  it("default still rejects an image", () => {
+    const h = renderZone();
+    const png = new File(["x"], "receipt.png", { type: "image/png" });
+    act(() => {
+      dispatchDrop(h.zone(), [png]);
+    });
+    expect(h.onSelect).toHaveBeenCalledWith([], [png], "drop");
+  });
+
+  it("allowImages accepts PNG, JPEG, HEIC, HEIF, TIFF, and PDF and rejects other types", () => {
+    const h = renderZone({ allowImages: true, multiple: true });
+    const pdf = new File(["p"], "a.pdf", { type: "application/pdf" });
+    const png = new File(["x"], "r.png", { type: "image/png" });
+    const jpg = new File(["x"], "r.jpg", { type: "image/jpeg" });
+    const heic = new File(["x"], "photo.heic", { type: "image/heic" });
+    const heif = new File(["x"], "photo.heif", { type: "image/heif" });
+    const tiff = new File(["x"], "scan.tiff", { type: "image/tiff" });
+    const heicByExt = new File(["x"], "iphone.heic", { type: "" });
+    const webp = new File(["x"], "x.webp", { type: "image/webp" });
+    const gif = new File(["x"], "x.gif", { type: "image/gif" });
+    const txt = new File(["t"], "n.txt", { type: "text/plain" });
+    act(() => {
+      dispatchDrop(h.zone(), [pdf, png, jpg, heic, heif, tiff, heicByExt, webp, gif, txt]);
+    });
+    expect(h.onSelect).toHaveBeenCalledWith(
+      [pdf, png, jpg, heic, heif, tiff, heicByExt],
+      [webp, gif, txt],
+      "drop",
+    );
+  });
+});
+
+describe("withInferredReceiptType (U-716b)", () => {
+  it("types an untyped HEIC photo from its extension", () => {
+    const f = new File(["x"], "IMG_0001.HEIC", { type: "" });
+    expect(withInferredReceiptType(f).type).toBe("image/heic");
+    expect(withInferredReceiptType(f).name).toBe("IMG_0001.HEIC");
+  });
+  it("leaves a typed file and an unknown extension unchanged", () => {
+    const typed = new File(["x"], "r.png", { type: "image/png" });
+    expect(withInferredReceiptType(typed)).toBe(typed);
+    const unknown = new File(["x"], "r.bin", { type: "" });
+    expect(withInferredReceiptType(unknown)).toBe(unknown);
   });
 });

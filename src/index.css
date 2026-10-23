@@ -700,6 +700,118 @@ body {
   font-weight: 600;
 }
 
+/* Expense receipt match panel (U-716b) */
+.receipt-match-panel {
+  margin-bottom: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.receipt-match-row {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-md);
+  background: var(--color-surface);
+}
+
+.receipt-match-row-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.receipt-match-row-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.receipt-match-filename {
+  font-weight: 600;
+  font-size: var(--font-size-body);
+  word-break: break-word;
+}
+
+.receipt-match-phase {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.receipt-match-dismiss {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0 var(--space-xs);
+}
+
+.receipt-match-dismiss:hover {
+  color: var(--color-text);
+}
+
+.receipt-match-fields {
+  font-size: var(--font-size-footnote);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-sm);
+}
+
+.receipt-match-result {
+  font-size: var(--font-size-footnote);
+  color: var(--color-text);
+  margin: 0;
+}
+
+.receipt-match-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.receipt-match-candidate {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-sm);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+}
+
+.receipt-match-candidate-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.receipt-match-candidate-vendor {
+  font-weight: 500;
+}
+
+.receipt-match-candidate-meta {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.receipt-match-candidate-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
+.receipt-match-hint {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
 /* Pagination */
 .pagination {
   display: flex;

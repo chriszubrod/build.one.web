@@ -4,6 +4,7 @@ import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { hasExpensePermission } from "./expensePermissions";
+import ExpenseReceiptMatch from "./ExpenseReceiptMatch";
 import Pagination from "../../components/Pagination";
 import PageHeader from "../../components/PageHeader";
 import SegmentedControl from "../../components/ui/SegmentedControl";
@@ -26,24 +27,11 @@ import {
   expenseStatus,
   expenseStatusBadgeClass,
 } from "./expenseLifecycle";
-
-function fmtMoney(v: string | null): string {
-  if (v === null || v === undefined || v === "") return "$0.00";
-  const n = Number(v);
-  if (isNaN(n)) return "$0.00";
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
-}
+import { fmtDate, fmtMoney } from "./expenseFormat";
 
 /** Card tile initials, same rule LaborList uses for its worker names. */
 function abbrev(name: string): string {
   return name.replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase() || "—";
-}
-
-function fmtDate(v: string | null): string {
-  if (!v) return "";
-  const d = new Date(v);
-  if (isNaN(d.getTime())) return v;
-  return d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
 }
 
 export default function ExpenseList() {
@@ -117,15 +105,13 @@ export default function ExpenseList() {
   };
 
   const vendorMap = useIdNameMap<Vendor>("/api/v1/get/vendors", (v) => v.name);
-
-  if (loading && page === 1 && !search) return <div className="page-loading">Loading...</div>;
-  if (error) return <div className="page-error">{error}</div>;
+  const listReady = !loading && !error;
 
   return (
     <div className="page">
       <PageHeader
         title="Expenses"
-        count={total}
+        count={listReady ? total : undefined}
         createPath={hasExpensePermission(me, "can_create") ? "/expense/create" : undefined}
       >
         <button
@@ -143,6 +129,11 @@ export default function ExpenseList() {
         options={STATUS_TABS}
         value={statusFilter}
         onChange={(next) => { setParam("status", next); setPage(1); }}
+      />
+
+      <ExpenseReceiptMatch
+        canUpdate={hasExpensePermission(me, "can_update")}
+        onListRefresh={reload}
       />
 
       {/* Search and the date bounds are applied SERVER-SIDE. Narrowing a page
@@ -196,12 +187,17 @@ export default function ExpenseList() {
 
       <div className="section-label-prose list-meta">
         <span>{SECTION_LABEL[statusFilter]}</span>
-        {hasActiveFilters && total > 0 && (
+        {listReady && hasActiveFilters && total > 0 && (
           <span className="list-count">
             {items.length} of {total.toLocaleString()}
           </span>
         )}
       </div>
+
+      {/* Receipt panel stays mounted through list loading/error (U-716b F1) — no full-page early returns. */}
+      {error && (
+        <div className="page-error">{error}</div>
+      )}
 
       {/* Gated on `loading`, like BillList. usePaginatedList keeps
           `staleWhileRevalidate` items on a cache MISS — it sets loading but
@@ -213,13 +209,13 @@ export default function ExpenseList() {
         </div>
       )}
 
-      {!loading && items.length === 0 && (
+      {listReady && items.length === 0 && (
         <div className="page-loading" style={{ padding: "var(--space-xl) 0" }}>
           {hasActiveFilters ? NO_MATCH_COPY : EMPTY_COPY[statusFilter]}
         </div>
       )}
 
-      {!loading && items.map((expense) => {
+      {listReady && items.map((expense) => {
         const vendor = vendorMap.get(expense.vendor_id) ?? "";
         const status = expenseStatus(expense);
         const statusLabel = EXPENSE_STATUS_LABELS[status] ?? status;
@@ -258,13 +254,15 @@ export default function ExpenseList() {
         );
       })}
 
-      <Pagination
-        page={page}
-        totalPages={totalPages}
-        total={total}
-        pageSize={pageSize}
-        onPageChange={setPage}
-      />
+      {listReady && (
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          pageSize={pageSize}
+          onPageChange={setPage}
+        />
+      )}
     </div>
   );
 }

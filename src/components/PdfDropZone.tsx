@@ -1,5 +1,7 @@
 import { useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
+import { isReceiptImageFile, RECEIPT_IMAGE_ACCEPT } from "./receiptFileTypes";
 
+// eslint-disable-next-line react-refresh/only-export-components -- shared with BillList and tests
 export function isPdfFile(file: File): boolean {
   return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 }
@@ -12,8 +14,12 @@ export interface PdfDropZoneProps {
   /** When true, drag/drop and browse are ignored. */
   disabled?: boolean;
   accept?: string;
+  /** When true, PDF, PNG, JPEG, HEIC, HEIF, and TIFF receipts are accepted (default false). */
+  allowImages?: boolean;
   children?: ReactNode;
 }
+
+const DEFAULT_ACCEPT = "application/pdf,.pdf";
 
 export default function PdfDropZone({
   icon,
@@ -21,9 +27,12 @@ export default function PdfDropZone({
   onSelect,
   multiple = false,
   disabled = false,
-  accept = "application/pdf,.pdf",
+  accept,
+  allowImages = false,
   children,
 }: PdfDropZoneProps) {
+  const resolvedAccept =
+    accept ?? (allowImages ? `${DEFAULT_ACCEPT},${RECEIPT_IMAGE_ACCEPT}` : DEFAULT_ACCEPT);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -33,7 +42,7 @@ export default function PdfDropZone({
     const accepted: File[] = [];
     const rejected: File[] = [];
     for (const f of files) {
-      if (isPdfFile(f)) accepted.push(f);
+      if (isPdfFile(f) || (allowImages && isReceiptImageFile(f))) accepted.push(f);
       else rejected.push(f);
     }
     return { accepted, rejected };
@@ -98,7 +107,7 @@ export default function PdfDropZone({
         ref={fileInputRef}
         type="file"
         multiple={multiple || undefined}
-        accept={accept}
+        accept={resolvedAccept}
         style={{ display: "none" }}
         onChange={handleFileInput}
         disabled={disabled}

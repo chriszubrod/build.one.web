@@ -1,6 +1,10 @@
 import { defineConfig } from "vitest/config";
 import path from "node:path";
 
+// Pin a US time zone so date-only formatting bugs (UTC midnight shown as the
+// previous day) go red on every machine, not only on a US-zoned laptop.
+process.env.TZ = "America/Chicago";
+
 export default defineConfig({
   resolve: {
     alias: {
