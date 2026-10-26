@@ -1,3 +1,8 @@
+## U-731b follow-ups (booked 2026-10-26)
+
+- [ ] **Stale-snapshot race on New Bill** (pre-existing, now also reaches line 1): applyPendingReadResult computes lines from linesRef.current and calls setLines(value); a vendor-history setLines(updater) queued in the same batch can be overwritten -> line 1 left empty when the read had no mappable SCC. Apply the read through a functional setLines(prev => ...).
+
+
 ## U-719 / U-720 follow-ups (booked 2026-10-23, shipped `1846fd0` + `9fefd3b`)
 
 - [ ] **Bill coding suggestion persistence** — U-719 stopped persisting the EXPENSE suggestion (live budget reading). Check whether the bill suggestion/budget chip query is persisted to IndexedDB too; if so, exclude it the same way (`persistPolicy.ts`).
