@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   applySuggestionToLines,
   billLevelBudgetChip,
@@ -35,10 +35,6 @@ export interface UseBillCodingSuggestionParams<
   textSuggestionPoll?: boolean;
   /** Parent increments when the user edits a line — stops text polling. */
   lineUserEditEpoch?: number;
-  /** While a PDF is attached on BillCreate, line 1 is filled from the file read only. */
-  pdfAttached?: boolean;
-  /** When set, applied on response arrival (avoids stale pdfAttached from in-flight requests). */
-  pdfAttachedRef?: RefObject<boolean>;
 }
 
 function applySuggestionResponse<T extends LineCodingFields & { amount?: string | null }>(
@@ -48,13 +44,8 @@ function applySuggestionResponse<T extends LineCodingFields & { amount?: string 
   catalog: SccCatalogEntry[],
   setLines: (updater: (prev: T[]) => T[]) => void,
   setBudgetSnapshot: (v: BillCodingBudgetSnapshot | null) => void,
-  pdfAttached: boolean,
 ): void {
-  setLines((prev) =>
-    applySuggestionToLines(prev, suggestion, catalog, {
-      ...(pdfAttached ? { excludeLineIndexes: [0] } : {}),
-    }),
-  );
+  setLines((prev) => applySuggestionToLines(prev, suggestion, catalog));
 
   const check = suggestion?.budget_check;
   const responseProject = suggestion?.project_public_id ?? "";
@@ -98,12 +89,7 @@ export function useBillCodingSuggestion<
   setLines,
   textSuggestionPoll = false,
   lineUserEditEpoch = 0,
-  pdfAttached = false,
-  pdfAttachedRef,
 }: UseBillCodingSuggestionParams<T>) {
-  const pdfAttachedRefBox = pdfAttachedRef;
-  const pdfAttachedProp = pdfAttached;
-  const pdfAttachedNow = () => pdfAttachedRefBox?.current ?? pdfAttachedProp;
   const [budgetSnapshot, setBudgetSnapshot] = useState<BillCodingBudgetSnapshot | null>(null);
   const lastFiredRequestKeyRef = useRef<string | null>(null);
   const inFlightRequestKeyRef = useRef<string | null>(null);
@@ -228,7 +214,6 @@ export function useBillCodingSuggestion<
           catalog,
           setLines,
           setBudgetSnapshot,
-          pdfAttachedNow(),
         );
 
         if (
@@ -262,7 +247,6 @@ export function useBillCodingSuggestion<
     sccCatalog.length,
     setLines,
     textSuggestionPoll,
-    pdfAttached,
   ]);
 
   // Stop polling as soon as the user edits a line or inputs move off the polled key.
@@ -308,7 +292,6 @@ export function useBillCodingSuggestion<
             sccCatalogRef.current,
             setLines,
             setBudgetSnapshot,
-            pdfAttachedNow(),
           );
           if (suggestion.text_status !== "pending") setTextPollSession(null);
         } finally {

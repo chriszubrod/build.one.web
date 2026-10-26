@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, useState } from "react";
 import { renderHook, drain } from "../../hooks/__testutils__/renderHook";
 import { useBillCodingSuggestion } from "./useBillCodingSuggestion";
-import type { LineCodingFields } from "./codingSuggestion";
+import { type LineCodingFields } from "./codingSuggestion";
 
 const mockSuggestCoding = vi.fn();
 
@@ -51,7 +51,6 @@ function Harness(props: {
   textSuggestionPoll?: boolean;
   lineUserEditEpoch?: number;
   bill_public_id?: string;
-  pdfAttached?: boolean;
 }) {
   const [lines, setLines] = useState(props.initialLines);
   const [memo, setMemo] = useState(props.memo ?? "memo");
@@ -75,7 +74,6 @@ function Harness(props: {
     textSuggestionPoll: props.textSuggestionPoll,
     lineUserEditEpoch: props.lineUserEditEpoch,
     bill_public_id: props.bill_public_id,
-    pdfAttached: props.pdfAttached,
   });
 
   return {
@@ -486,7 +484,7 @@ describe("useBillCodingSuggestion", () => {
       expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
     });
 
-    it("does not fill line 1 while pdfAttached", async () => {
+    it("U-731b fills line 1 from vendor history (same rule as Bill Edit; pdfAttached exclusion removed)", async () => {
       mockSuggestCoding.mockResolvedValue(resp());
       const h = renderHarness({
         initialLines: [
@@ -494,14 +492,35 @@ describe("useBillCodingSuggestion", () => {
           line({ uid: "b", project_public_id: "p-1", amount: "50.00" }),
         ],
         debouncedAmount: "150.00",
-        pdfAttached: true,
       });
       await tick();
-      expect(h.result.current.lines[0].sub_cost_code_id).toBe("");
+      expect(h.result.current.lines[0].sub_cost_code_id).toBe("10");
       expect(h.result.current.lines[1].sub_cost_code_id).toBe("10");
     });
 
-    it("does not fill line 1 when a PDF is attached before an in-flight suggest response lands", async () => {
+    it("U-731b does not overwrite file-origin prefilled coding when vendor history arrives later", async () => {
+      mockSuggestCoding.mockResolvedValue(resp());
+      const h = renderHarness({
+        initialLines: [
+          line({
+            uid: "a",
+            project_public_id: "p-file",
+            sub_cost_code_id: "20",
+            amount: "100.00",
+            coding_suggested_sub_cost_code_id: "20",
+            coding_prefill_state: "prefilled",
+            coding_prefill_origin: "file",
+            coding_suggestion_source: "llm",
+          }),
+        ],
+        debouncedAmount: "100.00",
+      });
+      await tick();
+      expect(h.result.current.lines[0].sub_cost_code_id).toBe("20");
+      expect(h.result.current.lines[0].coding_prefill_origin).toBe("file");
+    });
+
+    it("U-731b in-flight vendor history still fills line 1 when response lands", async () => {
       let resolveSuggest!: (v: ReturnType<typeof resp>) => void;
       mockSuggestCoding.mockImplementationOnce(
         () =>
@@ -509,35 +528,17 @@ describe("useBillCodingSuggestion", () => {
             resolveSuggest = resolve;
           }),
       );
-      const pdfRef = { current: false };
-      function RefHarness() {
-        const [lines, setLines] = useState([
-          line({ uid: "a", project_public_id: "p-1", amount: "100.00" }),
-        ]);
-        useBillCodingSuggestion({
-          enabled: true,
-          vendor_public_id: "v-1",
-          memo: "m",
-          debouncedMemo: "m",
-          debouncedAmount: "100.00",
-          projectHintForSuggest: undefined,
-          lines,
-          sccCatalog: catalog,
-          setLines,
-          pdfAttached: false,
-          pdfAttachedRef: pdfRef,
-        });
-        return { lines };
-      }
-      const h = renderHook(() => RefHarness());
+      const h = renderHarness({
+        initialLines: [line({ uid: "a", project_public_id: "p-1", amount: "100.00" })],
+        debouncedAmount: "100.00",
+      });
       await tick();
-      pdfRef.current = true;
       await act(async () => {
         resolveSuggest(resp());
         await drain();
       });
       await tick();
-      expect(h.result.current.lines[0].sub_cost_code_id).toBe("");
+      expect(h.result.current.lines[0].sub_cost_code_id).toBe("10");
     });
 
     it("stops polling on unmount", async () => {

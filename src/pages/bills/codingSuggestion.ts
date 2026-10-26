@@ -404,8 +404,6 @@ export function suggestedSccOptionIdFromResponse(
 export interface ApplySuggestionToLinesOptions {
   /** When set, only this row index is eligible for fills (e.g. PDF read → line 1 only). */
   onlyLineIndex?: number;
-  /** Skip these row indices (e.g. line 1 while a PDF is attached). */
-  excludeLineIndexes?: number[];
   /** Marks prefills from a PDF read — blocks later LLM refresh of untouched cells. */
   prefillOrigin?: "file";
   /** PDF read path: fill only empty cells — never refresh an existing suggestion value. */
@@ -481,9 +479,6 @@ export function applySuggestionToLines<
 
   let changed = false;
   const mapped = lines.map((line, index) => {
-    if (options?.excludeLineIndexes?.includes(index)) {
-      return line;
-    }
     if (options?.onlyLineIndex !== undefined && index !== options.onlyLineIndex) {
       return line;
     }

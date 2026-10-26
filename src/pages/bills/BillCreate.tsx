@@ -183,7 +183,6 @@ export default function BillCreate() {
   const memoForSuggest =
     memoAutoActiveRef.current && !memoUserEditedRef.current ? "" : form.memo;
   const debouncedMemo = useDebouncedValue(memoForSuggest, 400);
-  const pdfAttachedRef = useRef(false);
   const codingProjectHint =
     projectHintForSuggest ?? projectHintFromLines(lines);
   const codingSuggestAmount = codingSuggestAmountFromLines(lines, codingProjectHint);
@@ -288,9 +287,6 @@ export default function BillCreate() {
     );
   };
 
-  const pdfAttached = file !== null || attachmentPublicId !== null;
-  pdfAttachedRef.current = pdfAttached;
-
   const { budgetChip } = useBillCodingSuggestion({
     enabled: !!form.vendor_public_id,
     vendor_public_id: form.vendor_public_id,
@@ -301,8 +297,6 @@ export default function BillCreate() {
     lines,
     sccCatalog: lookups.sub_cost_codes ?? [],
     setLines,
-    pdfAttached,
-    pdfAttachedRef,
   });
 
   useEffect(() => {

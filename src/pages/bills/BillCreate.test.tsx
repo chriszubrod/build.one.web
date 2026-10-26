@@ -2953,7 +2953,7 @@ describe("BillCreate PDF read attachment", () => {
     expect(memo.value).toBe("Kept memo");
   });
 
-  it("coding hook stands down on line 1 while a PDF is attached but still fills line 2", async () => {
+  it("U-731b vendor history fills line 1 while a PDF is attached when read did not map SCC", async () => {
     mockReadBillAttachment.mockResolvedValue(
       okReadFromFile({
         coding: {
@@ -2980,23 +2980,18 @@ describe("BillCreate PDF read attachment", () => {
     await flushUntil(() => container.querySelector('input[type="file"]') !== null);
     await attachPdf();
     await flushUntil(() => mockReadBillAttachment.mock.calls.length >= 1);
-    expect(sccValueAt(0)).toBe("");
-    await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+    // Read prefills vendor from the PDF; with no mappable file SCC, vendor history fills line 1.
+    await flushUntil(() => sccValueAt(0) === "99");
     await act(async () => {
-      await setVendorValue("v-1");
       findButton("+ Add Line").click();
     });
     await flushUntil(() => container.querySelectorAll("tbody tr").length === 2);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-    });
-    expect(sccValueAt(0)).toBe("");
     await act(async () => {
       await fillLineRow(1, "Second line", "p-1");
       await vi.advanceTimersByTimeAsync(400);
     });
     await flushUntil(() => sccValueAt(1) === "99");
-    expect(sccValueAt(0)).toBe("");
+    expect(sccValueAt(0)).toBe("99");
     expect(sccValueAt(1)).toBe("99");
   });
 

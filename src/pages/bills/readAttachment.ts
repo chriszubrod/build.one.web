@@ -145,8 +145,8 @@ export function summarizeReplacedFromPdf(labels: string[], linesLeftUnchanged: b
 }
 
 /** (a) File project empty, matches the line, line project still empty, or the line's project is an
- *  unaccepted hook suggestion (project-only or part of a hook pair) — the file is the single source for
- *  line 1 while a PDF is attached, so it replaces it. A user-touched project is never replaced. */
+ *  unaccepted hook suggestion (project-only or part of a hook pair) — the file replaces an unaccepted
+ *  hook prefill. A user-touched project is never replaced. */
 function fileProjectConstraintMet<T extends LineCodingFields>(
   line: T,
   fileProjectId: string,
