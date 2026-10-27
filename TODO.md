@@ -1,3 +1,9 @@
+## U-735 follow-ups (booked 2026-10-27)
+
+- [ ] **Refresh endpoint outage logs everyone out** (P2): refreshAccessToken returns null for a 5xx or network failure on /auth/refresh too, so redirectToLogin wipes storage for every live session during an outage. Make it tri-state (token / dead on 401-403 / transient on 5xx-network -> ApiError or OfflineError, no logout).
+- [ ] **ContractLaborList PDF retry resends a stale bearer** (P3, src/pages/.../ContractLaborList.tsx ~49-56): the token is read outside the init factory, so the retry after a refresh always 401s. Read it inside the factory like VendorComplianceDashboard.openPdfBlob.
+
+
 ## U-731b follow-ups (booked 2026-10-26)
 
 - [ ] **Stale-snapshot race on New Bill** (pre-existing, now also reaches line 1): applyPendingReadResult computes lines from linesRef.current and calls setLines(value); a vendor-history setLines(updater) queued in the same batch can be overwritten -> line 1 left empty when the read had no mappable SCC. Apply the read through a functional setLines(prev => ...).
