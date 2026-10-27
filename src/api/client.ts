@@ -138,6 +138,16 @@ function withCsrf(init: RequestInit): RequestInit {
 // trigger a new refresh instead of reusing a stale success.
 let refreshInFlight: Promise<string | null> | null = null;
 
+/**
+ * 401 responses that must NOT log the user out (see `handleAuthFailure`):
+ * still 401 after a successful token refresh (the session is alive; the
+ * endpoint denied the call), or a 401 from a credential endpoint (wrong
+ * password on login/signup — never a session problem).
+ */
+const unauthorizedAfterSuccessfulRefresh = new WeakSet<Response>();
+
+const CREDENTIAL_PATHS = ["/api/v1/auth/login", "/api/v1/signup/auth"];
+
 export async function refreshAccessToken(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
@@ -204,6 +214,34 @@ async function redirectToLogin(): Promise<never> {
 }
 
 /**
+ * After `fetchWithRefresh`, a 401 either means the session is dead (refresh
+ * failed or was not attempted) or the user is still signed in but this path
+ * returned 401 anyway (marked on the Response via WeakSet).
+ */
+async function handleAuthFailure(res: Response, logPath: string): Promise<void> {
+  if (res.status !== 401) return;
+
+  if (unauthorizedAfterSuccessfulRefresh.has(res)) {
+    // eslint-disable-next-line no-console
+    console.warn(`[api] 401 after successful token refresh: ${logPath}`);
+    const body = (await res.json().catch(() => ({
+      detail: res.statusText,
+    }))) as Record<string, unknown>;
+    const fallback = "You are not allowed to do that right now.";
+    const rawDetail =
+      typeof body.detail === "string" ? body.detail.trim() : "";
+    const detail = rawDetail || fallback;
+    throw new ApiError(401, detail, {
+      errorCode:
+        typeof body.error_code === "string" ? body.error_code : undefined,
+      body,
+    });
+  }
+
+  await redirectToLogin();
+}
+
+/**
  * Fetch that retries once on 401 after a successful refresh. Callers
  * that need auth just pass `buildInit()` for their current token; if a
  * retry is needed, we rebuild with the refreshed token from localStorage.
@@ -248,6 +286,12 @@ export async function fetchWithRefresh(
 
   if (res.status !== 401) return res;
 
+  // Credential endpoints answer 401 for wrong credentials: never refresh, never log out.
+  if (CREDENTIAL_PATHS.some((p) => url.endsWith(p))) {
+    unauthorizedAfterSuccessfulRefresh.add(res);
+    return res;
+  }
+
   const newToken = await refreshAccessToken();
   if (newToken === null) return res; // caller handles 401 → redirect
 
@@ -263,6 +307,9 @@ export async function fetchWithRefresh(
       throw new OfflineError();
     }
     throw err;
+  }
+  if (res.status === 401) {
+    unauthorizedAfterSuccessfulRefresh.add(res);
   }
   return res;
 }
@@ -283,7 +330,7 @@ async function request<T>(
 
   const res = await fetchWithRefresh(`${API_BASE}${path}`, buildInit);
 
-  if (res.status === 401) await redirectToLogin();
+  await handleAuthFailure(res, path);
 
   if (!res.ok) {
     const body = (await res.json().catch(() => ({
@@ -368,7 +415,7 @@ export async function uploadFile<T>(
 
   const res = await fetchWithRefresh(`${API_BASE}${path}`, buildInit);
 
-  if (res.status === 401) await redirectToLogin();
+  await handleAuthFailure(res, path);
 
   if (!res.ok) {
     const body = (await res.json().catch(() => ({
@@ -402,7 +449,7 @@ export async function fetchViewAttachmentBlob(publicId: string): Promise<Blob> {
     buildInit,
   );
 
-  if (res.status === 401) await redirectToLogin();
+  await handleAuthFailure(res, `/api/v1/view/attachment/${publicId}`);
 
   if (!res.ok) {
     const body = (await res.json().catch(() => ({
