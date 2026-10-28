@@ -1,3 +1,10 @@
+## U-732b follow-ups (booked 2026-10-28, shipped `095ac25`)
+
+Both need a concurrent-render reorder (a PDF read result queued at default priority, then a Change file click rendered first); neither is reachable as easily as it reads, and neither was introduced by U-732b:
+- **Read writes `lines[0]`, revert follows the prefill uid.** `applyLine1Scalars` / `applyFileReadCodingPair` (readAttachment.ts) always write row 0, while `revertFilePrefillState` restores the row at `line1PrefillUid`. If that uid is not row 0 (a row inserted above it) and the reorder happens, the removed PDF's line-1 values can survive on row 0 without prefill badges.
+- **Dropped stale fallout clears the reading lock.** The layout effect calls `setReadingAttachment(false)` when it drops stale fallout; a newer read already in flight would lose its "Reading invoice…" text and save lock. Unreachable today (a replace always goes through Change file); revisit if drop-to-replace is added.
+- **No red-capable spec for the epoch capture** (`applyPendingReadResult` captures `attachmentEpochRef` before `setLines`): jsdom/act renders the queued update before the click, so the reorder cannot be reproduced without a lane/scheduler harness.
+
 ## U-735 follow-ups (booked 2026-10-27)
 
 - [ ] **Refresh endpoint outage logs everyone out** (P2): refreshAccessToken returns null for a 5xx or network failure on /auth/refresh too, so redirectToLogin wipes storage for every live session during an outage. Make it tri-state (token / dead on 401-403 / transient on 5xx-network -> ApiError or OfflineError, no logout).
