@@ -1,3 +1,13 @@
+## U-701b4 web follow-ups (booked 2026-10-28; branch `unit/u-701b4w`, ships with the U-701b API half)
+
+The background (Sonnet) cost-code swap on Bill Edit: line 1's untouched prefill is replaced only from the FIRST suggestion request after the bill loads (decided when the request is sent), never from polls or later re-fetches.
+- **No test pins the line-edit clause.** `useBillCodingSuggestion` also refuses the swap if `lineUserEditEpoch` moved between load and the first request; no spec covers a non-line-1 edit landing before the first response with an unchanged key (line 1's own `coding_scc_touched` would mask it).
+- **Adding or removing a line does not bump `lineUserEditEpoch`** (BillEdit.tsx `addLineItem` / `removeLineItem`; only `patchLineAt` does). Harmless today because the amount change re-fetches and a re-fetch can no longer swap; fix if anything else starts keying on the epoch.
+- **A swapped line becomes refreshable by later llm polls.** After a supersede, line 1 carries `coding_suggested_sub_cost_code_id` = the new code with no origin, so today's llm-refresh rule could replace it again on a later poll. Unlikely (an escalate answer arrives as `text_status` ready, so no poll follows); pin with a test or mark superseded lines non-refreshable.
+- **Polling stops after ~2 minutes** (6 × 20 s), shorter than a typical escalation. A draft opened while the escalation is still pending shows Sonnet's code only on the next open. Fine by design (no mid-view swaps); revisit if reviewers expect it sooner.
+- **"Line 1" = index 0 of the loaded lines.** Relies on `/bill_line_items/bill/{id}` returning lines in the drop's order; confirm in the API.
+- **`BillCreate.test.tsx` is flaky under machine load** (one run: 106 of 114 failed on timeouts; immediate re-runs green). Not caused by U-701b4; look at its waits.
+
 ## U-732b follow-ups (booked 2026-10-28, shipped `095ac25`)
 
 Both need a concurrent-render reorder (a PDF read result queued at default priority, then a Change file click rendered first); neither is reachable as easily as it reads, and neither was introduced by U-732b:
