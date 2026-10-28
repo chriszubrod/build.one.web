@@ -408,6 +408,11 @@ export interface ApplySuggestionToLinesOptions {
   prefillOrigin?: "file";
   /** PDF read path: fill only empty cells — never refresh an existing suggestion value. */
   onlyEmpty?: boolean;
+  /**
+   * Escalation supersede (drop line 1 only). Off by default — poll responses must not
+   * swap a prefilled code the reviewer is looking at; only the initial suggest may.
+   */
+  allowSupersede?: boolean;
 }
 
 export function applySuggestionToLines<
@@ -426,6 +431,11 @@ export function applySuggestionToLines<
   const projectId = empty ? "" : (suggestion.project_public_id ?? "");
   const conf = empty ? null : parseConfidence(suggestion.confidence);
   const llmSource = !empty && suggestion.source === "llm";
+  const supersedesPubId = empty ? null : (suggestion.supersedes_sub_cost_code_public_id ?? null);
+  const supersedesOptionId =
+    supersedesPubId != null && supersedesPubId !== ""
+      ? mapSccPublicIdToOptionId(supersedesPubId, sccCatalog)
+      : "";
 
   /**
    * The cell still holds the value a suggestion put there and the line is neither
@@ -443,6 +453,24 @@ export function applySuggestionToLines<
         ? line.coding_suggested_sub_cost_code_id
         : line.coding_suggested_project_public_id;
     return suggested != null && suggested !== "" && line[field] === suggested;
+  };
+
+  /**
+   * Background escalation: replace the drop's prefilled SCC when the suggestion names
+   * the code it supersedes and the line is still an untouched prefilled hold.
+   */
+  const canSupersedeSccOnLine = (line: T, lineIndex: number, fillsProject: boolean): boolean => {
+    if (!options?.allowSupersede) return false;
+    if (lineIndex !== 0) return false;
+    if (empty || sccId === "" || line.unresolved_project_id != null) return false;
+    if (supersedesOptionId === "") return false;
+    if (line.coding_prefill_state !== "prefilled") return false;
+    if (line.coding_scc_touched || line.coding_project_touched) return false;
+    if (line.sub_cost_code_id !== supersedesOptionId) return false;
+    return lineEligibleForSuggestionScc(
+      fillsProject ? { project_public_id: projectId } : line,
+      projectId,
+    );
   };
 
   // History fills empty cells only; an llm result may also refresh an untouched prefill.
@@ -483,18 +511,20 @@ export function applySuggestionToLines<
       return line;
     }
     let canFillProject = canFillProjectOnLine(line);
-    const canFillScc = canFillSccOnLine(line, canFillProject);
+    const canSupersedeScc = canSupersedeSccOnLine(line, index, canFillProject);
+    const canFillScc = canSupersedeScc ? false : canFillSccOnLine(line, canFillProject);
     // Never move a suggested project out from under the SCC predicted with it.
     if (
       canFillProject &&
       !canFillScc &&
+      !canSupersedeScc &&
       line.project_public_id !== "" &&
       line.coding_suggestion_source === "llm" &&
       holdsSuggested(line, "sub_cost_code_id")
     ) {
       canFillProject = false;
     }
-    if (!canFillScc && !canFillProject) {
+    if (!canFillScc && !canSupersedeScc && !canFillProject) {
       return line;
     }
 
@@ -506,7 +536,7 @@ export function applySuggestionToLines<
       next.coding_project_prefill_origin = "llm";
     }
     // The badge state describes the SCC suggestion; a project-only fill leaves it alone.
-    if (canFillScc) {
+    if (canFillScc || canSupersedeScc) {
       next.sub_cost_code_id = sccId;
       next.coding_suggested_sub_cost_code_id = sccId;
       if (next.coding_prefill_state !== "changed") next.coding_prefill_state = "prefilled";
@@ -515,7 +545,11 @@ export function applySuggestionToLines<
       next.coding_suggestion_source = suggestion!.source;
       // The origin tags the cost-code prefill it travels with; a project-only fill
       // must not claim a cost code another source suggested (Change file would wipe it).
-      if (options?.prefillOrigin === "file") next.coding_prefill_origin = "file";
+      if (options?.prefillOrigin === "file") {
+        next.coding_prefill_origin = "file";
+      } else if (canSupersedeScc) {
+        delete next.coding_prefill_origin;
+      }
     }
     return next;
   });

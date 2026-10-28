@@ -388,6 +388,149 @@ describe("applySuggestionToLines", () => {
     expect(applySuggestionToLines(lines, null, catalog)).toBe(lines);
   });
 
+  describe("U-701b4 escalation supersede", () => {
+    const escalationCatalog = [
+      { id: 42, public_id: "scc-original" },
+      { id: 77, public_id: "scc-third" },
+      { id: 99, public_id: "scc-better" },
+    ];
+    const supersedeOpts = { allowSupersede: true as const };
+
+    function filePrefilledLine(overrides: Partial<DraftLine> = {}): DraftLine {
+      return {
+        ...emptyLine("a"),
+        project_public_id: "p-1",
+        sub_cost_code_id: "42",
+        coding_suggested_sub_cost_code_id: "42",
+        coding_prefill_state: "prefilled",
+        coding_prefill_origin: "file",
+        coding_suggestion_source: "llm",
+        ...overrides,
+      };
+    }
+
+    function escalateSuggestion(overrides: Partial<BillCodingSuggestion> = {}): BillCodingSuggestion {
+      return sampleSuggestion({
+        source: "llm",
+        sub_cost_code_public_id: "scc-better",
+        supersedes_sub_cost_code_public_id: "scc-original",
+        decision_source: "escalate",
+        project_public_id: "p-1",
+        ...overrides,
+      });
+    }
+
+    it("replaces file-origin prefilled SCC when supersedes matches and line is untouched", () => {
+      const lines = [
+        filePrefilledLine(),
+        { ...emptyLine("b"), project_public_id: "p-other" },
+      ];
+      const out = applySuggestionToLines(lines, escalateSuggestion(), escalationCatalog, supersedeOpts);
+      expect(out[0].sub_cost_code_id).toBe("99");
+      expect(out[0].coding_suggested_sub_cost_code_id).toBe("99");
+      expect(out[0].coding_prefill_state).toBe("prefilled");
+      expect(out[0].coding_prefill_origin).toBeUndefined();
+      expect(out[1].sub_cost_code_id).toBe("");
+    });
+
+    it("does not replace when prefill state is accepted or changed", () => {
+      for (const state of ["accepted", "changed"] as const) {
+        const line = filePrefilledLine({ coding_prefill_state: state });
+        const out = applySuggestionToLines([line], escalateSuggestion(), escalationCatalog, supersedeOpts);
+        expect(out[0].sub_cost_code_id).toBe("42");
+        expect(out[0].coding_prefill_state).toBe(state);
+      }
+    });
+
+    it("does not replace when SCC was touched", () => {
+      const line = filePrefilledLine({ coding_scc_touched: true });
+      const out = applySuggestionToLines([line], escalateSuggestion(), escalationCatalog, supersedeOpts);
+      expect(out[0]).toEqual(line);
+    });
+
+    it("does not replace when the user touched the project", () => {
+      const line = filePrefilledLine({ coding_project_touched: true });
+      const out = applySuggestionToLines([line], escalateSuggestion(), escalationCatalog, supersedeOpts);
+      expect(out[0].sub_cost_code_id).toBe("42");
+      expect(out[0].coding_prefill_origin).toBe("file");
+    });
+
+    it("does not replace when current SCC differs from supersedes target", () => {
+      const line = filePrefilledLine({
+        sub_cost_code_id: "77",
+        coding_suggested_sub_cost_code_id: "77",
+      });
+      const out = applySuggestionToLines([line], escalateSuggestion(), escalationCatalog, supersedeOpts);
+      expect(out[0]).toEqual(line);
+    });
+
+    it("supersedes line index 0 only — a second prefilled line holding the superseded code stays", () => {
+      const line0 = filePrefilledLine();
+      const line1 = {
+        ...filePrefilledLine({ uid: "b" }),
+        sub_cost_code_id: "42",
+        coding_suggested_sub_cost_code_id: "42",
+      };
+      const out = applySuggestionToLines([line0, line1], escalateSuggestion(), escalationCatalog, supersedeOpts);
+      expect(out[0].sub_cost_code_id).toBe("99");
+      expect(out[1].sub_cost_code_id).toBe("42");
+    });
+
+    it("BillEdit-shaped prefilled line (no origin, no suggested id) is superseded on initial apply", () => {
+      const billEditLine: DraftLine = {
+        ...emptyLine("a"),
+        project_public_id: "p-1",
+        sub_cost_code_id: "42",
+        coding_prefill_state: "prefilled",
+      };
+      const out = applySuggestionToLines([billEditLine], escalateSuggestion(), escalationCatalog, supersedeOpts);
+      expect(out[0].sub_cost_code_id).toBe("99");
+      expect(out[0].coding_suggested_sub_cost_code_id).toBe("99");
+      expect(out[0].coding_prefill_state).toBe("prefilled");
+    });
+
+    it("applying the same escalate response twice is idempotent", () => {
+      const line = filePrefilledLine();
+      const once = applySuggestionToLines([line], escalateSuggestion(), escalationCatalog, supersedeOpts);
+      const twice = applySuggestionToLines(once, escalateSuggestion(), escalationCatalog, supersedeOpts);
+      expect(twice[0].sub_cost_code_id).toBe("99");
+      expect(twice[0].coding_suggested_sub_cost_code_id).toBe("99");
+      expect(twice[0]).toEqual(once[0]);
+    });
+
+    it("does not supersede when allowSupersede is false (default)", () => {
+      const line = filePrefilledLine();
+      const out = applySuggestionToLines([line], escalateSuggestion(), escalationCatalog);
+      expect(out[0].sub_cost_code_id).toBe("42");
+      expect(out[0].coding_prefill_origin).toBe("file");
+    });
+
+    it("does not replace when supersedes is absent (file-origin llm refresh still blocked)", () => {
+      const line = filePrefilledLine();
+      const out = applySuggestionToLines(
+        [line],
+        sampleSuggestion({ source: "llm", sub_cost_code_public_id: "scc-better" }),
+        escalationCatalog,
+      );
+      expect(out).toEqual([line]);
+    });
+
+    it("does not supersede when the line has no SCC (no matching hold to replace)", () => {
+      const line = filePrefilledLine({
+        sub_cost_code_id: "",
+        coding_suggested_sub_cost_code_id: "",
+        project_public_id: "p-other",
+      });
+      const out = applySuggestionToLines([line], escalateSuggestion(), escalationCatalog, supersedeOpts);
+      expect(out[0].sub_cost_code_id).toBe("");
+      expect(out[0].coding_prefill_origin).toBe("file");
+    });
+
+    it("labels similar_bills like other non-llm sources", () => {
+      expect(formatSuggestionBadgeLabel(0.72, "similar_bills")).toBe("Suggested 72%");
+    });
+  });
+
 });
 
 describe("projectHintFromLines", () => {

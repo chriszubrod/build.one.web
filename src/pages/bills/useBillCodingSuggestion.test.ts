@@ -541,6 +541,191 @@ describe("useBillCodingSuggestion", () => {
       expect(h.result.current.lines[0].sub_cost_code_id).toBe("10");
     });
 
+    it("U-701b4 initial response with supersedes replaces untouched file-origin prefill", async () => {
+      mockSuggestCoding.mockResolvedValueOnce({
+        ...resp(),
+        source: "llm",
+        text_status: "ready",
+        sub_cost_code_public_id: "scc-b",
+        supersedes_sub_cost_code_public_id: "scc-a",
+        decision_source: "escalate",
+      });
+
+      const h = renderHarness({
+        initialLines: [
+          line({
+            uid: "a",
+            project_public_id: "p-1",
+            amount: "100.00",
+            sub_cost_code_id: "10",
+            coding_suggested_sub_cost_code_id: "10",
+            coding_prefill_state: "prefilled",
+            coding_prefill_origin: "file",
+            coding_suggestion_source: "llm",
+          }),
+        ],
+        debouncedAmount: "100.00",
+        textSuggestionPoll: true,
+        bill_public_id: "bill-1",
+      });
+      await tick();
+      expect(h.result.current.lines[0].sub_cost_code_id).toBe("20");
+      expect(h.result.current.lines[0].coding_prefill_state).toBe("prefilled");
+      expect(h.result.current.lines[0].coding_prefill_origin).toBeUndefined();
+    });
+
+    it("U-701b4 poll escalate with supersedes does not replace — reviewer still sees code A", async () => {
+      mockSuggestCoding
+        .mockResolvedValueOnce({
+          ...resp(),
+          text_status: "pending",
+          sub_cost_code_public_id: "scc-a",
+        })
+        .mockResolvedValueOnce({
+          ...resp(),
+          source: "llm",
+          text_status: "ready",
+          sub_cost_code_public_id: "scc-b",
+          supersedes_sub_cost_code_public_id: "scc-a",
+          decision_source: "escalate",
+        });
+
+      const h = renderHarness({
+        initialLines: [
+          line({
+            uid: "a",
+            project_public_id: "p-1",
+            amount: "100.00",
+            sub_cost_code_id: "10",
+            coding_suggested_sub_cost_code_id: "10",
+            coding_prefill_state: "prefilled",
+            coding_prefill_origin: "file",
+            coding_suggestion_source: "llm",
+          }),
+        ],
+        debouncedAmount: "100.00",
+        textSuggestionPoll: true,
+        bill_public_id: "bill-1",
+      });
+      await tick();
+      expect(h.result.current.lines[0].sub_cost_code_id).toBe("10");
+      expect(h.result.current.lines[0].coding_prefill_origin).toBe("file");
+
+      await tick(20_000);
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(2);
+      expect(h.result.current.lines[0].sub_cost_code_id).toBe("10");
+      expect(h.result.current.lines[0].coding_prefill_origin).toBe("file");
+    });
+
+    it("U-701b4 a re-fetch after a header change does not supersede mid-view", async () => {
+      // First response after load carries no supersede; the reviewer is now looking at A.
+      mockSuggestCoding
+        .mockResolvedValueOnce({
+          ...resp(),
+          source: "llm",
+          text_status: "ready",
+          sub_cost_code_public_id: "scc-a",
+        })
+        .mockResolvedValueOnce({
+          ...resp(),
+          source: "llm",
+          text_status: "ready",
+          sub_cost_code_public_id: "scc-b",
+          supersedes_sub_cost_code_public_id: "scc-a",
+          decision_source: "escalate",
+        });
+
+      const h = renderHarness({
+        initialLines: [
+          line({
+            uid: "a",
+            project_public_id: "p-1",
+            amount: "100.00",
+            sub_cost_code_id: "10",
+            coding_prefill_state: "prefilled",
+          }),
+        ],
+        debouncedAmount: "100.00",
+        textSuggestionPoll: true,
+        bill_public_id: "bill-1",
+      });
+      await tick();
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
+      expect(h.result.current.lines[0].sub_cost_code_id).toBe("10");
+
+      // A header change (vendor here; memo / line amounts take the same path) moves the
+      // key and the hook re-fetches while the reviewer is on the page.
+      await act(async () => {
+        h.result.current.setVendor("v-2");
+      });
+      await tick(2_000);
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(2);
+      expect(h.result.current.lines[0].sub_cost_code_id).toBe("10");
+      expect(h.result.current.lines[0].coding_prefill_state).toBe("prefilled");
+    });
+
+    const escalateResp = () => ({
+      ...resp(),
+      source: "llm" as const,
+      text_status: "ready" as const,
+      sub_cost_code_public_id: "scc-b",
+      supersedes_sub_cost_code_public_id: "scc-a",
+      decision_source: "escalate" as const,
+    });
+    const prefilledLineA = () =>
+      line({
+        uid: "a",
+        project_public_id: "p-1",
+        amount: "100.00",
+        sub_cost_code_id: "10",
+        coding_prefill_state: "prefilled",
+      });
+
+    it("U-701b4 a first response that returns nothing still closes the supersede window", async () => {
+      mockSuggestCoding.mockResolvedValueOnce(null).mockResolvedValueOnce(escalateResp());
+      const h = renderHarness({
+        initialLines: [prefilledLineA()],
+        debouncedAmount: "100.00",
+        textSuggestionPoll: true,
+        bill_public_id: "bill-1",
+      });
+      await tick();
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        h.result.current.setVendor("v-2");
+      });
+      await tick(2_000);
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(2);
+      expect(h.result.current.lines[0].sub_cost_code_id).toBe("10");
+    });
+
+    it("U-701b4 a first request dropped mid-flight does not pass its supersede to the re-fetch", async () => {
+      let resolveFirst!: (v: unknown) => void;
+      mockSuggestCoding
+        .mockImplementationOnce(() => new Promise((r) => { resolveFirst = r; }))
+        .mockResolvedValueOnce(escalateResp());
+      const h = renderHarness({
+        initialLines: [prefilledLineA()],
+        debouncedAmount: "100.00",
+        textSuggestionPoll: true,
+        bill_public_id: "bill-1",
+      });
+      await tick();
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(1);
+      // The reviewer changes the vendor while the first request is still in flight.
+      await act(async () => {
+        h.result.current.setVendor("v-2");
+      });
+      await tick(2_000);
+      await act(async () => {
+        resolveFirst({ ...resp(), source: "llm", text_status: "ready", sub_cost_code_public_id: "scc-a" });
+        await drain();
+      });
+      await tick(2_000);
+      expect(mockSuggestCoding).toHaveBeenCalledTimes(2);
+      expect(h.result.current.lines[0].sub_cost_code_id).toBe("10");
+    });
+
     it("stops polling on unmount", async () => {
       mockSuggestCoding.mockResolvedValue({ ...resp(), text_status: "pending" });
 

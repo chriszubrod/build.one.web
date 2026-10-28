@@ -848,7 +848,7 @@ export interface BillCodingSuggestResponse {
   sub_cost_code_public_id: string | null;
   sub_cost_code_number: string | null;
   sub_cost_code_name: string | null;
-  source: "vendor_project_history" | "vendor_history" | "memo" | "llm" | "none";
+  source: "vendor_project_history" | "vendor_history" | "memo" | "llm" | "similar_bills" | "none";
   reason: string;
   confidence: number | string | null;
   model_version: string | null;
@@ -856,6 +856,10 @@ export interface BillCodingSuggestResponse {
   budget_remaining: string | null;
   /** Present when the API runs text/LLM coding; omitted on older API builds. */
   text_status?: "ready" | "pending" | "none";
+  /** Which resolver produced this answer (background escalate uses `"escalate"`). */
+  decision_source?: "history" | "primary" | "escalate" | "fallback" | "similar_vote" | "reused_intake" | null;
+  /** When set, a background answer replaces the prefilled SCC with this public id (escalation supersede). */
+  supersedes_sub_cost_code_public_id?: string | null;
 }
 
 export type ReadAttachmentStatus =

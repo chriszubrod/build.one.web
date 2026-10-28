@@ -44,8 +44,13 @@ function applySuggestionResponse<T extends LineCodingFields & { amount?: string 
   catalog: SccCatalogEntry[],
   setLines: (updater: (prev: T[]) => T[]) => void,
   setBudgetSnapshot: (v: BillCodingBudgetSnapshot | null) => void,
+  applyOptions?: { allowSupersede?: boolean },
 ): void {
-  setLines((prev) => applySuggestionToLines(prev, suggestion, catalog));
+  setLines((prev) =>
+    applySuggestionToLines(prev, suggestion, catalog, {
+      allowSupersede: applyOptions?.allowSupersede ?? false,
+    }),
+  );
 
   const check = suggestion?.budget_check;
   const responseProject = suggestion?.project_public_id ?? "";
@@ -105,6 +110,22 @@ export function useBillCodingSuggestion<
   const pollInFlightRef = useRef(false);
   const lineUserEditEpochRef = useRef(lineUserEditEpoch);
   lineUserEditEpochRef.current = lineUserEditEpoch;
+
+  /**
+   * U-701b4: a background (escalate) answer may replace line 1's untouched prefill only
+   * from the FIRST suggestion response after this bill loads, before any line edit.
+   * Every later response (polls, re-fetches after a vendor / memo / amount change)
+   * must not: Submit and Complete accept every still-prefilled line, so a mid-view swap
+   * would accept a code the reviewer never saw. Re-opens when another bill loads.
+   */
+  const supersedeWindowRef = useRef<{ billKey: string | undefined; open: boolean; epoch: number }>({
+    billKey: bill_public_id,
+    open: true,
+    epoch: lineUserEditEpoch,
+  });
+  if (supersedeWindowRef.current.billKey !== bill_public_id) {
+    supersedeWindowRef.current = { billKey: bill_public_id, open: true, epoch: lineUserEditEpoch };
+  }
 
   const projectHint = projectHintForSuggest ?? projectHintFromLines(lines);
   const memoSettled = memo === debouncedMemo;
@@ -192,6 +213,16 @@ export function useBillCodingSuggestion<
     lastFiredRequestKeyRef.current = requestKey;
     inFlightRequestKeyRef.current = requestKey;
 
+    // Supersede eligibility is decided when the request is SENT: only the first request
+    // after this bill loads may carry it, and sending it closes the window - so a first
+    // request that is dropped (inputs moved on), fails, or returns nothing can never
+    // hand its eligibility to a later re-fetch.
+    const supersedeWindowAtFire = supersedeWindowRef.current;
+    const supersedeEligible =
+      supersedeWindowAtFire.open && supersedeWindowAtFire.billKey === bill_public_id;
+    const epochAtFire = lineUserEditEpochRef.current;
+    if (supersedeEligible) supersedeWindowAtFire.open = false;
+
     void (async () => {
       try {
         const { projectHint: requestProjectHint, response } = requestSuggestionRef.current();
@@ -207,6 +238,10 @@ export function useBillCodingSuggestion<
         }
 
         const catalog = sccCatalogRef.current;
+        const allowSupersede =
+          supersedeEligible &&
+          epochAtFire === supersedeWindowAtFire.epoch &&
+          lineUserEditEpochRef.current === epochAtFire;
         applySuggestionResponse(
           requestKey,
           requestProjectHint,
@@ -214,6 +249,7 @@ export function useBillCodingSuggestion<
           catalog,
           setLines,
           setBudgetSnapshot,
+          { allowSupersede },
         );
 
         if (
