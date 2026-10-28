@@ -2,9 +2,15 @@ import { describe, it, expect } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  billEditGuessedBillDateNote,
+  billEditUnmatchedVendorNote,
+  chicagoCalendarDateFromCreated,
+  createUnmatchedVendorNote,
   filePrefillLabel,
   headerFieldMatchesPrediction,
   line1FieldMatchesPrediction,
+  unmatchedVendorNameFromReadResult,
+  unmatchedVendorNote,
 } from "./filePrefillLabels";
 import type { BillIntakePrediction } from "../../types/api";
 
@@ -95,6 +101,172 @@ describe("prefill match helpers tolerate API-shaped values (U-676q hotfix)", () 
     expect(() => line1FieldMatchesPrediction(prediction, line, "rate")).not.toThrow();
     expect(line1FieldMatchesPrediction(prediction, line, "rate")).toBe(true);
     expect(line1FieldMatchesPrediction(prediction, line, "amount")).toBe(true);
+  });
+
+  it("guessed bill date note when list_drop has no bill_date and form date matches created Chicago day", () => {
+    const prediction: BillIntakePrediction = {
+      status: "ok",
+      intake_source: "list_drop",
+      vendor: null,
+      bill_number: null,
+      bill_date: null,
+      total_amount: null,
+      description: null,
+      sub_cost_code: null,
+      project: null,
+      header_confidence: null,
+      coding_confidence: null,
+    };
+    const created = "2026-10-26 06:00:00";
+    const form = {
+      is_draft: true,
+      vendor_public_id: "",
+      bill_number: "",
+      bill_date: chicagoCalendarDateFromCreated(created)!,
+    };
+    const html = renderToStaticMarkup(
+      createElement("div", null, billEditGuessedBillDateNote(prediction, form, false, created)),
+    );
+    expect(html).toContain("Not read from the PDF — set to today.");
+  });
+
+  it.each([
+    ["pdf_drop", "pdf_drop"],
+    ["pdf_upload", "pdf_upload"],
+    ["reread", "reread"],
+  ] as const)("guessed bill date note hidden for intake_source %s", (_label, intake_source) => {
+    const prediction: BillIntakePrediction = {
+      status: "ok",
+      intake_source,
+      vendor: null,
+      bill_number: null,
+      bill_date: null,
+      total_amount: null,
+      description: null,
+      sub_cost_code: null,
+      project: null,
+      header_confidence: null,
+      coding_confidence: null,
+    };
+    const form = {
+      is_draft: true,
+      vendor_public_id: "",
+      bill_number: "",
+      bill_date: "2026-10-26",
+    };
+    expect(
+      billEditGuessedBillDateNote(prediction, form, false, "2026-10-26 12:00:00"),
+    ).toBeNull();
+  });
+
+  it("guessed bill date note hidden when list_drop bill date differs from creation Chicago day", () => {
+    const prediction: BillIntakePrediction = {
+      status: "ok",
+      intake_source: "list_drop",
+      vendor: null,
+      bill_number: null,
+      bill_date: null,
+      total_amount: null,
+      description: null,
+      sub_cost_code: null,
+      project: null,
+      header_confidence: null,
+      coding_confidence: null,
+    };
+    const form = {
+      is_draft: true,
+      vendor_public_id: "",
+      bill_number: "",
+      bill_date: "2026-10-26",
+    };
+    expect(
+      billEditGuessedBillDateNote(prediction, form, false, "2026-10-20 12:00:00"),
+    ).toBeNull();
+  });
+
+  it("Chicago calendar date near UTC midnight can be the previous local day", () => {
+    expect(chicagoCalendarDateFromCreated("2026-10-26 02:00:00")).toBe("2026-10-25");
+  });
+
+  it("guessed bill date note hidden when prediction includes bill_date", () => {
+    const prediction: BillIntakePrediction = {
+      status: "partial",
+      intake_source: "list_drop",
+      vendor: null,
+      bill_number: null,
+      bill_date: "2026-01-01",
+      total_amount: null,
+      description: null,
+      sub_cost_code: null,
+      project: null,
+      header_confidence: null,
+      coding_confidence: null,
+    };
+    const form = {
+      is_draft: true,
+      vendor_public_id: "",
+      bill_number: "",
+      bill_date: "2026-01-01",
+    };
+    expect(billEditGuessedBillDateNote(prediction, form, false, "2026-01-01 00:00:00")).toBeNull();
+  });
+
+  it("create unmatched vendor note re-shows when vendor is cleared", () => {
+    expect(createUnmatchedVendorNote("Ghost Vendor", "")).not.toBeNull();
+    expect(createUnmatchedVendorNote("Ghost Vendor", "v-1")).toBeNull();
+    expect(createUnmatchedVendorNote("Ghost Vendor", "")).not.toBeNull();
+  });
+
+  it("unmatched vendor note escapes markup in the extracted name", () => {
+    const html = renderToStaticMarkup(
+      createElement("div", null, unmatchedVendorNote('Evil <b>Corp</b>')),
+    );
+    expect(html).toContain("Evil &lt;b&gt;Corp&lt;/b&gt;");
+    expect(html).toContain("no matching vendor.");
+    expect(html).not.toContain("<b>Corp</b>");
+  });
+
+  it("unmatched vendor name from read result when value is null", () => {
+    expect(
+      unmatchedVendorNameFromReadResult({
+        status: "ok",
+        message: null,
+        fields: {
+          vendor: { value: null, extracted_name: "Ghost", confidence: null },
+          bill_number: { value: null, confidence: null },
+          bill_date: { value: null, confidence: null },
+          total_amount: { value: null, confidence: null },
+          description: { value: null, confidence: null },
+          long_description: { value: null, confidence: null },
+          reference: { value: null, confidence: null },
+        },
+        coding: null,
+        model: null,
+      }),
+    ).toBe("Ghost");
+  });
+
+  it("bill edit unmatched vendor note hidden once vendor is chosen", () => {
+    const prediction: BillIntakePrediction = {
+      status: "ok",
+      intake_source: "list_drop",
+      vendor: { public_id: null, name: "Unknown LLC" },
+      bill_number: null,
+      bill_date: null,
+      total_amount: null,
+      description: null,
+      sub_cost_code: null,
+      project: null,
+      header_confidence: null,
+      coding_confidence: null,
+    };
+    const form = {
+      is_draft: true,
+      vendor_public_id: "v-1",
+      bill_number: "",
+      bill_date: "",
+    };
+    expect(billEditUnmatchedVendorNote(prediction, form, "v-1")).toBeNull();
   });
 
   it("null description and null header values never throw", () => {

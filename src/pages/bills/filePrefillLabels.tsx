@@ -1,7 +1,118 @@
-import type { ReactNode } from "react";
+import { Children, type ReactNode } from "react";
 import { HEADER_PREFILL_BADGE_LABEL } from "./headerPrefill";
 import { BILL_LINE_CHIP_CLASS, decimalToCents } from "./codingSuggestion";
-import type { BillIntakePrediction } from "../../types/api";
+import type { BillIntakePrediction, ReadAttachmentResult } from "../../types/api";
+
+const BUSINESS_TIMEZONE = "America/Chicago";
+
+export function headerFieldHint(message: string): ReactNode {
+  return (
+    <div className="text-muted header-prefill-adornment header-prefill-hint">{message}</div>
+  );
+}
+
+export function combineHeaderFieldAdornments(
+  ...parts: (ReactNode | null | undefined)[]
+): ReactNode {
+  const nodes = parts.filter((p) => p != null && p !== false);
+  if (nodes.length === 0) return null;
+  if (nodes.length === 1) return nodes[0]!;
+  return <>{Children.toArray(nodes)}</>;
+}
+
+/** API datetimes without an offset are treated as UTC (matches draft_from_attachment_service). */
+export function parseBillApiDatetimeAsUtc(iso: string): Date | null {
+  const trimmed = iso.trim();
+  if (trimmed === "") return null;
+  if (/[zZ]$/.test(trimmed) || /[+-]\d{2}(:\d{2})?$/.test(trimmed)) {
+    const d = new Date(trimmed);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const normalized = trimmed.includes("T") ? trimmed : trimmed.replace(" ", "T");
+  const d = new Date(`${normalized}Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+export function chicagoCalendarDateFromCreated(
+  createdDatetime: string | null | undefined,
+): string | null {
+  const instant = createdDatetime ? parseBillApiDatetimeAsUtc(createdDatetime) : null;
+  if (!instant) return null;
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(instant);
+}
+
+export function intakePredictionIsPresent(
+  prediction: BillIntakePrediction | null | undefined,
+): boolean {
+  if (!prediction) return false;
+  const status = prediction.status;
+  return status != null && status !== "";
+}
+
+export function billEditGuessedBillDateNote(
+  prediction: BillIntakePrediction | null | undefined,
+  form: HeaderFormSlice | null | undefined,
+  billDateEditedThisSession: boolean,
+  billCreatedDatetime: string | null | undefined,
+): ReactNode {
+  if (!form?.is_draft || billDateEditedThisSession || !intakePredictionIsPresent(prediction)) {
+    return null;
+  }
+  if (prediction!.intake_source !== "list_drop") return null;
+  if (prediction!.bill_date != null) return null;
+  const formDate = asText(form.bill_date)?.slice(0, 10) ?? "";
+  const createdChicago = chicagoCalendarDateFromCreated(billCreatedDatetime);
+  if (formDate === "" || createdChicago == null || formDate !== createdChicago) return null;
+  return headerFieldHint("Not read from the PDF — set to today.");
+}
+
+export function unmatchedVendorExtractedNameFromPrediction(
+  prediction: BillIntakePrediction | null | undefined,
+): string | null {
+  if (!prediction?.vendor || prediction.vendor.public_id != null) return null;
+  const name = (prediction.vendor.name ?? "").trim();
+  return name === "" ? null : name;
+}
+
+export function unmatchedVendorNameFromReadResult(
+  result: ReadAttachmentResult,
+): string | null {
+  const vendorField = result.fields.vendor;
+  if (vendorField?.value?.public_id) return null;
+  const name = (vendorField?.extracted_name ?? "").trim();
+  return name === "" ? null : name;
+}
+
+export function unmatchedVendorNote(extractedName: string | null | undefined): ReactNode {
+  const name = (extractedName ?? "").trim();
+  if (name === "") return null;
+  return headerFieldHint(`PDF says "${name}" — no matching vendor.`);
+}
+
+export function createUnmatchedVendorNote(
+  extractedName: string | null | undefined,
+  vendorPublicId: string,
+): ReactNode {
+  if ((vendorPublicId ?? "").trim() !== "") return null;
+  return unmatchedVendorNote(extractedName);
+}
+
+export function billEditUnmatchedVendorNote(
+  prediction: BillIntakePrediction | null | undefined,
+  form: HeaderFormSlice | null | undefined,
+  vendorPublicId: string,
+): ReactNode {
+  if (!form?.is_draft || !intakePredictionIsPresent(prediction)) return null;
+  return createUnmatchedVendorNote(
+    unmatchedVendorExtractedNameFromPrediction(prediction),
+    vendorPublicId,
+  );
+}
 
 export function headerFilePrefillLabel(): ReactNode {
   return (

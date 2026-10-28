@@ -1050,6 +1050,7 @@ export default function BillEdit() {
           }))}
           intakePrediction={intakePrediction ?? null}
           formForPrefill={formForPrefill}
+          billCreatedDatetime={item?.created_datetime ?? null}
         />
 
         <div className="li-cards-section">

@@ -230,6 +230,170 @@ describe("BillHeaderFields", () => {
     expect(required("payment_term_public_id")).toBe(false);
   });
 
+  it("edit draft shows guessed bill date note when intake prediction has no bill_date", () => {
+    act(() => {
+      root.render(
+        createElement(BillHeaderFields, {
+          mode: "edit",
+          form: {
+            vendor_public_id: "",
+            payment_term_public_id: "",
+            bill_date: "2026-10-26",
+            bill_number: "",
+            memo: "",
+            is_draft: true,
+          },
+          formForPrefill: {
+            is_draft: true,
+            vendor_public_id: "",
+            bill_number: "",
+            bill_date: "2026-10-26",
+          },
+          intakePrediction: {
+            status: "ok",
+            intake_source: "list_drop",
+            vendor: null,
+            bill_number: null,
+            bill_date: null,
+            total_amount: null,
+            description: null,
+            sub_cost_code: null,
+            project: null,
+            header_confidence: null,
+            coding_confidence: null,
+          },
+          billCreatedDatetime: "2026-10-26 12:00:00",
+          onChange,
+          vendorOptions: [],
+          paymentTermOptions: [],
+        }),
+      );
+    });
+    const billDateGroup = container
+      .querySelector('input[name="bill_date"]')
+      ?.closest(".form-group");
+    expect(billDateGroup?.textContent).toContain("Not read from the PDF — set to today.");
+  });
+
+  it("edit draft hides guessed bill date note after the user edits bill date", () => {
+    act(() => {
+      root.render(
+        createElement(BillHeaderFields, {
+          mode: "edit",
+          form: {
+            vendor_public_id: "",
+            payment_term_public_id: "",
+            bill_date: "2026-10-26",
+            bill_number: "",
+            memo: "",
+            is_draft: true,
+          },
+          formForPrefill: {
+            is_draft: true,
+            vendor_public_id: "",
+            bill_number: "",
+            bill_date: "2026-10-26",
+          },
+          intakePrediction: {
+            status: "ok",
+            intake_source: "list_drop",
+            vendor: null,
+            bill_number: null,
+            bill_date: null,
+            total_amount: null,
+            description: null,
+            sub_cost_code: null,
+            project: null,
+            header_confidence: null,
+            coding_confidence: null,
+          },
+          billCreatedDatetime: "2026-10-26 12:00:00",
+          onChange,
+          vendorOptions: [],
+          paymentTermOptions: [],
+        }),
+      );
+    });
+    act(() => {
+      setInputValue(
+        container.querySelector('input[name="bill_date"]') as HTMLInputElement,
+        "2026-10-27",
+      );
+    });
+    const billDateGroup = container
+      .querySelector('input[name="bill_date"]')
+      ?.closest(".form-group");
+    expect(billDateGroup?.textContent).not.toContain("Not read from the PDF");
+  });
+
+  it("create shows unmatched vendor note from PDF read", () => {
+    act(() => {
+      root.render(
+        createElement(BillHeaderFields, {
+          mode: "create",
+          form: {
+            vendor_public_id: "",
+            payment_term_public_id: "",
+            bill_date: "",
+            bill_number: "",
+            memo: "",
+          },
+          createUnmatchedVendorExtractedName: "No Match Inc",
+          onChange,
+          vendorOptions: [{ value: "v1", label: "V1" }],
+          paymentTermOptions: [],
+        }),
+      );
+    });
+    const vendorGroup = container
+      .querySelector('[data-bo-field="vendor_public_id"]')
+      ?.closest(".form-group");
+    expect(vendorGroup?.textContent).toContain('PDF says "No Match Inc" — no matching vendor.');
+  });
+
+  it("create re-shows unmatched vendor note after vendor is cleared", () => {
+    let form = {
+      vendor_public_id: "",
+      payment_term_public_id: "",
+      bill_date: "",
+      bill_number: "",
+      memo: "",
+    };
+    const handleChange = (name: string, value: string) => {
+      form = { ...form, [name]: value };
+      act(() => {
+        root.render(
+          createElement(BillHeaderFields, {
+            mode: "create",
+            form,
+            createUnmatchedVendorExtractedName: "Ghost Vendor",
+            onChange: handleChange,
+            vendorOptions: [{ value: "v1", label: "V1" }],
+            paymentTermOptions: [],
+          }),
+        );
+      });
+    };
+    act(() => {
+      root.render(
+        createElement(BillHeaderFields, {
+          mode: "create",
+          form,
+          createUnmatchedVendorExtractedName: "Ghost Vendor",
+          onChange: handleChange,
+          vendorOptions: [{ value: "v1", label: "V1" }],
+          paymentTermOptions: [],
+        }),
+      );
+    });
+    handleChange("vendor_public_id", "v1");
+    const vendorGroup = () =>
+      container.querySelector('[data-bo-field="vendor_public_id"]')?.closest(".form-group");
+    expect(vendorGroup()?.textContent).not.toContain("PDF says");
+    handleChange("vendor_public_id", "");
+    expect(vendorGroup()?.textContent).toContain('PDF says "Ghost Vendor" — no matching vendor.');
+  });
+
   it("memo field spans full width on create and edit", () => {
     for (const mode of ["create", "edit"] as const) {
       act(() => {

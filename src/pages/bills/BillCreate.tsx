@@ -1,6 +1,9 @@
 import { useNavigate } from "react-router-dom";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { filePrefillLabel } from "./filePrefillLabels";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  filePrefillLabel,
+  unmatchedVendorNameFromReadResult,
+} from "./filePrefillLabels";
 import { post, put, uploadFile } from "../../api/client";
 import {
   DuplicateDialogCancelled,
@@ -127,6 +130,9 @@ export default function BillCreate() {
     currentGeneration: attachmentReadGeneration,
   } = useAttachmentRead();
   const [readInlineMessage, setReadInlineMessage] = useState<string | null>(null);
+  const [createUnmatchedVendorExtractedName, setCreateUnmatchedVendorExtractedName] = useState<
+    string | null
+  >(null);
   const [headerPrefill, setHeaderPrefill] = useState<HeaderPrefillMeta>(() =>
     createEmptyHeaderPrefill(),
   );
@@ -136,10 +142,18 @@ export default function BillCreate() {
   );
   /** Line row uid that owns line1Prefill badges/gates (not index 0 after row removal). */
   const [line1PrefillUid, setLine1PrefillUid] = useState<string | null>(null);
+  const attachmentEpochRef = useRef(0);
   const pendingReadApplyRef = useRef<{
     result: Awaited<ReturnType<typeof readBillAttachment>>;
     generation: number;
   } | null>(null);
+  const readApplyFalloutRef = useRef<{
+    outcome: ReturnType<typeof applyReadAttachmentResult<LineItemDraft>>;
+    readResult: NonNullable<Awaited<ReturnType<typeof readBillAttachment>>>;
+    generation: number;
+    epoch: number;
+  } | null>(null);
+  const [readApplyCommitToken, setReadApplyCommitToken] = useState(0);
   const formRef = useRef(form);
   formRef.current = form;
   const headerPrefillRef = useRef(headerPrefill);
@@ -330,6 +344,48 @@ export default function BillCreate() {
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
+  const bumpAttachmentEpoch = () => {
+    attachmentEpochRef.current += 1;
+    readApplyFalloutRef.current = null;
+  };
+
+  useLayoutEffect(() => {
+    void readApplyCommitToken;
+    const fallout = readApplyFalloutRef.current;
+    if (!fallout) return;
+    readApplyFalloutRef.current = null;
+    if (
+      fallout.epoch !== attachmentEpochRef.current ||
+      fallout.generation !== attachmentReadGeneration()
+    ) {
+      setReadingAttachment(false);
+      return;
+    }
+    const { outcome, readResult } = fallout;
+    setForm(outcome.form as typeof form);
+    setHeaderPrefill(outcome.headerPrefill);
+    setLine1Prefill(outcome.line1Prefill);
+    if (outcome.lines.length > 0) {
+      setLine1PrefillUid(outcome.lines[0].uid);
+    }
+    setCreateUnmatchedVendorExtractedName(unmatchedVendorNameFromReadResult(readResult));
+    if (outcome.inlineMessage) setReadInlineMessage(outcome.inlineMessage);
+    if (outcome.memoSource) {
+      const rawBillNum = readResult.fields.bill_number?.value;
+      const readBillNumber =
+        typeof rawBillNum === "string" && rawBillNum.trim() !== ""
+          ? rawBillNum.trim()
+          : null;
+      memoSourceRef.current = { ...outcome.memoSource, readBillNumber };
+      if (!memoUserEditedRef.current && formRef.current.memo.trim() === "") {
+        memoAutoActiveRef.current = true;
+        linesRef.current = outcome.lines;
+        syncAutoMemo();
+      }
+    }
+    setReadingAttachment(false);
+  }, [readApplyCommitToken]);
+
   const applyPendingReadResult = (generation: number) => {
     const pending = pendingReadApplyRef.current;
     if (
@@ -353,40 +409,32 @@ export default function BillCreate() {
       return false;
     }
     pendingReadApplyRef.current = null;
-    const outcome = applyReadAttachmentResult({
-      result: pending.result,
+    const readResult = pending.result;
+    const readParams = {
+      result: readResult,
       form: formRef.current,
       headerPrefill: headerPrefillRef.current,
       headerUserTouched: headerUserTouchedRef.current,
       line1Prefill: line1PrefillRef.current,
-      lines: linesRef.current,
       vendors,
       sccCatalog,
+    };
+    // Capture the epoch now: the updater can run during a later render, after the PDF
+    // was removed or replaced, and must not tag stale fallout with the new epoch.
+    const epoch = attachmentEpochRef.current;
+    setLines((prev) => {
+      const outcome = applyReadAttachmentResult({ ...readParams, lines: prev });
+      readApplyFalloutRef.current = {
+        outcome,
+        readResult,
+        generation,
+        epoch,
+      };
+      return outcome.lines;
     });
-    setForm(outcome.form as typeof form);
-    setHeaderPrefill(outcome.headerPrefill);
-    setLine1Prefill(outcome.line1Prefill);
-    setLines(outcome.lines);
-    if (outcome.lines.length > 0) {
-      setLine1PrefillUid(outcome.lines[0].uid);
-    }
-    if (outcome.inlineMessage) setReadInlineMessage(outcome.inlineMessage);
-    if (outcome.memoSource) {
-      const rawBillNum = pending.result.fields.bill_number?.value;
-      const readBillNumber =
-        typeof rawBillNum === "string" && rawBillNum.trim() !== ""
-          ? rawBillNum.trim()
-          : null;
-      memoSourceRef.current = { ...outcome.memoSource, readBillNumber };
-      if (!memoUserEditedRef.current && formRef.current.memo.trim() === "") {
-        memoAutoActiveRef.current = true;
-        linesRef.current = outcome.lines;
-        syncAutoMemo();
-      }
-    }
-    // A result held back for lookups lands here after the read's finally already ran:
-    // this is where the read ends, so clear "Reading invoice…" and the save lock.
-    setReadingAttachment(false);
+    setReadApplyCommitToken((t) => t + 1);
+    // Header/line prefill/memo side effects commit in useLayoutEffect after lines state
+    // settles — functional setLines must see the latest queued line rows (U-732b).
     return true;
   };
 
@@ -438,6 +486,7 @@ export default function BillCreate() {
   };
 
   const beginPdfAttachment = (f: File, entryMethod: "PDF drop" | "PDF upload") => {
+    bumpAttachmentEpoch();
     memoEntryMethodRef.current = entryMethod;
     setMemoEntryMethod(entryMethod);
     const hadPriorAttachment = file !== null || attachmentPublicId !== null;
@@ -447,6 +496,7 @@ export default function BillCreate() {
     }
     setAttachmentPublicId(null);
     setReadInlineMessage(null);
+    setCreateUnmatchedVendorExtractedName(null);
     setSaveError("");
     setFile(f);
 
@@ -476,6 +526,7 @@ export default function BillCreate() {
   };
 
   const clearPdfAttachment = () => {
+    bumpAttachmentEpoch();
     pendingReadApplyRef.current = null;
     abortReadAttachment();
     revertFilePrefillState();
@@ -484,6 +535,7 @@ export default function BillCreate() {
     setFile(null);
     setAttachmentPublicId(null);
     setReadInlineMessage(null);
+    setCreateUnmatchedVendorExtractedName(null);
     setReadingAttachment(false);
   };
 
@@ -836,6 +888,7 @@ export default function BillCreate() {
           createHeaderAdornment={(field) =>
             filePrefillLabel(headerPrefill, field, false)
           }
+          createUnmatchedVendorExtractedName={createUnmatchedVendorExtractedName}
         />
 
         <div className="li-cards-section" style={{ marginTop: 16 }}>

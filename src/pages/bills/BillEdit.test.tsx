@@ -3144,6 +3144,179 @@ describe("BillEdit coding suggestions", () => {
     });
   });
 
+  describe("intake prediction header hints (U-732b)", () => {
+    function formGroupForField(name: string): Element | null {
+      const el = container.querySelector(`[name="${name}"]`);
+      return el?.closest(".form-group") ?? null;
+    }
+
+    it("shows guessed bill date note for list-drop prediction with bill_date null", async () => {
+      setupMocks([sampleLineItem()]);
+      mockGetOne.mockImplementation((path: string) => {
+        if (path === BILL_GET_PATH) {
+          return Promise.resolve(
+            sampleBill({
+              vendor_id: null,
+              bill_date: "2026-10-26T00:00:00",
+              created_datetime: "2026-10-26 12:00:00",
+            }),
+          );
+        }
+        if (path === "/api/v1/bill/bill-1/intake-prediction") {
+          return Promise.resolve({
+            status: "ok",
+            intake_source: "list_drop",
+            vendor: null,
+            bill_number: null,
+            bill_date: null,
+            total_amount: null,
+            description: null,
+            sub_cost_code: null,
+            project: null,
+            header_confidence: null,
+            coding_confidence: null,
+          });
+        }
+        if (path.startsWith("/api/v1/get/bill-line-item-attachment/by-bill-line-item/")) {
+          return Promise.reject(new ApiError(404, "Not found"));
+        }
+        return Promise.reject(new Error(`unexpected getOne: ${path}`));
+      });
+      await mountBillEdit();
+      await flushUntilHard(
+        () =>
+          formGroupForField("bill_date")?.textContent?.includes("Not read from the PDF") ?? false,
+        "guessed bill date note",
+      );
+      expect(formGroupForField("bill_date")?.textContent).toContain(
+        "Not read from the PDF — set to today.",
+      );
+    });
+
+    it("hides guessed bill date note when prediction includes bill_date", async () => {
+      setupMocks([sampleLineItem()]);
+      mockGetOne.mockImplementation((path: string) => {
+        if (path === BILL_GET_PATH) return Promise.resolve(sampleBill());
+        if (path === "/api/v1/bill/bill-1/intake-prediction") {
+          return Promise.resolve({
+            status: "ok",
+            intake_source: "list_drop",
+            vendor: { public_id: "v-1", name: "V" },
+            bill_number: "B-100",
+            bill_date: "2026-01-15",
+            total_amount: "100.00",
+            description: "existing",
+            sub_cost_code: null,
+            project: null,
+            header_confidence: null,
+            coding_confidence: null,
+          });
+        }
+        if (path.startsWith("/api/v1/get/bill-line-item-attachment/by-bill-line-item/")) {
+          return Promise.reject(new ApiError(404, "Not found"));
+        }
+        return Promise.reject(new Error(`unexpected getOne: ${path}`));
+      });
+      await mountBillEdit();
+      await waitForReady();
+      expect(formGroupForField("bill_date")?.textContent).not.toContain("Not read from the PDF");
+    });
+
+    it("hides guessed bill date note after the user edits bill date", async () => {
+      setupMocks([sampleLineItem()]);
+      mockGetOne.mockImplementation((path: string) => {
+        if (path === BILL_GET_PATH) {
+          return Promise.resolve(
+            sampleBill({
+              bill_date: "2026-10-26T00:00:00",
+              created_datetime: "2026-10-26 12:00:00",
+            }),
+          );
+        }
+        if (path === "/api/v1/bill/bill-1/intake-prediction") {
+          return Promise.resolve({
+            status: "ok",
+            intake_source: "list_drop",
+            vendor: null,
+            bill_number: null,
+            bill_date: null,
+            total_amount: null,
+            description: null,
+            sub_cost_code: null,
+            project: null,
+            header_confidence: null,
+            coding_confidence: null,
+          });
+        }
+        if (path.startsWith("/api/v1/get/bill-line-item-attachment/by-bill-line-item/")) {
+          return Promise.reject(new ApiError(404, "Not found"));
+        }
+        return Promise.reject(new Error(`unexpected getOne: ${path}`));
+      });
+      await mountBillEdit();
+      await flushUntilHard(
+        () =>
+          formGroupForField("bill_date")?.textContent?.includes("Not read from the PDF") ?? false,
+        "guessed bill date note",
+      );
+      const billDate = container.querySelector('input[name="bill_date"]') as HTMLInputElement;
+      await act(async () => {
+        setInputValue(billDate, "2026-11-01");
+      });
+      await flushUntilHard(
+        () =>
+          !(formGroupForField("bill_date")?.textContent?.includes("Not read from the PDF") ?? false),
+        "note cleared after edit",
+      );
+    });
+
+    it("shows unmatched vendor note and hides it after vendor is chosen", async () => {
+      setupMocks([sampleLineItem()]);
+      mockGetOne.mockImplementation((path: string) => {
+        if (path === BILL_GET_PATH) {
+          return Promise.resolve(sampleBill({ vendor_id: null }));
+        }
+        if (path === "/api/v1/bill/bill-1/intake-prediction") {
+          return Promise.resolve({
+            status: "partial",
+            intake_source: "list_drop",
+            vendor: { public_id: null, name: "Evil <b>Corp</b>" },
+            bill_number: null,
+            bill_date: null,
+            total_amount: null,
+            description: null,
+            sub_cost_code: null,
+            project: null,
+            header_confidence: null,
+            coding_confidence: null,
+          });
+        }
+        if (path.startsWith("/api/v1/get/bill-line-item-attachment/by-bill-line-item/")) {
+          return Promise.reject(new ApiError(404, "Not found"));
+        }
+        return Promise.reject(new Error(`unexpected getOne: ${path}`));
+      });
+      await mountBillEdit();
+      await flushUntilHard(
+        () => formGroupForField("vendor_public_id")?.textContent?.includes("PDF says") ?? false,
+        "unmatched vendor note",
+      );
+      const vendorGroup = formGroupForField("vendor_public_id");
+      expect(vendorGroup?.textContent).toContain('PDF says "Evil <b>Corp</b>" — no matching vendor.');
+      expect(vendorGroup?.querySelector("b")).toBeNull();
+      await act(async () => {
+        pickComboboxOptionByValue(
+          container.querySelector('[data-bo-field="vendor_public_id"]')!,
+          "v-2",
+        );
+      });
+      await flushUntilHard(
+        () => !formGroupForField("vendor_public_id")?.textContent?.includes("PDF says"),
+        "vendor note cleared",
+      );
+    });
+  });
+
   describe("U-681 shared bill line layout", () => {
     it("measured table pins width contract and compact chip class", async () => {
       setupMocks([sampleLineItem()]);

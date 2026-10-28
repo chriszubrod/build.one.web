@@ -1,9 +1,13 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import DocumentHeaderFields, {
   type DocumentHeaderFieldDef,
 } from "../../components/DocumentHeaderFields";
 import {
   billEditFilePrefillAdornment,
+  billEditGuessedBillDateNote,
+  billEditUnmatchedVendorNote,
+  combineHeaderFieldAdornments,
+  createUnmatchedVendorNote,
   type HeaderFormSlice,
 } from "./filePrefillLabels";
 import type { BillIntakePrediction } from "../../types/api";
@@ -29,6 +33,10 @@ export interface BillHeaderFieldsProps {
   /** Edit: intake prediction badges */
   intakePrediction?: BillIntakePrediction | null;
   formForPrefill?: HeaderFormSlice | null;
+  /** Create: PDF vendor name when read found no matching vendor */
+  createUnmatchedVendorExtractedName?: string | null;
+  /** Edit: bill row created_datetime for list-drop guessed-date hint */
+  billCreatedDatetime?: string | null;
 }
 
 /**
@@ -44,12 +52,16 @@ export default function BillHeaderFields({
   createHeaderAdornment,
   intakePrediction,
   formForPrefill,
+  createUnmatchedVendorExtractedName,
+  billCreatedDatetime,
 }: BillHeaderFieldsProps) {
   const required = mode === "create" || !form.is_draft;
+  const [billDateEditedThisSession, setBillDateEditedThisSession] = useState(false);
 
   const handleChange = (name: string, value: string | boolean) => {
     if (typeof value !== "string") return;
     if (name === "bill_date" && mode === "edit") {
+      setBillDateEditedThisSession(true);
       onChange("bill_date", value);
       onChange("due_date", value);
       return;
@@ -71,8 +83,21 @@ export default function BillHeaderFields({
       required: mode === "create",
       adornment:
         mode === "create"
-          ? createHeaderAdornment?.("vendor_public_id")
-          : editAdornment("vendor_public_id"),
+          ? combineHeaderFieldAdornments(
+              createHeaderAdornment?.("vendor_public_id"),
+              createUnmatchedVendorNote(
+                createUnmatchedVendorExtractedName,
+                form.vendor_public_id,
+              ),
+            )
+          : combineHeaderFieldAdornments(
+              editAdornment("vendor_public_id"),
+              billEditUnmatchedVendorNote(
+                intakePrediction ?? null,
+                formForPrefill ?? null,
+                form.vendor_public_id,
+              ),
+            ),
     },
     {
       key: "bill_number",
@@ -92,7 +117,15 @@ export default function BillHeaderFields({
       adornment:
         mode === "create"
           ? createHeaderAdornment?.("bill_date")
-          : editAdornment("bill_date"),
+          : combineHeaderFieldAdornments(
+              editAdornment("bill_date"),
+              billEditGuessedBillDateNote(
+                intakePrediction ?? null,
+                formForPrefill ?? null,
+                billDateEditedThisSession,
+                billCreatedDatetime,
+              ),
+            ),
     },
     {
       key: "payment_term_public_id",

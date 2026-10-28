@@ -1812,6 +1812,10 @@ button[type="submit"]:disabled {
   margin-top: 4px;
 }
 
+.header-prefill-adornment.header-prefill-hint {
+  font-size: 12px;
+}
+
 .bill-read-status {
   font-size: 13px;
   margin: 4px 0 8px;

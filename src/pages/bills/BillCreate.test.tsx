@@ -2141,6 +2141,30 @@ describe("BillCreate PDF read attachment", () => {
     await flushUntil(() => !submitForReviewButton().disabled);
   });
 
+  it("U-732b drops stale read header fallout when PDF is cleared before layout apply", async () => {
+    let resolveRead!: (value: ReturnType<typeof okReadFromFile>) => void;
+    mockReadBillAttachment.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRead = resolve;
+        }),
+    );
+    await mountPage();
+    await flushUntil(() => container.querySelector('input[type="file"]') !== null);
+    await attachPdf();
+    await flushUntil(() => container.querySelector('iframe[title="Bill PDF preview"]') !== null);
+
+    await act(async () => {
+      resolveRead(okReadFromFile());
+      findButton("Change file").click();
+      await Promise.resolve();
+    });
+
+    expect(getComboboxValue(vendorCombobox())).toBe("");
+    expect((container.querySelector("#bill_number") as HTMLInputElement).value).toBe("");
+    expect(container.textContent?.includes("From file")).toBe(false);
+  });
+
   it("Change file aborts read and clears unaccepted file prefills", async () => {
     let capturedSignal: AbortSignal | undefined;
     mockReadBillAttachment.mockImplementationOnce(
@@ -3159,6 +3183,70 @@ describe("BillCreate PDF read attachment", () => {
     expect(codingSuggestHookCalls[codingSuggestHookCalls.length - 1]?.projectHintForSuggest).toBe(
       "p-2",
     );
+  });
+
+  it("shows unmatched vendor note when read extracted a name with no vendor match", async () => {
+    mockReadBillAttachment.mockResolvedValue(
+      okReadFromFile({
+        fields: {
+          ...emptyReadFields(),
+          vendor: {
+            value: null,
+            extracted_name: "Ghost Vendor",
+            confidence: "0.9",
+          },
+          bill_number: { value: "INV-42", confidence: "0.9" },
+        },
+        coding: null,
+      }),
+    );
+    await mountPage();
+    await attachPdf();
+    await flushUntil(() => container.textContent?.includes('PDF says "Ghost Vendor"'));
+    expect(container.textContent).toContain('PDF says "Ghost Vendor" — no matching vendor.');
+    await act(async () => {
+      await setVendorValue("v-1");
+    });
+    await flushUntil(() => !container.textContent?.includes("PDF says"));
+  });
+
+  it("U-732b batched setLines: read apply on latest lines keeps vendor-history SCC on line 1", async () => {
+    let resolveSuggest!: (value: ReturnType<typeof codingSuggestionPayload>) => void;
+    let resolveRead!: (value: ReturnType<typeof okReadFromFile>) => void;
+    mockSuggestCoding.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSuggest = resolve;
+        }),
+    );
+    mockReadBillAttachment.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRead = resolve;
+        }),
+    );
+
+    await mountPage();
+    await flushUntil(() => container.querySelector("#vendor_public_id") !== null);
+    await act(async () => {
+      await setVendorValue("v-1");
+      await attachPdf();
+    });
+
+    await act(async () => {
+      resolveSuggest(codingSuggestionPayload());
+      resolveRead(
+        okReadFromFile({
+          fields: emptyReadFields(),
+          coding: null,
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(400);
+      await Promise.resolve();
+    });
+
+    await flushUntil(() => sccValueAt(0) === "10");
+    expect(sccValueAt(0)).toBe("10");
   });
 
 });
