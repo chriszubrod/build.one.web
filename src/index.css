@@ -5815,3 +5815,161 @@ a.buildone-record-header-link:hover .buildone-record-name {
 .line-items-measured .line-item-control .bo-combobox {
   width: 100%;
 }
+
+/* ── U-535b b3: attachment-backfill review (/admin/attachment-backfill) ──
+   Neutral by design: no success/error (green/red) colouring on evidence —
+   the owner decides every candidate. Classes are prefixed `abf-`. */
+.abf-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+.abf-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  font-size: var(--font-size-footnote);
+  color: var(--color-text-muted);
+  min-width: 160px;
+}
+.abf-picker-wide {
+  min-width: 320px;
+}
+.abf-run-summary,
+.abf-keys,
+.abf-muted {
+  font-size: var(--font-size-footnote);
+  color: var(--color-text-muted);
+}
+.abf-run-summary {
+  margin-bottom: var(--space-md);
+}
+.abf-progress {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-sm);
+  font-size: var(--font-size-footnote);
+}
+.abf-notice {
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+.abf-notice-strong {
+  border-width: 2px;
+  border-color: var(--color-text);
+  font-weight: 600;
+}
+.abf-main {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr);
+  gap: var(--space-lg);
+  align-items: start;
+}
+@media (max-width: 1023px) {
+  .abf-main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.abf-doc {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  min-height: 70vh;
+  overflow: hidden;
+}
+.abf-iframe {
+  display: block;
+  width: 100%;
+  height: 78vh;
+  border: 0;
+}
+.abf-doc-placeholder {
+  padding: var(--space-xl);
+  color: var(--color-text-muted);
+}
+.abf-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.abf-actions,
+.abf-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+.abf-reasons {
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+}
+.abf-reasons .abf-muted {
+  width: 100%;
+}
+.abf-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.abf-section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: var(--space-sm) var(--space-md);
+}
+.abf-section h3 {
+  margin: 0 0 var(--space-xs);
+  font-size: var(--font-size-footnote);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+.abf-section h4 {
+  margin: var(--space-sm) 0 var(--space-xs);
+  font-size: var(--font-size-footnote);
+}
+.abf-fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px var(--space-md);
+  margin: 0;
+}
+.abf-fields dt {
+  color: var(--color-text-muted);
+}
+.abf-fields dd {
+  margin: 0;
+}
+.abf-break {
+  overflow-wrap: anywhere;
+}
+.abf-counts,
+.abf-snippet-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.abf-counts li {
+  font-variant-numeric: tabular-nums;
+}
+.abf-snippet {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  padding: 2px 0;
+  overflow-wrap: anywhere;
+}
+.abf-snippet mark {
+  background: var(--color-surface-3);
+  color: var(--color-text);
+  outline: 1px solid var(--color-text-muted);
+  padding: 0 2px;
+}
+/* ── end U-535b b3 ── */

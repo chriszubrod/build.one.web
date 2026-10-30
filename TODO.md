@@ -1,3 +1,14 @@
+## U-535b b3 follow-ups - attachment-backfill review page (booked 2026-10-30)
+
+System-admin page `/attachment-backfill` where Chris approves each Box PDF -> bill candidate one at a time (API b2, `f14f08ca`).
+- **Check Chrome and Safari once by hand:** Approve waits for the PDF iframe's `load`; jsdom fires it only by hand. If a browser never fires it for a blob PDF, Approve stays disabled ("Document not loaded") - fail-safe, but it blocks review.
+- **Shortcuts stop after clicking into the PDF** (the iframe takes focus); clicking the side pane restores them. A focus-return affordance or a capture-phase listener would help.
+- **Esc race (accepted):** an Esc keypress landing between a decision's response and its render can commit alone and release the single-flight guard early; a second A then re-sends for the SAME candidate with its old row_version and the server refuses it (not_pending/stale). Never reaches another candidate.
+- **Two refetches per decision:** every approve/reject/undo invalidates the whole `attachment-backfill` prefix (runs + facets). Debounce ~1-2 s if facets get slow.
+- **Extract `useSingleFlight()` and `useCandidateLoader()` from `ReviewQueue.tsx`** (~630 lines). `setCommitTick` in the guard is load-bearing (window keydown batching can make `setBusy(true/false)` a no-op) - keep it.
+- **`fetchCandidatePdf` repeats `client.ts` request code** (`fetchViewAttachmentBlob` pattern; `apiErrorFromJsonBody` is not exported). Add a shared `authedGetResponse(path)`; keep the forced `application/pdf` blob type and the no-login-redirect behaviour.
+- **`/docs` narrative:** only the derived web manifest lists the route; write a short curated note if the page outlives the backfill.
+
 ## U-701b4 web follow-ups (booked 2026-10-28; branch `unit/u-701b4w`, ships with the U-701b API half)
 
 The background (Sonnet) cost-code swap on Bill Edit: line 1's untouched prefill is replaced only from the FIRST suggestion request after the bill loads (decided when the request is sent), never from polls or later re-fetches.

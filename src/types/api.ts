@@ -1488,3 +1488,115 @@ export interface AssetAccountExclusion {
   company_id?: number;
   created_by_user_id?: number | null;
 }
+
+// ── U-535b b3: attachment-backfill review (system admin) ──────────────
+// Mirrors build.one.api entities/attachment_backfill/business/review.py
+// (run_out / facet_out / candidate_out / review_out). Every field is a
+// neutral count, flag or the reviewer's own decision — never a verdict.
+
+export type AttachmentBackfillEvidenceGroup =
+  | "clean"
+  | "flagged"
+  | "invoice_only"
+  | "amount_only"
+  | "neither";
+
+export type AttachmentBackfillReviewStatus = "pending" | "approved" | "rejected";
+
+export type AttachmentBackfillRejectReason =
+  | "wrong_bill"
+  | "statement"
+  | "multiple_invoices"
+  | "duplicate"
+  | "unreadable"
+  | "other";
+
+export interface AttachmentBackfillRun {
+  public_id: string;
+  source: string | null;
+  status: string | null;
+  created_datetime: string | null;
+  modified_datetime: string | null;
+  candidate_count: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  unchecked: number;
+  linked: number;
+}
+
+export interface AttachmentBackfillFacet {
+  evidence_group: AttachmentBackfillEvidenceGroup | null;
+  project_public_id: string | null;
+  project_name: string | null;
+  bill_year: number | null;
+  review_status: AttachmentBackfillReviewStatus | null;
+  count: number;
+}
+
+export interface AttachmentBackfillCandidate {
+  public_id: string;
+  row_version: string | null;
+  run_public_id: string | null;
+  run_status: string | null;
+  bill_public_id: string | null;
+  bill_number: string | null;
+  bill_date: string | null;
+  bill_year: number | null;
+  total_amount: string | null;
+  vendor_name: string | null;
+  project_public_id: string | null;
+  project_name: string | null;
+  project_names: string | null;
+  source_file_name: string | null;
+  source_file_size: number | null;
+  match_tier: string | null;
+  check_status: string | null;
+  invoice_seen_count: number | null;
+  amount_seen_count: number | null;
+  vendor_seen: boolean | null;
+  other_invoice_label_count: number | null;
+  statement_like: boolean | null;
+  used_ocr: boolean | null;
+  evidence_group: AttachmentBackfillEvidenceGroup | null;
+  review_status: AttachmentBackfillReviewStatus | null;
+  reject_reason: AttachmentBackfillRejectReason | null;
+  reviewed_by_user_public_id: string | null;
+  reviewed_datetime: string | null;
+  linked: boolean;
+}
+
+export type AttachmentBackfillSnippetKind =
+  | "invoice_number"
+  | "amount"
+  | "vendor"
+  | "other_invoice_label";
+
+export interface AttachmentBackfillSnippet {
+  kind: AttachmentBackfillSnippetKind;
+  before: string;
+  hit: string;
+  after: string;
+}
+
+export interface AttachmentBackfillCandidateDetail extends AttachmentBackfillCandidate {
+  snippets: AttachmentBackfillSnippet[] | null;
+  snippet_error: string | null;
+  content_matches_check: boolean | null;
+}
+
+/** POST /review and /undo return only the review columns (review_out). */
+export interface AttachmentBackfillReviewResult {
+  public_id: string;
+  row_version: string | null;
+  review_status: AttachmentBackfillReviewStatus | null;
+  reject_reason: AttachmentBackfillRejectReason | null;
+  reviewed_by_user_public_id: string | null;
+  reviewed_datetime: string | null;
+}
+
+export interface AttachmentBackfillQueuePage {
+  data: AttachmentBackfillCandidate[];
+  count: number;
+  next_after: string | null;
+}

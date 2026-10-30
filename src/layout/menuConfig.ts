@@ -1,4 +1,4 @@
-import { BookOpen, Briefcase, Building2, Calculator, CalendarClock, CircleDollarSign, Clock, FileMinus, FileText, Hammer, HardHat, Hash, IdCard, KeyRound, Layers, ListChecks, MapPin, Network, Receipt, ShieldCheck, Store, Tags, Truck, User, UserCog, Users } from "lucide-react";
+import { BookOpen, Briefcase, Building2, Calculator, CalendarClock, CircleDollarSign, Clock, FileMinus, FileSearch, FileText, Hammer, HardHat, Hash, IdCard, KeyRound, Layers, ListChecks, MapPin, Network, Receipt, ShieldCheck, Store, Tags, Truck, User, UserCog, Users } from "lucide-react";
 import type { ComponentType } from "react";
 import { Modules, type ModuleName } from "../shared/modules";
 import { ASSETS_MODULE } from "../api/asset";
@@ -320,6 +320,17 @@ export const MENU_ENTRIES: MenuEntry[] = [
     section: "admin",
     priority: 10,
     requiresAdmin: true,
+  },
+  {
+    // U-535b b3: review historical Box invoice PDFs as bill links.
+    id: "attachment-backfill",
+    label: "Attachment Backfill",
+    icon: FileSearch,
+    route: "/attachment-backfill", // own base: isEntryRouteActive matches by first segment, so under /admin it would light up with Users
+    module: null,
+    section: "admin",
+    priority: 20,
+    requiresAdmin: true, // system admins only; the API is require_system_admin
   },
 ];
 

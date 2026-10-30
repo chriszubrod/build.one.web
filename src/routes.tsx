@@ -32,6 +32,10 @@ import TimeEntryCreate from "./pages/time-entry/TimeEntryCreate";
 // vendored iOS snapshot, which no other shipped route needs. Keeping it out of
 // the main bundle spares field workers (the majority, who can't open it) the weight.
 const DocsPage = lazy(() => import("./pages/docs/DocsPage"));
+// U-535b b3: admin-only attachment-backfill review (PDF viewer + evidence) — code-split too.
+const AttachmentBackfillPage = lazy(
+  () => import("./pages/admin/attachment-backfill/AttachmentBackfillPage"),
+);
 
 import AdminUsersPage from "./pages/admin/AdminUsersPage";
 import AdminUserDetailPage from "./pages/admin/AdminUserDetailPage";
@@ -336,6 +340,15 @@ export const appRouteTree = (
 
         <Route path="/admin" element={<AdminUsersPage />} />
         <Route path="/admin/user/:publicId" element={<AdminUserDetailPage />} />
+        {/* U-535b b3 — page-level useAdminGate + requiresAdmin nav entry. */}
+        <Route
+          path="/attachment-backfill"
+          element={
+            <Suspense fallback={routeChunkFallback}>
+              <AttachmentBackfillPage />
+            </Suspense>
+          }
+        />
 
         {/* Admin-only documentation surface (lazy-loaded). Page-level
             guard in DocsPage redirects non-admins; nav entry is

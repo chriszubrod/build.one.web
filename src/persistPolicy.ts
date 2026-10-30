@@ -36,6 +36,13 @@ export const ITEM_KEY_PREFIX = "item";
 /** Query-key head for the expense coding suggestion (useExpenseCodingSuggestion). */
 export const EXPENSE_CODING_SUGGEST_KEY_PREFIX = "expense-coding-suggest";
 
+/**
+ * Query-key head for the attachment-backfill review page (U-535b b3). Its runs
+ * and facets drive the default batch; a disk copy of unknown age would open the
+ * owner on a batch that no longer matches the server.
+ */
+export const ATTACHMENT_BACKFILL_KEY_PREFIX = "attachment-backfill";
+
 const ONE_HOUR_MS = 60 * 60 * 1000;
 export const ONE_DAY_MS = 24 * ONE_HOUR_MS;
 
@@ -84,6 +91,9 @@ export function shouldDehydrateQuery(
   // (fits / tight / over against the project's current spend). Rehydrating it
   // from disk days later would show "Within budget" for a code that is now over.
   if (query.queryKey[0] === EXPENSE_CODING_SUGGEST_KEY_PREFIX) return false;
+
+  // U-535b b3: review-queue runs/facets are live review state — never persisted.
+  if (query.queryKey[0] === ATTACHMENT_BACKFILL_KEY_PREFIX) return false;
 
   return now - query.state.dataUpdatedAt < maxAgeForQuery(query.queryKey);
 }

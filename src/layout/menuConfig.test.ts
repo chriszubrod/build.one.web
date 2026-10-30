@@ -363,10 +363,13 @@ describe("entriesInSection", () => {
     });
   });
 
-  it("admin section lists the Users console for system admins only", () => {
+  it("admin section lists the Users console and Attachment Backfill for system admins only", () => {
     const adminUsers = findMenuEntry("admin-users")!;
+    const backfill = findMenuEntry("attachment-backfill")!;
+    expect(backfill.requiresAdmin).toBe(true);
     expect(entriesInSection("admin", makeUser({ is_admin: true }))).toEqual([
       adminUsers,
+      backfill,
     ]);
     expect(entriesInSection("admin", makeUser({ is_admin: false }))).toEqual(
       [],
