@@ -1501,6 +1501,14 @@ export type AttachmentBackfillEvidenceGroup =
   | "amount_only"
   | "neither";
 
+/**
+ * U-535b b5: a queue/facets filter value — the evidence groups plus `sample`
+ * (members of the run's OPEN random review sample). Not an evidence group: a
+ * candidate's own `evidence_group` is never `sample`, and facets count sample
+ * members a second time (they are also in their real group, e.g. `clean`).
+ */
+export type AttachmentBackfillQueueGroup = AttachmentBackfillEvidenceGroup | "sample";
+
 export type AttachmentBackfillReviewStatus = "pending" | "approved" | "rejected";
 
 export type AttachmentBackfillRejectReason =
@@ -1526,7 +1534,7 @@ export interface AttachmentBackfillRun {
 }
 
 export interface AttachmentBackfillFacet {
-  evidence_group: AttachmentBackfillEvidenceGroup | null;
+  evidence_group: AttachmentBackfillQueueGroup | null;
   project_public_id: string | null;
   project_name: string | null;
   bill_year: number | null;

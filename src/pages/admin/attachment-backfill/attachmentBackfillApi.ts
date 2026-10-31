@@ -1,14 +1,15 @@
 import { ApiError, fetchWithRefresh, getList, getOne, post, rawRequest } from "../../../api/client";
 import type {
   AttachmentBackfillCandidateDetail,
-  AttachmentBackfillEvidenceGroup,
   AttachmentBackfillFacet,
+  AttachmentBackfillQueueGroup,
   AttachmentBackfillQueuePage,
   AttachmentBackfillRejectReason,
   AttachmentBackfillReviewResult,
   AttachmentBackfillReviewStatus,
   AttachmentBackfillRun,
 } from "../../../types/api";
+import { SAMPLE_GROUP } from "./backfillModel";
 
 /**
  * U-535b b3 — client for the b2 review API (build.one.api
@@ -29,10 +30,17 @@ export async function getFacets(runPublicId: string): Promise<AttachmentBackfill
 }
 
 export interface QueueParams {
-  group: AttachmentBackfillEvidenceGroup;
-  /** Project PublicId, or null for candidates with no project (sent as `none`). */
+  /** An evidence group, or `sample` (b5: members of the run's open review sample). */
+  group: AttachmentBackfillQueueGroup;
+  /**
+   * Project PublicId, or null for candidates with no project (sent as `none`).
+   * Ignored for `sample`: the sample is ONE flat list, so project_id is not sent.
+   */
   projectPublicId: string | null;
-  /** Bill year, or null for candidates whose bill is gone (sent as `none`). */
+  /**
+   * Bill year, or null for candidates whose bill is gone (sent as `none`).
+   * Ignored for `sample` (year is not sent).
+   */
   year: number | null;
   reviewStatus: AttachmentBackfillReviewStatus | "all";
   after?: string | null;
@@ -42,8 +50,11 @@ export interface QueueParams {
 export async function getQueue(runPublicId: string, p: QueueParams): Promise<AttachmentBackfillQueuePage> {
   const q = new URLSearchParams();
   q.set("group", p.group);
-  q.set("project_id", p.projectPublicId ?? "none");
-  q.set("year", p.year == null ? "none" : String(p.year));
+  // b5 (EM decision): the open sample is reviewed as ONE flat list — only group + review_status.
+  if (p.group !== SAMPLE_GROUP) {
+    q.set("project_id", p.projectPublicId ?? "none");
+    q.set("year", p.year == null ? "none" : String(p.year));
+  }
   q.set("review_status", p.reviewStatus);
   if (p.after) q.set("after", p.after);
   q.set("limit", String(p.limit ?? QUEUE_PAGE_SIZE));

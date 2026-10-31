@@ -9,12 +9,18 @@ import {
   type BatchSelection,
   EVIDENCE_GROUPS,
   GROUP_LABELS,
+  SAMPLE_GROUP,
+  SAMPLE_LABEL,
   batchCount,
   defaultBatch,
   defaultRun,
   firstBatchIn,
   groupCounts,
+  hasSample,
+  isSampleBatch,
   projectOptions,
+  sampleCount,
+  sampleProgress,
   withHeldProject,
   withHeldYear,
   yearOptions,
@@ -90,18 +96,29 @@ export default function AttachmentBackfillPage() {
   // The group the pickers name: a pick still waiting for candidates, else the batch's.
   const shownGroup = pickedGroup ?? selection?.group ?? null;
 
+  // The sample's total over every status changes only when the sample is redrawn or
+  // closed (decisions move members between statuses, never in or out), so keying on
+  // it remounts the queue from its first page instead of paging a stale cursor (W2).
+  const sample = sampleProgress(facets);
+  const sampleKey = selection && isSampleBatch(selection) ? `|n${sample?.total ?? 0}` : "";
   const batchKey = selection
-    ? `${runId}|${selection.group}|${selection.projectPublicId ?? NONE}|${selection.year ?? NONE}|${reviewStatus}`
+    ? `${runId}|${selection.group}|${selection.projectPublicId ?? NONE}|${selection.year ?? NONE}|${reviewStatus}${sampleKey}`
     : null;
 
   if (gate) return gate;
 
   const counts = groupCounts(facets, reviewStatus);
+  // b5: the open random sample is a picker choice only while facets carry `sample`
+  // rows — or while it is the batch under review, so the picker keeps naming it.
+  const showSample = hasSample(facets) || shownGroup === SAMPLE_GROUP;
   // The held batch stays an option (count 0) after it empties, so the pickers always
   // name the batch under review until the user picks another (fix L2).
-  const projects = selection ? withHeldProject(projectOptions(facets, selection.group, reviewStatus), selection, facets) : [];
-  const years = selection
-    ? withHeldYear(yearOptions(facets, selection.group, selection.projectPublicId, reviewStatus), selection)
+  // The sample is one flat list (EM decision): no project/year options, so both pickers show "—" disabled.
+  const sampleShown = shownGroup === SAMPLE_GROUP;
+  const batched = selection && !isSampleBatch(selection) ? selection : null;
+  const projects = batched ? withHeldProject(projectOptions(facets, batched.group, reviewStatus), batched, facets) : [];
+  const years = batched
+    ? withHeldYear(yearOptions(facets, batched.group, batched.projectPublicId, reviewStatus), batched)
     : [];
   const run = runs.find((r) => r.public_id === runId);
 
@@ -111,14 +128,14 @@ export default function AttachmentBackfillPage() {
     setPickedGroup(batch ? null : group);
   };
   const pickProject = (value: string) => {
-    if (!selection) return;
+    if (!selection || isSampleBatch(selection)) return;
     const projectPublicId = value === NONE ? null : value;
     const year = yearOptions(facets, selection.group, projectPublicId, reviewStatus)[0]?.year ?? null;
     const projectName = projects.find((p) => p.projectPublicId === projectPublicId)?.projectName;
     setSelection({ group: selection.group, projectPublicId, year, projectName });
   };
   const pickYear = (value: string) => {
-    if (!selection) return;
+    if (!selection || isSampleBatch(selection)) return;
     setSelection({ ...selection, year: value === NONE ? null : Number(value) });
   };
   const pickStatus = (value: AttachmentBackfillReviewStatus | "all") => {
@@ -187,6 +204,11 @@ export default function AttachmentBackfillPage() {
                       {GROUP_LABELS[g]} ({counts[g]})
                     </option>
                   ))}
+                  {showSample && (
+                    <option value={SAMPLE_GROUP}>
+                      {SAMPLE_LABEL} ({sampleCount(facets, reviewStatus)})
+                    </option>
+                  )}
                 </select>
               </label>
               <label className="abf-picker">
@@ -231,6 +253,18 @@ export default function AttachmentBackfillPage() {
           Run: {run.candidate_count} candidates · pending {run.pending} · approved {run.approved} · rejected{" "}
           {run.rejected} · linked {run.linked}
         </div>
+      )}
+
+      {sample && (
+        <div className="abf-run-summary" data-testid="abf-sample-progress">
+          Sample: {sample.decided} of {sample.total} decided
+        </div>
+      )}
+
+      {sampleShown && (
+        <p className="text-muted" data-testid="abf-sample-note">
+          {sample ? `All ${sample.total}, randomly selected` : "Sample closed"}
+        </p>
       )}
 
       {facetsQuery.isSuccess && !shownGroup && (

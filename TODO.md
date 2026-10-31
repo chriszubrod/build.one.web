@@ -1,3 +1,7 @@
+## U-535b b5 follow-ups (booked 2026-10-31; branch `unit/u-535b5w`)
+
+- [ ] **Load-flaky, pre-existing (not b5):** `src/components/InlineLineItems.test.tsx` "renders a combobox and routes picks through onEdit like select" fails 1/14 under machine load (`combobox did not finish loading (LazyCombobox pending)`), also on clean origin/main. Seen 2026-10-30 at load avg ~8-15; passed 14/14 alone earlier the same session. Fix the wait (LazyCombobox resolution under fake timers), not a timeout bump.
+
 ## U-535b b3 follow-ups - attachment-backfill review page (booked 2026-10-30)
 
 System-admin page `/attachment-backfill` where Chris approves each Box PDF -> bill candidate one at a time (API b2, `f14f08ca`).

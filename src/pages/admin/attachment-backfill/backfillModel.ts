@@ -3,6 +3,7 @@ import type {
   AttachmentBackfillCandidateDetail,
   AttachmentBackfillEvidenceGroup,
   AttachmentBackfillFacet,
+  AttachmentBackfillQueueGroup,
   AttachmentBackfillRejectReason,
   AttachmentBackfillReviewStatus,
   AttachmentBackfillRun,
@@ -32,6 +33,14 @@ export const GROUP_LABELS: Record<AttachmentBackfillEvidenceGroup, string> = {
   amount_only: "Amount only",
   neither: "Neither / not checked",
 };
+
+/**
+ * b5: the queue filter for the run's OPEN random review sample. Not an evidence
+ * group — facets count each member a second time (also in its real group), so
+ * it never enters an "all groups" total (groupCounts) or the default batch.
+ */
+export const SAMPLE_GROUP = "sample" as const;
+export const SAMPLE_LABEL = "Random sample";
 
 /** Index i is the reason for key `${i + 1}`. Same set as review.py REJECT_REASONS. */
 export const REJECT_REASONS: { value: AttachmentBackfillRejectReason; label: string }[] = [
@@ -79,7 +88,8 @@ export function refusalMessage(code: string | undefined): string {
 // ── batch selection ─────────────────────────────────────────────────────
 
 export interface BatchSelection {
-  group: AttachmentBackfillEvidenceGroup;
+  /** An evidence group, or SAMPLE_GROUP (its facets rows carry project/year/status like any group). */
+  group: AttachmentBackfillQueueGroup;
   projectPublicId: string | null;
   year: number | null;
   /** Display name captured when picked, so the held project stays named after it empties. */
@@ -104,21 +114,69 @@ function statusMatches(
   return status === "all" || facet.review_status === status;
 }
 
+/**
+ * Per-evidence-group counts. `sample` rows are EXCLUDED: their members are
+ * already counted in their real group (`clean`), so summing these never
+ * double-counts. The sample's own count is sampleCount.
+ */
 export function groupCounts(
   facets: AttachmentBackfillFacet[],
   status: AttachmentBackfillReviewStatus | "all",
 ): Record<AttachmentBackfillEvidenceGroup, number> {
   const out = { clean: 0, flagged: 0, invoice_only: 0, amount_only: 0, neither: 0 };
   for (const f of facets) {
-    if (f.evidence_group && statusMatches(f, status)) out[f.evidence_group] += f.count;
+    const g = f.evidence_group;
+    if (g && g !== SAMPLE_GROUP && statusMatches(f, status)) out[g] += f.count;
   }
   return out;
+}
+
+/**
+ * b5 (EM decision): the open sample is ONE flat list — no project or year. The
+ * nulls here are never sent (getQueue omits project_id/year for `sample`).
+ */
+export function sampleBatch(): BatchSelection {
+  return { group: SAMPLE_GROUP, projectPublicId: null, year: null };
+}
+
+export function isSampleBatch(
+  sel: BatchSelection | null | undefined,
+): sel is BatchSelection & { group: typeof SAMPLE_GROUP } {
+  return sel?.group === SAMPLE_GROUP;
+}
+
+/** True when the facets carry any `sample` row (the run has an open sample). */
+export function hasSample(facets: AttachmentBackfillFacet[]): boolean {
+  return facets.some((f) => f.evidence_group === SAMPLE_GROUP);
+}
+
+/** Sample members in the given status. */
+export function sampleCount(
+  facets: AttachmentBackfillFacet[],
+  status: AttachmentBackfillReviewStatus | "all",
+): number {
+  let n = 0;
+  for (const f of facets) if (f.evidence_group === SAMPLE_GROUP && statusMatches(f, status)) n += f.count;
+  return n;
+}
+
+/** The open sample's progress: decided = approved + rejected; total = every member. Null when there is no sample. */
+export function sampleProgress(facets: AttachmentBackfillFacet[]): { decided: number; total: number } | null {
+  if (!hasSample(facets)) return null;
+  let decided = 0;
+  let total = 0;
+  for (const f of facets) {
+    if (f.evidence_group !== SAMPLE_GROUP) continue;
+    total += f.count;
+    if (f.review_status === "approved" || f.review_status === "rejected") decided += f.count;
+  }
+  return { decided, total };
 }
 
 /** Projects in a group, by name (no-project last), with counts > 0. */
 export function projectOptions(
   facets: AttachmentBackfillFacet[],
-  group: AttachmentBackfillEvidenceGroup,
+  group: AttachmentBackfillQueueGroup,
   status: AttachmentBackfillReviewStatus | "all",
 ): ProjectOption[] {
   const byKey = new Map<string, ProjectOption>();
@@ -144,7 +202,7 @@ export function projectOptions(
 /** Years for a group + project, ascending (bill gone = null, last), counts > 0. */
 export function yearOptions(
   facets: AttachmentBackfillFacet[],
-  group: AttachmentBackfillEvidenceGroup,
+  group: AttachmentBackfillQueueGroup,
   projectPublicId: string | null,
   status: AttachmentBackfillReviewStatus | "all",
 ): YearOption[] {
@@ -166,9 +224,10 @@ export function yearOptions(
 /** First project + first year of a group (null when the group has nothing). */
 export function firstBatchIn(
   facets: AttachmentBackfillFacet[],
-  group: AttachmentBackfillEvidenceGroup,
+  group: AttachmentBackfillQueueGroup,
   status: AttachmentBackfillReviewStatus | "all",
 ): BatchSelection | null {
+  if (group === SAMPLE_GROUP) return sampleCount(facets, status) > 0 ? sampleBatch() : null;
   const project = projectOptions(facets, group, status)[0];
   if (!project) return null;
   const year = yearOptions(facets, group, project.projectPublicId, status)[0];
@@ -218,6 +277,7 @@ export function batchCount(
   sel: BatchSelection,
   status: AttachmentBackfillReviewStatus | "all",
 ): number {
+  if (isSampleBatch(sel)) return sampleCount(facets, status);
   return yearOptions(facets, sel.group, sel.projectPublicId, status).find((y) => y.year === sel.year)?.count ?? 0;
 }
 

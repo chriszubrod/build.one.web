@@ -887,3 +887,180 @@ describe("Pass 2 — viewer off mounts no PDF iframe", () => {
     expect(approveBtn()!.disabled).toBe(true);
   });
 });
+
+// ── b5 — the open random sample ─────────────────────────────────────────
+
+describe("b5 — Random sample in the group picker", () => {
+  function sampleFacet(
+    project: string,
+    name: string,
+    year: number,
+    status: AttachmentBackfillFacet["review_status"],
+    count: number,
+  ): AttachmentBackfillFacet {
+    return { ...facet("sample", project, name, year, count), review_status: status };
+  }
+  // 5 sample members, all also counted in `clean` (FACETS); 2 already decided.
+  const SAMPLE_FACETS: AttachmentBackfillFacet[] = [
+    ...FACETS,
+    sampleFacet("p-1", "Alpha", 2023, "pending", 3),
+    sampleFacet("p-1", "Alpha", 2022, "approved", 1),
+    sampleFacet("p-2", "Beta", 2024, "rejected", 1),
+  ];
+  const groupSelect = () => q('[data-testid="abf-group"]') as HTMLSelectElement;
+  const sampleOption = () => q('[data-testid="abf-group"] option[value="sample"]');
+
+  it("is absent when the facets carry no sample rows (control)", async () => {
+    await renderReady();
+    expect(groupSelect()).not.toBeNull();
+    expect(sampleOption()).toBeNull();
+    expect(q('[data-testid="abf-sample-progress"]')).toBeNull();
+  });
+
+  it("is offered when facets carry sample rows, with the sample's progress over every status", async () => {
+    api.getFacets.mockResolvedValue(SAMPLE_FACETS);
+    await renderReady();
+    expect(sampleOption()).not.toBeNull();
+    // Pending members only, like every other option's count.
+    expect(sampleOption()!.textContent).toBe("Random sample (3)");
+    expect(q('[data-testid="abf-sample-progress"]')!.textContent).toBe("Sample: 2 of 5 decided");
+    // The default batch still opens on clean, never on the sample.
+    expect(groupSelect().value).toBe("clean");
+  });
+
+  it("does not double-count: clean's count excludes the sample rows", async () => {
+    api.getFacets.mockResolvedValue(SAMPLE_FACETS);
+    await renderReady();
+    expect(q('[data-testid="abf-group"] option[value="clean"]')!.textContent).toContain("(7)");
+  });
+
+  const sampleQueued = () => api.getQueue.mock.calls.some((c) => (c[1] as { group: string }).group === "sample");
+
+  it("selecting it queries ONE flat list: group=sample with no project or year", async () => {
+    api.getFacets.mockResolvedValue(SAMPLE_FACETS);
+    await renderReady();
+    act(() => setSelectValue(groupSelect(), "sample"));
+    await settle(sampleQueued);
+    const sampleCalls = api.getQueue.mock.calls.filter((c) => (c[1] as { group: string }).group === "sample");
+    expect(sampleCalls).toHaveLength(1);
+    // projectPublicId/year are null placeholders; getQueue omits them from the URL for `sample`
+    // (pinned in attachmentBackfillApi.test.ts).
+    expect(sampleCalls[0]).toEqual([
+      "run-1",
+      { group: "sample", projectPublicId: null, year: null, reviewStatus: "pending", after: null },
+    ]);
+    expect(groupSelect().value).toBe("sample");
+  });
+
+  it("disables the Project and Year pickers under the sample and says it is the whole sample", async () => {
+    api.getFacets.mockResolvedValue(SAMPLE_FACETS);
+    await renderReady();
+    expect((q('[data-testid="abf-project"]') as HTMLSelectElement).disabled).toBe(false);
+    expect(q('[data-testid="abf-sample-note"]')).toBeNull();
+    act(() => setSelectValue(groupSelect(), "sample"));
+    await settle(sampleQueued);
+    for (const id of ["abf-project", "abf-year"]) {
+      const sel = q(`[data-testid="${id}"]`) as HTMLSelectElement;
+      expect(sel.disabled).toBe(true);
+      expect([...sel.options].map((o) => o.textContent)).toEqual(["—"]);
+    }
+    expect(q('[data-testid="abf-sample-note"]')!.textContent).toBe("All 5, randomly selected");
+    expect(q('[data-testid="abf-sample-progress"]')!.textContent).toBe("Sample: 2 of 5 decided");
+  });
+
+  it("switching back to an evidence group restores the normal project/year batch", async () => {
+    api.getFacets.mockResolvedValue(SAMPLE_FACETS);
+    await renderReady();
+    act(() => setSelectValue(groupSelect(), "sample"));
+    await settle(sampleQueued);
+    const before = api.getQueue.mock.calls.length;
+    act(() => setSelectValue(groupSelect(), "clean"));
+    await settle(() => api.getQueue.mock.calls.length > before);
+    expect(api.getQueue.mock.calls[api.getQueue.mock.calls.length - 1]).toEqual([
+      "run-1",
+      { group: "clean", projectPublicId: "p-1", year: 2022, reviewStatus: "pending", after: null },
+    ]);
+    const project = q('[data-testid="abf-project"]') as HTMLSelectElement;
+    const year = q('[data-testid="abf-year"]') as HTMLSelectElement;
+    expect(project.disabled).toBe(false);
+    expect(year.disabled).toBe(false);
+    expect(project.value).toBe("p-1");
+    expect(year.value).toBe("2022");
+    expect(q('[data-testid="abf-sample-note"]')).toBeNull();
+  });
+
+  it("with status All, the sample batch requests review_status=all", async () => {
+    api.getFacets.mockResolvedValue(SAMPLE_FACETS);
+    await renderReady();
+    act(() => setSelectValue(q('[data-testid="abf-status-filter"]') as HTMLSelectElement, "all"));
+    act(() => setSelectValue(groupSelect(), "sample"));
+    const allSample = () =>
+      api.getQueue.mock.calls.some(
+        (c) => (c[1] as { group: string; reviewStatus: string }).group === "sample" &&
+          (c[1] as { reviewStatus: string }).reviewStatus === "all",
+      );
+    await settle(allSample);
+    expect(allSample()).toBe(true);
+    expect(sampleOption()!.textContent).toBe("Random sample (5)");
+  });
+
+  const sampleCalls = () => api.getQueue.mock.calls.filter((c) => (c[1] as { group: string }).group === "sample");
+
+  async function selectSample() {
+    api.getFacets.mockResolvedValue(SAMPLE_FACETS);
+    await renderReady();
+    act(() => setSelectValue(groupSelect(), "sample"));
+    await settle(sampleQueued);
+    expect(sampleCalls()).toHaveLength(1);
+    expect(q('[data-testid="abf-sample-note"]')!.textContent).toBe("All 5, randomly selected");
+  }
+
+  it("W1 — a sample closed mid-session says 'Sample closed', not 'All 0'", async () => {
+    await selectSample();
+    api.getFacets.mockResolvedValue(FACETS); // the sample rows are gone
+    await act(async () => {
+      await queryClient.invalidateQueries();
+    });
+    await settle(() => !q('[data-testid="abf-sample-progress"]'));
+    // Propagation first: the refetched facets reached the page (progress line gone).
+    expect(q('[data-testid="abf-sample-progress"]')).toBeNull();
+    expect(groupSelect().value).toBe("sample");
+    expect(q('[data-testid="abf-sample-note"]')!.textContent).toBe("Sample closed");
+    expect(container.textContent).not.toContain("All 0");
+  });
+
+  it("W2 — a redrawn sample (new total) remounts the queue from the first page", async () => {
+    await selectSample();
+    api.getFacets.mockResolvedValue([...SAMPLE_FACETS, sampleFacet("p-2", "Beta", 2024, "pending", 2)]);
+    await act(async () => {
+      await queryClient.invalidateQueries();
+    });
+    await settle(() => (q('[data-testid="abf-sample-progress"]')?.textContent ?? "").includes("of 7"));
+    expect(q('[data-testid="abf-sample-progress"]')!.textContent).toBe("Sample: 2 of 7 decided");
+    await settle(() => sampleCalls().length > 1);
+    expect(sampleCalls()).toHaveLength(2);
+    expect(sampleCalls()[1][1]).toMatchObject({ group: "sample", after: null });
+  });
+
+  it("W2 control — a decision (same total) does not remount the sample queue", async () => {
+    await selectSample();
+    api.getFacets.mockResolvedValue(
+      SAMPLE_FACETS.map((x) =>
+        x.evidence_group === "sample" && x.review_status === "pending" ? { ...x, count: 2 } : x,
+      ).concat(sampleFacet("p-1", "Alpha", 2023, "approved", 1)),
+    );
+    await act(async () => {
+      await queryClient.invalidateQueries();
+    });
+    await settle(() => (q('[data-testid="abf-sample-progress"]')?.textContent ?? "").includes("3 of 5"));
+    expect(q('[data-testid="abf-sample-progress"]')!.textContent).toBe("Sample: 3 of 5 decided");
+    for (let i = 0; i < 3; i++) await flushUntil(() => sampleCalls().length > 1);
+    expect(sampleCalls()).toHaveLength(1);
+  });
+
+  it("names no second reviewer anywhere on the page", async () => {
+    api.getFacets.mockResolvedValue(SAMPLE_FACETS);
+    await renderReady();
+    expect((container.textContent ?? "").toLowerCase()).not.toMatch(/second review|reviewer/);
+  });
+});
