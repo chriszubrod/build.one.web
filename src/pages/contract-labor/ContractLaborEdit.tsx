@@ -8,6 +8,7 @@ import { useCurrentUser } from "../../hooks/useCurrentUser";
 import ReviewTimeline from "../../components/ReviewTimeline";
 import { resolveContractLaborEditActions } from "./contractLaborPermissions";
 import { STATUS_CLASSES, STATUS_LABELS } from "./contractLaborStatus";
+import { resolveSuggestedCodes, subCostCodeLabel } from "./codeSuggestions";
 import {
   applyMarkup,
   computeAmount as exactLineAmount,
@@ -21,6 +22,7 @@ import {
 } from "../../shared/lineItemUid";
 import type {
   ContractLabor,
+  ContractLaborCodeSuggestions,
   ContractLaborDailySummary,
   ContractLaborLineItem,
   ContractLaborVendorConfig,
@@ -207,6 +209,10 @@ export default function ContractLaborEdit() {
   );
   const sortedSubCostCodes = useMemo(
     () => [...subCostCodes].sort((a, b) => a.number.localeCompare(b.number, undefined, { sensitivity: "base", numeric: true })),
+    [subCostCodes],
+  );
+  const subCostCodesById = useMemo(
+    () => new Map(subCostCodes.map((s) => [s.id, s] as const)),
     [subCostCodes],
   );
   // Daily-summary + vendor-config queries
@@ -786,18 +792,15 @@ export default function ContractLaborEdit() {
                   </div>
                   <div className="cl-field">
                     <label>SubCostCode</label>
-                    <select
+                    <LineSubCostCodeSelect
                       value={row.sub_cost_code_id}
-                      onChange={(e) => updateLine(row.uid, { sub_cost_code_id: e.target.value })}
+                      onChange={(v) => updateLine(row.uid, { sub_cost_code_id: v })}
                       disabled={isBilled}
-                    >
-                      <option value="">— Select SubCostCode —</option>
-                      {sortedSubCostCodes.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.number} - {s.description || s.name}
-                        </option>
-                      ))}
-                    </select>
+                      publicId={publicId}
+                      projectId={row.project_id}
+                      sortedCodes={sortedSubCostCodes}
+                      codesById={subCostCodesById}
+                    />
                   </div>
                 </div>
                 <div className="cl-form-row">
@@ -922,6 +925,78 @@ export default function ContractLaborEdit() {
         </div>
       </div>
     </div>
+  );
+}
+
+const CODE_SUGGESTIONS_STALE_MS = 5 * 60 * 1000;
+
+// Per-project suggestions query (U-749). Display-only: nothing is prefilled
+// or auto-selected. Lines sharing a project share one cache entry, so there is
+// one request per DISTINCT project; a blank project or the create page sends
+// none. Pending / failed / empty ⇒ the plain list, exactly as before.
+//
+// The query lives in the component that renders the <select> ITSELF (not a
+// child of it): when a refetch changes the option set, the <select> must
+// re-render too so React re-applies `value` — otherwise a browser whose
+// selected Suggested <option> was removed falls back to the placeholder
+// while state still holds the code.
+function LineSubCostCodeSelect({
+  value,
+  onChange,
+  disabled,
+  publicId,
+  projectId,
+  sortedCodes,
+  codesById,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  disabled: boolean;
+  publicId: string | undefined;
+  projectId: string;
+  sortedCodes: SubCostCode[];
+  codesById: ReadonlyMap<number, SubCostCode>;
+}) {
+  const suggestionsQuery = useQuery<ContractLaborCodeSuggestions>({
+    queryKey: ["cl-code-suggestions", publicId, projectId],
+    queryFn: () =>
+      getOne<ContractLaborCodeSuggestions>(
+        `/api/v1/contract-labor/${publicId}/code-suggestions?project_id=${encodeURIComponent(projectId)}`,
+      ),
+    enabled: Boolean(publicId) && projectId !== "",
+    staleTime: CODE_SUGGESTIONS_STALE_MS,
+    retry: false,
+  });
+  const suggested = useMemo(
+    () => resolveSuggestedCodes(suggestionsQuery.data?.sub_cost_code_ids, codesById),
+    [suggestionsQuery.data, codesById],
+  );
+
+  const allOptions = sortedCodes.map((s) => (
+    <option key={s.id} value={s.id}>
+      {subCostCodeLabel(s)}
+    </option>
+  ));
+  // No projectId guard needed: the key includes projectId, so a blank project
+  // reads its own never-enabled query (no data ⇒ suggested = []).
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
+      <option value="">— Select SubCostCode —</option>
+      {suggested.length > 0 ? (
+        <>
+          <optgroup label="Suggested">
+            {suggested.map((s) => (
+              <option key={`suggested-${s.id}`} value={s.id}>
+                {subCostCodeLabel(s)}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="All codes">{allOptions}</optgroup>
+        </>
+      ) : (
+        allOptions
+      )}
+    </select>
   );
 }
 

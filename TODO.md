@@ -1,3 +1,9 @@
+## U-749 web follow-ups - labor cost-code picker suggestions (booked 2026-11-02; branch `unit/u-749`, ships with the U-749 API half)
+
+- [ ] (Pass 2, DEFER - needs a format call) One SubCostCode label formatter: ContractLaborEdit uses `number - desc||name`, ContractLaborView `number — desc||name`, LaborReviewScreen `number · name`.
+- [ ] (Pass 2, DEFER) `useMemo` the per-line `allOptions` if many-line entries get slow.
+- [ ] Pre-existing, not U-749: `InlineLineItems.test.tsx` "renders a combobox and routes picks through onEdit like select" fails under heavy machine load ("LazyCombobox pending") on clean origin/main too (2/2 on 2026-11-02, load avg ~290); BillCreate/ExpenseEdit specs time out the same way in full-suite runs. Raise the combobox wait or make it load-independent.
+
 ## U-535b b5 follow-ups (booked 2026-10-31; branch `unit/u-535b5w`)
 
 - [ ] **Load-flaky, pre-existing (not b5):** `src/components/InlineLineItems.test.tsx` "renders a combobox and routes picks through onEdit like select" fails 1/14 under machine load (`combobox did not finish loading (LazyCombobox pending)`), also on clean origin/main. Seen 2026-10-30 at load avg ~8-15; passed 14/14 alone earlier the same session. Fix the wait (LazyCombobox resolution under fake timers), not a timeout bump.

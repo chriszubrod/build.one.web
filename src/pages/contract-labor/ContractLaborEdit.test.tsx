@@ -9,9 +9,11 @@ import { setInputValue, setSelectValue } from "../../__testutils__/domEvents";
 import { deferred } from "../../hooks/__testutils__/renderHook";
 import type {
   ContractLabor,
+  ContractLaborCodeSuggestions,
   ContractLaborLineItem,
   ContractLaborVendorConfig,
   Project,
+  SubCostCode,
   Vendor,
 } from "../../types/api";
 
@@ -42,6 +44,9 @@ type EffectiveRatePayload = {
   markup: string | null;
   rate_source: string;
 };
+
+/** Per project id: suggestion ids to return, an Error to reject with, or "pending" to never settle. Unset ⇒ empty "none". */
+let codeSuggestions: Record<number, number[] | Error | "pending"> = {};
 
 let effectiveRate: EffectiveRatePayload | null = null;
 /** When set, effective-rate GETs hang until resolveEffectiveRate(projectId). */
@@ -220,6 +225,19 @@ function setupMocks() {
     // assertion here reads; the page's `?? 0` fallbacks cover the empty shape.
     if (path === `${CL_PATH}/daily-summary`) return Promise.resolve({});
     if (path === "/api/v1/contract-labor/vendor-config") return Promise.resolve(vendorConfig);
+    if (path.startsWith(`${CL_PATH}/code-suggestions`)) {
+      const q = path.split("?")[1] ?? "";
+      const projectId = Number(new URLSearchParams(q).get("project_id"));
+      const stub = codeSuggestions[projectId];
+      if (stub instanceof Error) return Promise.reject(stub);
+      if (stub === "pending") return new Promise<never>(() => {});
+      const body: ContractLaborCodeSuggestions = {
+        project_id: projectId,
+        sub_cost_code_ids: stub ?? [],
+        source: stub && stub.length > 0 ? "vendor_project" : "none",
+      };
+      return Promise.resolve(body);
+    }
     if (path.startsWith("/api/v1/contract-labor/effective-rate")) {
       const q = path.split("?")[1] ?? "";
       const projectId = Number(new URLSearchParams(q).get("project_id"));
@@ -347,6 +365,7 @@ beforeEach(() => {
   lineItems = [];
   vendorConfig = {};
   effectiveRate = null;
+  codeSuggestions = {};
   effectiveRateDeferredRates = null;
   effectiveRateWaiters.clear();
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -1167,5 +1186,276 @@ describe("ContractLaborEdit pending effective-rate blocks save (U-687)", () => {
     await waitForLineCount(1);
     await flushUntil(() => saveChangesButton()?.disabled === false);
     expect(loadingRateHint()).toBeNull();
+  });
+});
+
+function sampleSubCostCode(id: number, number: string, overrides: Partial<SubCostCode> = {}): SubCostCode {
+  return {
+    id,
+    public_id: `scc-${id}`,
+    row_version: `scc-rv-${id}`,
+    created_datetime: null,
+    modified_datetime: null,
+    number,
+    name: `Name ${number}`,
+    description: `Desc ${number}`,
+    cost_code_id: 1,
+    aliases: null,
+    ...overrides,
+  };
+}
+
+function suggestionCalls(): string[] {
+  return mockGetOne.mock.calls
+    .map((c) => c[0] as string)
+    .filter((p) => p.startsWith(`${CL_PATH}/code-suggestions`));
+}
+
+function subCostCodeSelect(card: ParentNode = firstCard()): HTMLSelectElement {
+  return labeledControlInCard(card, "SubCostCode", "select");
+}
+
+/** Shape of a select: top-level children as either an option value or `group:<label>[values]`. */
+function selectShape(select: HTMLSelectElement): string[] {
+  return Array.from(select.children).map((el) => {
+    if (el instanceof HTMLOptGroupElement) {
+      const vals = Array.from(el.querySelectorAll("option")).map((o) => o.value);
+      return `group:${el.label}[${vals.join(",")}]`;
+    }
+    return (el as HTMLOptionElement).value;
+  });
+}
+
+const PLAIN_SHAPE = ["", "1", "2", "3"];
+
+/**
+ * Settle the suggestion queries, which only mount once the line form renders.
+ * Empirically, zero-ms timer advances (flushUntil's loop, or this loop at 0)
+ * never delivered the suggestion query's resolve to the select; small real
+ * advances in separate act() scopes do. Every spec still hard-asserts the
+ * rendered shape afterwards, so an exhausted settle fails loudly.
+ */
+async function settleSuggestions() {
+  for (let i = 0; i < 5; i++) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+  }
+}
+
+describe("ContractLaborEdit SubCostCode suggestions (U-749)", () => {
+  beforeEach(() => {
+    // Deliberately registered out of number order — the plain list sorts by number.
+    mockEntityItems["/api/v1/get/sub-cost-codes"] = [
+      sampleSubCostCode(3, "01-300"),
+      sampleSubCostCode(1, "01-100"),
+      sampleSubCostCode(2, "01-200", { description: null }),
+    ];
+    mockEntityItems["/api/v1/get/projects"] = [sampleProject(), sampleProject({ id: 8, public_id: "p-8", name: "Proj B" })];
+  });
+
+  it("renders a Suggested optgroup in API order above All codes, dropping unknown ids", async () => {
+    lineItems = [sampleLineItem({ project_id: 7 })];
+    codeSuggestions = { 7: [3, 99, 1] };
+
+    renderEdit();
+    await waitForLineForm();
+    await settleSuggestions();
+
+    expect(selectShape(subCostCodeSelect())).toEqual([
+      "",
+      "group:Suggested[3,1]",
+      "group:All codes[1,2,3]",
+    ]);
+    const suggested = subCostCodeSelect().querySelector('optgroup[label="Suggested"]')!;
+    expect(Array.from(suggested.querySelectorAll("option")).map((o) => o.textContent)).toEqual([
+      "01-300 - Desc 01-300",
+      "01-100 - Desc 01-100",
+    ]);
+    // Label format falls back to name when description is empty.
+    const all = subCostCodeSelect().querySelector('optgroup[label="All codes"]')!;
+    expect(all.querySelectorAll("option")[1].textContent).toBe("01-200 - Name 01-200");
+    expect(subCostCodeSelect().options[0].textContent).toBe("— Select SubCostCode —");
+  });
+
+  it("renders the plain list unchanged when the response is empty", async () => {
+    lineItems = [sampleLineItem({ project_id: 7 })];
+    codeSuggestions = { 7: [] };
+
+    renderEdit();
+    await waitForLineForm();
+    await settleSuggestions();
+    expect(suggestionCalls()).toHaveLength(1);
+    expect(queryClient.getQueryState(["cl-code-suggestions", PUBLIC_ID, "7"])?.status).toBe("success");
+
+    expect(selectShape(subCostCodeSelect())).toEqual(PLAIN_SHAPE);
+  });
+
+  it("renders the plain list unchanged (and no error) when the request fails", async () => {
+    lineItems = [sampleLineItem({ project_id: 7 })];
+    codeSuggestions = { 7: new Error("boom") };
+
+    renderEdit();
+    await waitForLineForm();
+    await settleSuggestions();
+    expect(queryClient.getQueryState(["cl-code-suggestions", PUBLIC_ID, "7"])?.status).toBe("error");
+
+    expect(selectShape(subCostCodeSelect())).toEqual(PLAIN_SHAPE);
+    expect(container.textContent).not.toContain("boom");
+  });
+
+  it("selecting a suggested option saves the same sub_cost_code_id with an unchanged payload shape", async () => {
+    lineItems = [sampleLineItem({ project_id: 7 })];
+    codeSuggestions = { 7: [3] };
+
+    renderEdit();
+    await waitForLineForm();
+    await settleSuggestions();
+    expect(subCostCodeSelect().querySelector("optgroup")).not.toBeNull();
+    // No prefill: the suggestion is offered, not chosen.
+    expect(subCostCodeSelect().value).toBe("");
+
+    await act(async () => {
+      setSelectValue(subCostCodeSelect(), "3");
+    });
+    expect(subCostCodeSelect().value).toBe("3");
+    // The selected node is the Suggested copy — the pick went through that group.
+    expect(subCostCodeSelect().selectedOptions[0].parentElement).toBeInstanceOf(HTMLOptGroupElement);
+    expect((subCostCodeSelect().selectedOptions[0].parentElement as HTMLOptGroupElement).label).toBe("Suggested");
+
+    mockPut.mockClear();
+    await act(async () => {
+      saveChangesButton()!.click();
+    });
+    await flushUntil(() => mockPut.mock.calls.some((c) => c[0] === `${CL_PATH}/bill`));
+    const call = mockPut.mock.calls.find((c) => c[0] === `${CL_PATH}/bill`);
+    expect(call, "Save Changes did not PUT the bill endpoint").toBeDefined();
+    const body = call![1] as { line_items: Record<string, unknown>[] };
+    expect(body.line_items[0].sub_cost_code_id).toBe(3);
+    expect(body.line_items[0].project_id).toBe(7);
+    expect(Object.keys(body.line_items[0]).sort()).toEqual(
+      [
+        "description",
+        "hours",
+        "id",
+        "is_billable",
+        "is_overhead",
+        "line_date",
+        "markup",
+        "price",
+        "project_id",
+        "public_id",
+        "rate",
+        "row_version",
+        "sub_cost_code_id",
+      ].sort(),
+    );
+  });
+
+  it("makes no request when the project is blank", async () => {
+    lineItems = [sampleLineItem({ project_id: null })];
+
+    renderEdit();
+    await waitForLineForm();
+    // Let any would-be query fire before asserting its absence.
+    await settleSuggestions();
+
+    expect(suggestionCalls()).toEqual([]);
+    expect(selectShape(subCostCodeSelect())).toEqual(PLAIN_SHAPE);
+  });
+
+  it("makes one request per distinct project and groups each line by its own project", async () => {
+    lineItems = [
+      sampleLineItem({ id: 10, public_id: "cli-1", project_id: 7 }),
+      sampleLineItem({ id: 11, public_id: "cli-2", project_id: 7 }),
+      sampleLineItem({ id: 12, public_id: "cli-3", project_id: 8 }),
+      sampleLineItem({ id: 13, public_id: "cli-4", project_id: null }),
+    ];
+    codeSuggestions = { 7: [2] };
+
+    renderEdit();
+    await waitForLineCount(4);
+    await settleSuggestions();
+
+    expect(suggestionCalls().sort()).toEqual([
+      `${CL_PATH}/code-suggestions?project_id=7`,
+      `${CL_PATH}/code-suggestions?project_id=8`,
+    ]);
+    expect(selectShape(subCostCodeSelect(lineCardByNumber(1)))).toEqual([
+      "",
+      "group:Suggested[2]",
+      "group:All codes[1,2,3]",
+    ]);
+    expect(selectShape(subCostCodeSelect(lineCardByNumber(2)))).toEqual([
+      "",
+      "group:Suggested[2]",
+      "group:All codes[1,2,3]",
+    ]);
+    expect(selectShape(subCostCodeSelect(lineCardByNumber(3)))).toEqual(PLAIN_SHAPE);
+    expect(selectShape(subCostCodeSelect(lineCardByNumber(4)))).toEqual(PLAIN_SHAPE);
+  });
+
+  it("renders the plain list while the request is pending", async () => {
+    lineItems = [sampleLineItem({ project_id: 7 })];
+    codeSuggestions = { 7: "pending" };
+
+    renderEdit();
+    await waitForLineForm();
+    await settleSuggestions();
+
+    // The request is really in flight — not merely never sent.
+    expect(suggestionCalls()).toEqual([`${CL_PATH}/code-suggestions?project_id=7`]);
+    expect(queryClient.getQueryState(["cl-code-suggestions", PUBLIC_ID, "7"])?.fetchStatus).toBe("fetching");
+    expect(selectShape(subCostCodeSelect())).toEqual(PLAIN_SHAPE);
+  });
+
+  it("changing a line's project swaps the Suggested group to the new project's codes", async () => {
+    lineItems = [sampleLineItem({ project_id: 7 })];
+    codeSuggestions = { 7: [3], 8: [2, 1] };
+    effectiveRate = { hourly_rate: null, markup: null, rate_source: "none" };
+
+    renderEdit();
+    await waitForLineForm();
+    await settleSuggestions();
+    expect(selectShape(subCostCodeSelect())).toEqual(["", "group:Suggested[3]", "group:All codes[1,2,3]"]);
+
+    await act(async () => {
+      setSelectValue(labeledSelect("Project"), "8");
+    });
+    await settleSuggestions();
+
+    expect(labeledSelect("Project").value).toBe("8");
+    expect(suggestionCalls()).toContain(`${CL_PATH}/code-suggestions?project_id=8`);
+    expect(selectShape(subCostCodeSelect())).toEqual(["", "group:Suggested[2,1]", "group:All codes[1,2,3]"]);
+  });
+
+  it("keeps the stored value selected when refreshed suggestions drop the selected Suggested option", async () => {
+    lineItems = [sampleLineItem({ project_id: 7 })];
+    codeSuggestions = { 7: [3] };
+
+    renderEdit();
+    await waitForLineForm();
+    await settleSuggestions();
+
+    await act(async () => {
+      setSelectValue(subCostCodeSelect(), "3");
+    });
+    expect(subCostCodeSelect().value).toBe("3");
+    expect((subCostCodeSelect().selectedOptions[0].parentElement as HTMLOptGroupElement).label).toBe("Suggested");
+
+    // A background refetch returns a different set that no longer has 3.
+    const refreshed: ContractLaborCodeSuggestions = { project_id: 7, sub_cost_code_ids: [1], source: "vendor" };
+    await act(async () => {
+      queryClient.setQueryData(["cl-code-suggestions", PUBLIC_ID, "7"], refreshed);
+    });
+    await settleSuggestions();
+
+    // The option list updated…
+    expect(selectShape(subCostCodeSelect())).toEqual(["", "group:Suggested[1]", "group:All codes[1,2,3]"]);
+    // …and the <select> stayed controlled on the stored value, now via the All codes copy.
+    expect(subCostCodeSelect().value).toBe("3");
+    const selected = subCostCodeSelect().selectedOptions[0];
+    expect(selected.value).toBe("3");
+    expect((selected.parentElement as HTMLOptGroupElement).label).toBe("All codes");
   });
 });

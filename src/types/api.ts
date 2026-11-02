@@ -1078,6 +1078,14 @@ export interface ContractLaborDailySummary {
   remaining_to_allocate: number;
 }
 
+/** GET /api/v1/contract-labor/{public_id}/code-suggestions?project_id= (U-749). */
+export interface ContractLaborCodeSuggestions {
+  project_id: number;
+  /** Suggested SubCostCode ids, most-relevant first. */
+  sub_cost_code_ids: number[];
+  source: "vendor_project" | "vendor" | "none";
+}
+
 export interface ContractLaborVendorConfig {
   [vendorName: string]: {
     address: string | null;
