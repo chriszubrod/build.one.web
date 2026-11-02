@@ -7,6 +7,7 @@ import { hasExpensePermission } from "./expensePermissions";
 import ExpenseReceiptMatch from "./ExpenseReceiptMatch";
 import Pagination from "../../components/Pagination";
 import PageHeader from "../../components/PageHeader";
+import ListFilterBar from "../../components/ListFilterBar";
 import SegmentedControl from "../../components/ui/SegmentedControl";
 import EntryCard from "../../components/ui/EntryCard";
 import {
@@ -125,65 +126,35 @@ export default function ExpenseList() {
         </button>
       </PageHeader>
 
+      <ExpenseReceiptMatch
+        canUpdate={hasExpensePermission(me, "can_update")}
+        onListRefresh={reload}
+      />
+
+      {/* Status tabs sit below the receipt drop zone, matching BillList
+          (PageHeader → drop zone → tabs → filters → list; U-752). */}
       <SegmentedControl<ExpenseStatusTab>
         options={STATUS_TABS}
         value={statusFilter}
         onChange={(next) => { setParam("status", next); setPage(1); }}
       />
 
-      <ExpenseReceiptMatch
-        canUpdate={hasExpensePermission(me, "can_update")}
-        onListRefresh={reload}
-      />
-
       {/* Search and the date bounds are applied SERVER-SIDE. Narrowing a page
           in JS would leave `count` describing the unfiltered set, which is
           exactly the inconsistency U-447 removed. */}
-      <div className="list-filter-bar">
-        <div className="list-filter-row">
-          <label className="list-filter-field list-filter-field-grow">
-            <span className="list-filter-label">Search</span>
-            <input
-              type="search"
-              className="list-filter-input"
-              placeholder="Vendor, reference number, memo…"
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              autoComplete="off"
-              aria-label="Search expenses by vendor, reference number or memo"
-            />
-          </label>
-          <label className="list-filter-field">
-            <span className="list-filter-label">From</span>
-            <input
-              type="date"
-              className="list-filter-input"
-              value={fromDate}
-              onChange={(e) => { setParam("from", e.target.value); setPage(1); }}
-              aria-label="Expense date from"
-            />
-          </label>
-          <label className="list-filter-field">
-            <span className="list-filter-label">To</span>
-            <input
-              type="date"
-              className="list-filter-input"
-              value={toDate}
-              onChange={(e) => { setParam("to", e.target.value); setPage(1); }}
-              aria-label="Expense date to"
-            />
-          </label>
-          <button
-            type="button"
-            className="list-filter-clear"
-            onClick={clearFilters}
-            disabled={!hasActiveFilters}
-            aria-label="Clear all filters"
-          >
-            Clear
-          </button>
-        </div>
-      </div>
+      <ListFilterBar
+        search={search}
+        onSearchChange={(v) => { setSearch(v); setPage(1); }}
+        searchPlaceholder="Vendor, reference number, memo…"
+        searchAriaLabel="Search expenses by vendor, reference number or memo"
+        fromDate={fromDate}
+        toDate={toDate}
+        onFromDateChange={(v) => { setParam("from", v); setPage(1); }}
+        onToDateChange={(v) => { setParam("to", v); setPage(1); }}
+        dateAriaLabelPrefix="Expense date"
+        hasActiveFilters={hasActiveFilters}
+        onClear={clearFilters}
+      />
 
       <div className="section-label-prose list-meta">
         <span>{SECTION_LABEL[statusFilter]}</span>

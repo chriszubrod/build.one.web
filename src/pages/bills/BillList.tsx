@@ -1,10 +1,10 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
-import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
 import Pagination from "../../components/Pagination";
 import PageHeader from "../../components/PageHeader";
+import ListFilterBar from "../../components/ListFilterBar";
 import SegmentedControl from "../../components/ui/SegmentedControl";
 import EntryCard from "../../components/ui/EntryCard";
 import { useToast } from "../../components/Toast";
@@ -172,13 +172,8 @@ export default function BillList() {
     staleWhileRevalidate: true,
     sessionPersistenceKey: "buildOne.billList",
   });
-  const [searchInput, setSearchInput] = useState(search);
-  const debouncedSearch = useDebouncedValue(searchInput, 300);
-  useEffect(() => {
-    if (debouncedSearch === searchInput && debouncedSearch !== search) {
-      setSearch(debouncedSearch);
-    }
-  }, [debouncedSearch, searchInput, search, setSearch]);
+  // Search is debounced inside ListFilterBar (U-752); `search` here is the
+  // committed term the list is fetched with.
   const hasActiveFilters = Boolean(search || fromDate || toDate);
 
   useEffect(() => {
@@ -186,7 +181,6 @@ export default function BillList() {
   }, [loading, items.length, total, page, setPage]);
 
   const clearFilters = () => {
-    setSearchInput("");
     setSearch("");
     setSearchParams(
       (prev) => {
@@ -466,51 +460,19 @@ export default function BillList() {
         onChange={(next) => { setParam("status", next); setPage(1); }}
       />
 
-      <div className="list-filter-bar">
-        <div className="list-filter-row">
-          <label className="list-filter-field list-filter-field-grow">
-            <span className="list-filter-label">Search</span>
-            <input
-              type="search"
-              className="list-filter-input"
-              placeholder="Vendor, bill number, memo…"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              autoComplete="off"
-              aria-label="Search bills by vendor, bill number or memo"
-            />
-          </label>
-          <label className="list-filter-field">
-            <span className="list-filter-label">From</span>
-            <input
-              type="date"
-              className="list-filter-input"
-              value={fromDate}
-              onChange={(e) => { setParam("from", e.target.value); setPage(1); }}
-              aria-label="Bill date from"
-            />
-          </label>
-          <label className="list-filter-field">
-            <span className="list-filter-label">To</span>
-            <input
-              type="date"
-              className="list-filter-input"
-              value={toDate}
-              onChange={(e) => { setParam("to", e.target.value); setPage(1); }}
-              aria-label="Bill date to"
-            />
-          </label>
-          <button
-            type="button"
-            className="list-filter-clear"
-            onClick={clearFilters}
-            disabled={!hasActiveFilters}
-            aria-label="Clear all filters"
-          >
-            Clear
-          </button>
-        </div>
-      </div>
+      <ListFilterBar
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Vendor, bill number, memo…"
+        searchAriaLabel="Search bills by vendor, bill number or memo"
+        fromDate={fromDate}
+        toDate={toDate}
+        onFromDateChange={(v) => { setParam("from", v); setPage(1); }}
+        onToDateChange={(v) => { setParam("to", v); setPage(1); }}
+        dateAriaLabelPrefix="Bill date"
+        hasActiveFilters={hasActiveFilters}
+        onClear={clearFilters}
+      />
 
       <div className="section-label-prose list-meta">
         <span>{SECTION_LABEL[statusFilter]}</span>

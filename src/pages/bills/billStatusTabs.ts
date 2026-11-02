@@ -2,63 +2,31 @@
  * Bills page status tabs (U-451).
  *
  * The canonical lifecycle vocabulary from U-357 §9a, filtered SERVER-SIDE via
- * `?status=` against the stored `Bill.Status` column (U-445). Filtering in SQL
- * is what keeps `count` honest — post-filtering an already-paginated page would
- * make the results chip describe a different set than the rows.
+ * `?status=` against the stored `Bill.Status` column (U-445). The tab list,
+ * resolver and query builder are shared with Expenses — see
+ * `../shared/statusTabs.ts` (U-752), which also carries the rationale for
+ * there being no "All" tab and for filtering server-side.
  *
  * Extracted from BillList.tsx so the parts worth testing are testable without
  * mounting a component that also owns drag-and-drop uploads and folder polling.
  */
+import { createStatusTabs, type DocumentStatusTab } from "../shared/statusTabs";
 
-export type BillStatusTab =
-  | "draft"
-  | "submitted"
-  | "in_review"
-  | "approved"
-  | "declined"
-  | "completed";
-
-export const STATUS_TABS: { value: BillStatusTab; label: string }[] = [
-  { value: "draft", label: "Draft" },
-  { value: "submitted", label: "Submitted" },
-  { value: "in_review", label: "In Review" },
-  { value: "approved", label: "Approved" },
-  { value: "declined", label: "Declined" },
-  { value: "completed", label: "Completed" },
-];
+export type BillStatusTab = DocumentStatusTab;
 
 /**
- * There is deliberately no "All" tab (Chris, 2026-09-11). Before U-451 the page
- * defaulted to `?is_draft=true`, which showed every in-flight bill in one view;
- * U-451 split that across Submitted / In Review / Declined / etc.
- *
  * The default tab is `draft` (U-700): bills the user is still editing before
  * submit-for-review. An explicit `?status=` in the URL still wins via
  * `resolveStatusTab`.
  */
-export const DEFAULT_STATUS_TAB: BillStatusTab = "draft";
+const billTabs = createStatusTabs({ defaultTab: "draft", listBasePath: "/bill/list" });
 
-export function isStatusTab(value: string | null | undefined): value is BillStatusTab {
-  return STATUS_TABS.some((o) => o.value === value);
-}
-
-/** The tab a `?status=` URL param selects — falling back rather than 404-ing on junk. */
-export function resolveStatusTab(param: string | null | undefined): BillStatusTab {
-  return isStatusTab(param) ? param : DEFAULT_STATUS_TAB;
-}
-
-/**
- * The query string appended to `/api/v1/get/bills`.
- *
- * Always `?status=`, never `?is_draft=`: the old parameter could express only
- * two of the six states, so Submitted, In Review and Declined were all
- * indistinguishably "draft". The API rejects an unknown status with a 422
- * rather than silently returning everything, which is why `resolveStatusTab`
- * normalises before we get here.
- */
-export function billListQuery(tab: BillStatusTab): string {
-  return `?status=${tab}`;
-}
+export const STATUS_TABS: { value: BillStatusTab; label: string }[] = billTabs.STATUS_TABS;
+export const DEFAULT_STATUS_TAB: BillStatusTab = billTabs.DEFAULT_STATUS_TAB;
+export const isStatusTab = billTabs.isStatusTab;
+export const resolveStatusTab = billTabs.resolveStatusTab;
+/** The query string appended to `/api/v1/get/bills` — always `?status=`. */
+export const billListQuery = billTabs.listQuery;
 
 
 /** Section heading under the tabs — LaborList's `SECTION_LABEL` equivalent. */

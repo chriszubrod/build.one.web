@@ -74,7 +74,7 @@ src/
 - **No state management library**: Use React state + context. Add Zustand or similar only if complexity demands it.
 - **Review actions belong on View pages too (2026-10-03).** `ReviewTimeline` takes `readOnly` (pass it only for a terminal status), optional `onBeforeAction` (Edit pages: flush + save first), optional `onAfterAction` (View pages: react to the transition, e.g. ExpenseView opens the next draft), and optional `onAfterSubmit` (Edit-only navigation after submit, e.g. BillEdit → list). A View page needs no pre-save because nothing on it is editable — do not route users through Edit just to submit.
 - **Edit pages write only what changed.** Track header/line dirtiness and let `saveAll` return early on a clean form; each entity/line PUT is a ProcessEngine workflow with audit rows. Always `await flushAutoSave()` (never only `cancelAutoSave()`) before an action that depends on persisted state — see ExpenseEdit / BillEdit.
-- **List links carry the user's tab.** A bare `/expense/list` resolves to the default (Completed) tab; use `expenseListPath(status)` from `expenseStatusTabs.ts` (and the equivalent for other tabbed lists) on breadcrumbs and Cancel targets.
+- **List links carry the user's tab.** A bare `/expense/list` resolves to the default (Draft, since U-752) tab; use `expenseListPath(status)` from `expenseStatusTabs.ts` (and the equivalent for other tabbed lists) on breadcrumbs and Cancel targets.
 - **CSS**: Single `index.css` with CSS custom properties. No CSS-in-JS, no Tailwind (yet). Use semantic class names.
 - **Types**: Define in `src/types/api.ts`. Keep in sync with API Pydantic schemas manually for now. `CurrentUser` now includes `accessible_project_ids: number[]` (informational; no enforcement wired yet).
 

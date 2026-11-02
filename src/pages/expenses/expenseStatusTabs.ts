@@ -2,75 +2,50 @@
  * Expenses page status tabs (U-470).
  *
  * The canonical lifecycle vocabulary from U-357 §9a, filtered SERVER-SIDE via
- * `?status=` against the stored `Expense.Status` column (U-467). Filtering in
- * SQL is what keeps `count` honest — post-filtering an already-paginated page
- * would make the results chip describe a different set than the rows (U-447).
+ * `?status=` against the stored `Expense.Status` column (U-467). The tab list,
+ * resolver, query builder and list-path builder are shared with Bills — see
+ * `../shared/statusTabs.ts` (U-752), which also carries the rationale for
+ * there being no "All" tab and for filtering server-side.
  *
  * Extracted from ExpenseList.tsx so the parts worth testing are testable
  * without mounting the full list page.
  */
+import { createStatusTabs, type DocumentStatusTab } from "../shared/statusTabs";
 
-export type ExpenseStatusTab =
-  | "draft"
-  | "submitted"
-  | "in_review"
-  | "approved"
-  | "declined"
-  | "completed";
-
-export const STATUS_TABS: { value: ExpenseStatusTab; label: string }[] = [
-  { value: "draft", label: "Draft" },
-  { value: "submitted", label: "Submitted" },
-  { value: "in_review", label: "In Review" },
-  { value: "approved", label: "Approved" },
-  { value: "declined", label: "Declined" },
-  { value: "completed", label: "Completed" },
-];
+export type ExpenseStatusTab = DocumentStatusTab;
 
 /**
  * There is deliberately no "All" tab — same product decision as Bills
- * (Chris, 2026-09-11). Default is `completed`: expenses arrive from the QBO
- * pull already `completed` and acquire no review on creation (unlike Bill,
- * whose `create` auto-writes a Submitted review), so `in_review` is empty
- * in practice. Measured 2026-09-17: 10 draft / 11,808 completed / 0 expense
- * reviews. Bill's identical-looking default is correct for Bill.
+ * (Chris, 2026-09-11).
+ *
+ * The default tab is `draft`, matching Bills — Chris's decision (2026-11-02,
+ * U-752). It used to be `completed`, on the grounds that expenses arrive from
+ * the QBO pull already completed (measured 2026-09-17: 10 draft / 11,808
+ * completed), which made Completed the only non-empty landing tab. An explicit
+ * `?status=` in the URL still wins via `resolveStatusTab`.
  *
  * Interim: actionable vs settled is GL coding (the 58999 queue), not a
  * lifecycle status. Durable fix: build.one.api `docs/design/u477-expense-surface-merge.md` (Phase 1).
  */
-export const DEFAULT_STATUS_TAB: ExpenseStatusTab = "completed";
+const expenseTabs = createStatusTabs({ defaultTab: "draft", listBasePath: "/expense/list" });
 
-export function isStatusTab(value: string | null | undefined): value is ExpenseStatusTab {
-  return STATUS_TABS.some((o) => o.value === value);
-}
-
-/** The tab a `?status=` URL param selects — falling back rather than 404-ing on junk. */
-export function resolveStatusTab(param: string | null | undefined): ExpenseStatusTab {
-  return isStatusTab(param) ? param : DEFAULT_STATUS_TAB;
-}
+export const STATUS_TABS: { value: ExpenseStatusTab; label: string }[] = expenseTabs.STATUS_TABS;
+export const DEFAULT_STATUS_TAB: ExpenseStatusTab = expenseTabs.DEFAULT_STATUS_TAB;
+export const isStatusTab = expenseTabs.isStatusTab;
+export const resolveStatusTab = expenseTabs.resolveStatusTab;
 
 /**
  * The list URL that lands on the tab holding an expense of this status.
  *
  * ExpenseView's breadcrumb used to point at a bare `/expense/list`, which
- * `resolveStatusTab(null)` reads as the Completed tab (11.8K rows) — so every
- * trip back from a draft dropped the user on the wrong tab. Unknown statuses
+ * `resolveStatusTab(null)` reads as the default tab — so every trip back from
+ * a non-default status dropped the user on the wrong tab. Unknown statuses
  * fall back to the default tab exactly like the URL param does.
  */
-export function expenseListPath(status: string | null | undefined): string {
-  return `/expense/list?status=${resolveStatusTab(status)}`;
-}
+export const expenseListPath = expenseTabs.listPath;
 
-/**
- * The query string appended to `/api/v1/get/expenses`.
- *
- * Always `?status=`. The API rejects an unknown status with a 422 rather than
- * silently returning everything, which is why `resolveStatusTab` normalises
- * before we get here.
- */
-export function expenseListQuery(tab: ExpenseStatusTab): string {
-  return `?status=${tab}`;
-}
+/** The query string appended to `/api/v1/get/expenses` — always `?status=`. */
+export const expenseListQuery = expenseTabs.listQuery;
 
 
 /** Section heading under the tabs — LaborList's `SECTION_LABEL` equivalent. */

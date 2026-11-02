@@ -1,3 +1,13 @@
+## U-752 follow-ups (booked 2026-11-02)
+
+- Bills `isIsoDate` (`src/pages/bills/billStatusTabs.ts`) still uses the local-midnight → `toISOString` round trip that U-470 fixed for Expenses: date filters go inert in UTC-positive zones (harmless in Central today). Fold both copies into the shared `src/pages/shared/statusTabs.ts`, using the Expense (calendar-field) version.
+- Expense `EMPTY_COPY.draft` (`src/pages/expenses/expenseStatusTabs.ts`) says Draft is "normally empty" — reword now that Draft is the default landing tab.
+- `/expense-coding` redirect now lands on the Draft tab (was Completed) — intended, per the U-752 default change; noted so nobody "fixes" it back.
+- (Pass 2, DEFER) Move the duplicated `fireRemovalBlur` test helper (ListFilterBar.test + LaborList.search.test) into `src/__testutils__/domEvents.ts`.
+- (Pass 2, DEFER) ListFilterBar's unmount cleanup repeats `flush`'s body; collapse it once a stable callback (useLatestRef/useCallback) is in place.
+- (Pass 2, DEFER, altitude) LaborList drops reason "unmount" because its write is a navigation; an opt-in `flushOnUnmount={false}` prop would state that at the component.
+- Removal-time blur (Chrome) is covered only by a jsdom emulation that calls React's `__reactProps$` onBlur; verify once in a real browser (type in Labor search, navigate away within 300 ms without blurring, confirm no bounce back to /labor/list).
+
 ## U-749 web follow-ups - labor cost-code picker suggestions (booked 2026-11-02; branch `unit/u-749`, ships with the U-749 API half)
 
 - [ ] (Pass 2, DEFER - needs a format call) One SubCostCode label formatter: ContractLaborEdit uses `number - desc||name`, ContractLaborView `number — desc||name`, LaborReviewScreen `number · name`.

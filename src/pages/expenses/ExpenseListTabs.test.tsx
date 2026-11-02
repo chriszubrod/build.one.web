@@ -143,9 +143,11 @@ describe("ExpenseList status tabs reach the API (U-470)", () => {
     lastContainer?.remove();
   });
 
-  it("defaults to completed when the URL carries no status", async () => {
+  it("defaults to Draft when the URL carries no status (Chris, 2026-11-02, U-752)", async () => {
     await mountAt("/expense/list");
-    expect(requestedUrls.at(-1)).toBe("/api/v1/get/expenses?status=completed");
+    expect(requestedUrls.at(-1)).toBe("/api/v1/get/expenses?status=draft");
+    const selected = lastContainer.querySelector('[role="tab"][aria-selected="true"]');
+    expect(selected?.textContent).toBe("Draft");
   });
 
   it("honours the status in the URL", async () => {
@@ -185,7 +187,49 @@ describe("ExpenseList status tabs reach the API (U-470)", () => {
 
   it("normalises a stale or junk status instead of forwarding it", async () => {
     await mountAt("/expense/list?status=finalized");
-    expect(requestedUrls.at(-1)).toBe("/api/v1/get/expenses?status=completed");
+    expect(requestedUrls.at(-1)).toBe("/api/v1/get/expenses?status=draft");
+  });
+
+  it("orders the page PageHeader → receipt drop zone → status tabs → filter bar (U-752)", async () => {
+    await mountAt("/expense/list?status=draft");
+    const header = lastContainer.querySelector(".page-header") as Element;
+    const dropZone = lastContainer.querySelector(".drop-zone") as Element;
+    const tablist = lastContainer.querySelector('[role="tablist"]') as Element;
+    const search = lastContainer.querySelector(
+      'input[aria-label="Search expenses by vendor, reference number or memo"]',
+    ) as Element;
+    expect(header).not.toBeNull();
+    expect(dropZone).not.toBeNull();
+    expect(tablist).not.toBeNull();
+    expect(search).not.toBeNull();
+    const follows = (a: Element, b: Element) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(header, dropZone)).toBe(true);
+    expect(follows(dropZone, tablist)).toBe(true);
+    expect(follows(tablist, search)).toBe(true);
+  });
+
+  it("debounces search: one setSearch after typing pauses, not one per keystroke (U-752)", async () => {
+    vi.useFakeTimers();
+    try {
+      await mountAt("/expense/list?status=draft");
+      const search = lastContainer.querySelector(
+        'input[aria-label="Search expenses by vendor, reference number or memo"]',
+      ) as HTMLInputElement;
+      for (const v of ["a", "ac", "acm", "acme"]) {
+        await act(async () => { setInputValue(search, v); });
+        await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+      }
+      expect(search.value).toBe("acme");
+      expect(setSearchSpy).not.toHaveBeenCalled();
+      setPageSpy.mockClear();
+      await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+      expect(setSearchSpy).toHaveBeenCalledTimes(1);
+      expect(setSearchSpy).toHaveBeenCalledWith("acme");
+      expect(setPageSpy).toHaveBeenCalledWith(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("NEVER queries is_draft", async () => {

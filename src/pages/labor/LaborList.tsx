@@ -6,6 +6,7 @@ import { useLookups } from "../../hooks/useLookups";
 import NavHeader from "../../components/ui/NavHeader";
 import EntryCard from "../../components/ui/EntryCard";
 import SegmentedControl from "../../components/ui/SegmentedControl";
+import ListFilterBar from "../../components/ListFilterBar";
 import type {
   ContractLabor,
   LookupProject,
@@ -72,8 +73,8 @@ const VALID_STATUSES: LaborStatus[] = ["pending_review", "submitted", "ready", "
 export default function LaborList() {
   // Filter state is URL-backed so navigating to a CL → editing → returning
   // via navigate(-1) restores the exact filter set. Bookmarkable too.
-  // `replace: true` on every setSearchParams so per-keystroke updates
-  // don't bloat browser history.
+  // `replace: true` on every setSearchParams so filter updates don't bloat
+  // browser history. Search reaches the URL debounced (ListFilterBar, U-752).
   const [searchParams, setSearchParams] = useSearchParams();
   const statusParam = searchParams.get("status");
   const status: LaborStatus =
@@ -209,51 +210,27 @@ export default function LaborList() {
         onChange={setStatus}
       />
 
-      <div className="list-filter-bar">
-        <div className="list-filter-row">
-          <label className="list-filter-field list-filter-field-grow">
-            <span className="list-filter-label">Search</span>
-            <input
-              type="search"
-              className="list-filter-input"
-              placeholder="Name, project, sub cost code…"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              autoComplete="off"
-              aria-label="Search labor entries by name, project, or sub cost code"
-            />
-          </label>
-          <label className="list-filter-field">
-            <span className="list-filter-label">From</span>
-            <input
-              type="date"
-              className="list-filter-input"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-              aria-label="Work date from"
-            />
-          </label>
-          <label className="list-filter-field">
-            <span className="list-filter-label">To</span>
-            <input
-              type="date"
-              className="list-filter-input"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-              aria-label="Work date to"
-            />
-          </label>
-          <button
-            type="button"
-            className="list-filter-clear"
-            onClick={clearFilters}
-            disabled={!hasActiveFilters}
-            aria-label="Clear all filters"
-          >
-            Clear
-          </button>
-        </div>
-      </div>
+      <ListFilterBar
+        search={searchTerm}
+        onSearchChange={(v, reason) => {
+          // `q` is written by NAVIGATING (setSearchParams). On unmount the
+          // router has already moved to the next page, and a navigate from
+          // here would bounce the user back to /labor/list?q=… (pinned in
+          // LaborList.search.test.tsx). Pending text is not lost on a row
+          // click: the click blurs the input first, and blur flushes.
+          if (reason === "unmount") return;
+          setSearchTerm(v);
+        }}
+        searchPlaceholder="Name, project, sub cost code…"
+        searchAriaLabel="Search labor entries by name, project, or sub cost code"
+        fromDate={fromDate}
+        toDate={toDate}
+        onFromDateChange={setFromDate}
+        onToDateChange={setToDate}
+        dateAriaLabelPrefix="Work date"
+        hasActiveFilters={hasActiveFilters}
+        onClear={clearFilters}
+      />
 
       <div className="section-label-prose labor-list-meta">
         <span>{SECTION_LABEL[status]}</span>

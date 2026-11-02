@@ -35,21 +35,22 @@ describe("expenses status tabs (U-470)", () => {
     }
   });
 
-  it("defaults to completed — an in_review default opens an empty page in prod (U-479)", () => {
-    expect(
-      DEFAULT_STATUS_TAB,
-      "an in_review default opens an empty page in prod",
-    ).toBe("completed");
+  it("defaults to draft, matching Bills (Chris, 2026-11-02, U-752)", () => {
+    expect(DEFAULT_STATUS_TAB).toBe("draft");
   });
 
-  it("falls back to the default on junk or null rather than forwarding it (U-479)", () => {
-    expect(resolveStatusTab(null)).toBe("completed");
-    expect(resolveStatusTab(undefined)).toBe("completed");
-    expect(resolveStatusTab("")).toBe("completed");
-    expect(resolveStatusTab("billed")).toBe("completed");
-    expect(resolveStatusTab("Draft")).toBe("completed"); // case matters
-    expect(resolveStatusTab("finalized")).toBe("completed");
-    expect(resolveStatusTab("'; DROP TABLE Expense--")).toBe("completed");
+  it("falls back to draft on junk or null rather than forwarding it (U-479, U-752)", () => {
+    expect(resolveStatusTab(null)).toBe("draft");
+    expect(resolveStatusTab(undefined)).toBe("draft");
+    expect(resolveStatusTab("")).toBe("draft");
+    expect(resolveStatusTab("billed")).toBe("draft");
+    expect(resolveStatusTab("Draft")).toBe("draft"); // case matters — junk, not the tab
+    expect(resolveStatusTab("finalized")).toBe("draft");
+    expect(resolveStatusTab("'; DROP TABLE Expense--")).toBe("draft");
+  });
+
+  it("an explicit status still wins over the default", () => {
+    expect(resolveStatusTab("completed")).toBe("completed");
   });
 
   it("round-trips every legal tab", () => {
@@ -69,12 +70,14 @@ describe("expenses status tabs (U-470)", () => {
 });
 
 describe("expenseListPath — the list URL that keeps the user's tab", () => {
-  it("carries the expense's own status so Back from a draft lands on Draft, not Completed", () => {
+  it("carries the expense's own status so Back lands on that status's tab", () => {
     expect(expenseListPath("draft")).toBe("/expense/list?status=draft");
     expect(expenseListPath("in_review")).toBe("/expense/list?status=in_review");
+    expect(expenseListPath("completed")).toBe("/expense/list?status=completed");
   });
 
   it("falls back to the default tab for an unknown or missing status, like the URL param does", () => {
+    expect(expenseListPath(null)).toBe("/expense/list?status=draft");
     expect(expenseListPath(null)).toBe(`/expense/list?status=${DEFAULT_STATUS_TAB}`);
     expect(expenseListPath("bogus")).toBe(`/expense/list?status=${DEFAULT_STATUS_TAB}`);
   });
