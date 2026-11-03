@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useEntityItem } from "../../hooks/useEntity";
 import { getList } from "../../api/client";
 import { findReceiptAttachmentPublicId } from "./expenseReceipt";
-import { nextDraftPath } from "./expenseDraftQueue";
+import { EXPENSE_DRAFT_LIST_PATH, nextDraftPath } from "./expenseDraftQueue";
 import { useViewAttachmentObjectUrl } from "../../hooks/useViewAttachmentObjectUrl";
 import DetailView from "../../components/DetailView";
 import { entityCrumbs } from "../../components/Breadcrumb";
@@ -12,7 +12,7 @@ import ReviewTimeline, { type ReviewActionKind } from "../../components/ReviewTi
 import { useToast } from "../../components/Toast";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
 import type { Expense, ExpenseLineItem, Project, SubCostCode, Vendor } from "../../types/api";
-import { expenseListPath } from "./expenseStatusTabs";
+import { returnToState, useReturnTo } from "../../hooks/useReturnTo";
 import {
   EXPENSE_STATUS_LABELS,
   expenseReviewBadgeClass,
@@ -61,6 +61,9 @@ export default function ExpenseView() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { item, loading, error } = useEntityItem<Expense>(`/api/v1/get/expense/${publicId}`);
+  // U-753: the list location this expense was opened from. Without one, the
+  // Draft tab (like Bills — Chris, 2026-11-02), whatever this expense's status.
+  const returnTo = useReturnTo(EXPENSE_DRAFT_LIST_PATH);
   const vendorMap = useIdNameMap<Vendor>("/api/v1/get/vendors", (v) => v.name);
   const sccMap = useIdNameMap<SubCostCode>("/api/v1/get/sub-cost-codes", (s) => s.number ? `${s.number} — ${s.name}` : s.name);
   const projectMap = useIdNameMap<Project>("/api/v1/get/projects", (p) => p.name);
@@ -99,10 +102,14 @@ export default function ExpenseView() {
   const handleAfterReviewAction = async (action: ReviewActionKind) => {
     if (action !== "submit" || advancingRef.current) return;
     advancingRef.current = true;
-    const target = await nextDraftPath(publicId);
+    // "No more drafts" lands where the user came from (U-753) — the Draft tab by default.
+    const target = await nextDraftPath(publicId, returnTo);
     if (!mountedRef.current) return;
-    toast(target.startsWith("/expense/list") ? "Submitted — no more drafts." : "Submitted — opening the next draft.");
-    navigate(target);
+    const noMoreDrafts = target === returnTo;
+    toast(noMoreDrafts ? "Submitted — no more drafts." : "Submitted — opening the next draft.");
+    // The next draft keeps the origin list so its own return targets stay there.
+    if (noMoreDrafts) navigate(target);
+    else navigate(target, { state: returnToState(returnTo) });
   };
 
   if (loading) return <div className="page-loading">Loading...</div>;
@@ -117,7 +124,8 @@ export default function ExpenseView() {
     <DetailView
       title={`Expense ${item.reference_number}`}
       editPath={`/expense/${publicId}/edit`}
-      breadcrumbs={entityCrumbs("Expenses", expenseListPath(status), item.reference_number)}
+      editState={returnToState(returnTo)}
+      breadcrumbs={entityCrumbs("Expenses", returnTo, item.reference_number)}
       fields={[
         { label: "Reference Number", value: item.reference_number },
         { label: "Vendor", value: vendorMap.get(item.vendor_id) ?? item.vendor_id },

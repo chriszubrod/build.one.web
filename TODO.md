@@ -1,3 +1,12 @@
+## U-753 follow-ups - shared upload queue + return-to-origin (booked 2026-11-02)
+
+- [ ] (Pass 2 D1) Export `billListPath` from `billStatusTabs.ts` (createStatusTabs listPath, like expenseListPath) and delete the local copy in `billDraftQueue.ts`.
+- [ ] (Pass 2 D2) Export a `LIST_BASE_PATH` from each status-tabs module; `useListLocation("/bill/list" | "/expense/list")` call sites repeat it.
+- [ ] (Pass 2 D3) One naming convention for router state on shared components (`EntryCard.linkState`, `DetailView.editState`, `Crumb.state`).
+- [ ] (Pass 2 D4) Lift `useListLocation` out of `ReceiptMatchRowView` into `ExpenseReceiptMatch` (one subscription, not one per row).
+- [ ] (Pass 2 D5) Optionally pass `returnTo` state on list-bound navigations too (harmless; changes history state).
+- [ ] PossibleDuplicateDialog opens the other bill with `target="_blank"`, so router state can't carry the origin into that tab (falls back to Draft). If the origin should survive, open in the same tab or carry `returnTo` as a validated query param.
+
 ## U-752 follow-ups (booked 2026-11-02)
 
 - Bills `isIsoDate` (`src/pages/bills/billStatusTabs.ts`) still uses the local-midnight → `toISOString` round trip that U-470 fixed for Expenses: date filters go inert in UTC-positive zones (harmless in Central today). Fold both copies into the shared `src/pages/shared/statusTabs.ts`, using the Expense (calendar-field) version.

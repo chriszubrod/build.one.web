@@ -48,7 +48,8 @@ import {
 } from "./codingSuggestion";
 import { useBillCodingSuggestion } from "./useBillCodingSuggestion";
 import { documentStatus } from "../../shared/documentLifecycle";
-import { nextDraftPath } from "./billDraftQueue";
+import { BILL_DRAFT_LIST_PATH, nextDraftPath } from "./billDraftQueue";
+import { returnToState, useReturnTo } from "../../hooks/useReturnTo";
 import { createEmptyHeaderPrefill, createEmptyLine1Prefill } from "./headerPrefill";
 import {
   applyReadAttachmentResult,
@@ -184,6 +185,9 @@ async function rehomeAttachmentsBeforeLineDeletes(
 export default function BillEdit() {
   const { publicId } = useParams<{ publicId: string }>();
   const navigate = useNavigate();
+  // U-753: the list location this bill was opened from (else the Draft tab).
+  const returnTo = useReturnTo(BILL_DRAFT_LIST_PATH);
+  const carryReturnTo = { state: returnToState(returnTo) };
   const queryClient = useQueryClient();
   const billItemPath = `/api/v1/get/bill/${publicId}`;
   const { item, loading, error } = useEntityItem<Bill>(billItemPath);
@@ -257,7 +261,7 @@ export default function BillEdit() {
         toast("Bill completed — external syncs continue in the background.");
         setForm((prev) => (prev ? { ...prev, is_draft: false } : prev));
         setCompleting(false);
-        navigate("/bill/list");
+        navigate(returnTo);
       },
       onError: () => setCompleting(false),
     },
@@ -470,7 +474,7 @@ export default function BillEdit() {
     confirmText: "Delete this bill? This cannot be undone.",
     successToast: "Bill deleted.",
     errorFallback: "Could not delete bill.",
-    navigateTo: "/bill/list",
+    navigateTo: returnTo,
     beforeDelete: cancelAutoSave,
     removeQueryKeys: publicId
       ? [entityItemKey(billItemPath), ["bill-intake-prediction", publicId] as const]
@@ -529,7 +533,7 @@ export default function BillEdit() {
     return (
       <div className="page">
         <div className="page-error">You don&apos;t have permission to edit this bill.</div>
-        <button type="button" className="btn btn-secondary" onClick={() => navigate(`/bill/${publicId}`)}>
+        <button type="button" className="btn btn-secondary" onClick={() => navigate(`/bill/${publicId}`, carryReturnTo)}>
           Back to Bill
         </button>
       </div>
@@ -843,7 +847,7 @@ export default function BillEdit() {
 
   const handleSave = async () => {
     if (await saveAll()) {
-      navigate("/bill/list");
+      navigate(returnTo);
     }
   };
 
@@ -875,14 +879,13 @@ export default function BillEdit() {
   const advanceToNextDraftAfterSubmit = async () => {
     if (advancingRef.current) return;
     advancingRef.current = true;
-    const target = await nextDraftPath(publicId);
+    const target = await nextDraftPath(publicId, returnTo);
     if (!mountedRef.current) return;
-    toast(
-      target.startsWith("/bill/list")
-        ? "Submitted — no more drafts."
-        : "Submitted — opening the next draft.",
-    );
-    navigate(target);
+    const noMoreDrafts = target === returnTo;
+    toast(noMoreDrafts ? "Submitted — no more drafts." : "Submitted — opening the next draft.");
+    // The next draft keeps the origin list so its own Save / Cancel return there too.
+    if (noMoreDrafts) navigate(target);
+    else navigate(target, carryReturnTo);
   };
 
   const handleAfterReviewAction = async (action: ReviewActionKind) => {
@@ -994,8 +997,8 @@ export default function BillEdit() {
     <div className="page form-page-wide">
       <Breadcrumb
         crumbs={[
-          { label: "Bills", path: "/bill/list" },
-          { label: billCrumbLabel, path: `/bill/${publicId}` },
+          { label: "Bills", path: returnTo },
+          { label: billCrumbLabel, path: `/bill/${publicId}`, state: returnToState(returnTo) },
           { label: "Edit" },
         ]}
       />
@@ -1114,7 +1117,7 @@ export default function BillEdit() {
             </button>
           )}
           <div className="page-header-spacer" />
-          <button type="button" className="btn btn-secondary" onClick={() => navigate("/bill/list")}>
+          <button type="button" className="btn btn-secondary" onClick={() => navigate(returnTo)}>
             Cancel
           </button>
           <button
@@ -1155,7 +1158,7 @@ export default function BillEdit() {
           state={pollState}
           completeMessage="Bill completed — external syncs continue in the background."
           viewLabel="View Bill"
-          onView={() => navigate(`/bill/${publicId}`)}
+          onView={() => navigate(`/bill/${publicId}`, carryReturnTo)}
         />
 
       </form>

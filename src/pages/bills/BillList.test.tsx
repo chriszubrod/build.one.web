@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { flushUntil } from "../../__testutils__/flush";
 import { setInputValue } from "../../__testutils__/domEvents";
 import BillList, { draftAttachmentErrorMessage } from "./BillList";
@@ -186,7 +186,7 @@ describe("BillList PDF draft intake", () => {
     expect(mockPost).toHaveBeenCalledWith("/api/v1/bill/draft-from-attachment", {
       attachment_public_id: "att-1",
     });
-    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-new/edit");
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-new/edit", { state: { returnTo: "/bill/list" } });
     expect(mockReload).toHaveBeenCalled();
   });
 
@@ -195,7 +195,7 @@ describe("BillList PDF draft intake", () => {
     const png = new File(["x"], "x.png", { type: "image/png" });
     await dropFiles([pdf, png]);
     await flushUntil(() => mockNavigate.mock.calls.length > 0);
-    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-new/edit");
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-new/edit", { state: { returnTo: "/bill/list" } });
     expect(container.textContent).toContain("Only PDF files");
   });
 
@@ -211,7 +211,7 @@ describe("BillList PDF draft intake", () => {
     await flushUntil(() => mockToast.mock.calls.length > 0);
 
     expect(mockToast).toHaveBeenCalledWith("Opened the existing draft for this PDF.", "info");
-    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-existing/edit");
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-existing/edit", { state: { returnTo: "/bill/list" } });
   });
 
   it("does not navigate when two PDFs are dropped; shows two Open links", async () => {
@@ -370,7 +370,7 @@ describe("BillList PDF draft intake", () => {
     expect(mockUploadFile).toHaveBeenCalledTimes(2);
     expect(mockPost).toHaveBeenCalledTimes(2);
     expect(mockNavigate).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith("/bill/second.pdf/edit");
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/second.pdf/edit", { state: { returnTo: "/bill/list" } });
   });
 
   it("requires processingRef guard: concurrent processQueue would double-upload", async () => {
@@ -413,7 +413,7 @@ describe("BillList PDF draft intake", () => {
       await vi.advanceTimersByTimeAsync(200);
     });
     await flushUntil(() => mockNavigate.mock.calls.length > 0);
-    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-new/edit");
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-new/edit", { state: { returnTo: "/bill/list" } });
     expect(container.textContent).toContain("Only PDF files");
   });
 
@@ -516,5 +516,133 @@ describe("BillList search debounce (U-700)", () => {
     });
     expect(mockSetSearch).toHaveBeenCalledTimes(1);
     expect(mockSetSearch).toHaveBeenCalledWith("abc");
+  });
+});
+
+describe("U-753 records opened from the list carry the list location (returnTo)", () => {
+  const ORIGIN = "/bill/list?status=completed&from=2026-01-01&to=2026-03-31";
+
+  /** Renders the location state of whatever record route the list navigated to. */
+  function StateProbe() {
+    const location = useLocation();
+    return createElement(
+      "pre",
+      { "data-testid": "probe" },
+      JSON.stringify({ path: location.pathname, state: location.state }),
+    );
+  }
+
+  function probe(): { path: string; state: unknown } | null {
+    const el = container.querySelector('[data-testid="probe"]');
+    return el ? JSON.parse(el.textContent ?? "null") : null;
+  }
+
+  async function mountAt(path: string) {
+    await act(async () => {
+      root.render(
+        createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          createElement(
+            MemoryRouter,
+            { initialEntries: [path] },
+            createElement(
+              Routes,
+              null,
+              createElement(Route, { path: "/bill/list", element: createElement(BillList) }),
+              createElement(Route, { path: "/bill/:publicId/edit", element: createElement(StateProbe) }),
+              createElement(Route, { path: "/bill/:publicId", element: createElement(StateProbe) }),
+            ),
+          ),
+        ),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await flushUntil(() => container.querySelector(".drop-zone input[type='file']") !== null);
+    expect(container.querySelector(".drop-zone input[type='file']")).not.toBeNull();
+  }
+
+  it("solo drop navigates to the new draft with the full list location", async () => {
+    await mountAt(ORIGIN);
+    await enqueueViaInput([new File(["pdf"], "one.pdf", { type: "application/pdf" })]);
+    await flushUntil(() => mockNavigate.mock.calls.length > 0);
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-new/edit", { state: { returnTo: ORIGIN } });
+  });
+
+  it.each(["/bill/list/", "/Bill/List"])(
+    "a router-equivalent list URL (%s) is canonicalised so the origin survives",
+    async (pathname) => {
+      await mountAt(`${pathname}?status=completed&from=2026-01-01`);
+      await enqueueViaInput([new File(["pdf"], "one.pdf", { type: "application/pdf" })]);
+      await flushUntil(() => mockNavigate.mock.calls.length > 0);
+      expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-new/edit", {
+        state: { returnTo: "/bill/list?status=completed&from=2026-01-01" },
+      });
+    },
+  );
+
+  it("a throw after the row finished (navigate) keeps it Done and the queue moving", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mockNavigate.mockImplementationOnce(() => {
+        throw new Error("navigate blew up");
+      });
+      await mountAt(ORIGIN);
+      await enqueueViaInput([new File(["pdf"], "one.pdf", { type: "application/pdf" })]);
+      await flushUntil(() => errorSpy.mock.calls.length > 0);
+      expect(errorSpy).toHaveBeenCalled();
+      const row = container.querySelector(".pending-files tbody tr");
+      expect(row?.textContent).toContain("Done");
+      expect(row?.textContent).not.toContain("Error");
+      expect(openLinks()).toHaveLength(1);
+
+      await enqueueViaInput([new File(["pdf2"], "two.pdf", { type: "application/pdf" })]);
+      await flushUntil(() => mockNavigate.mock.calls.length >= 2);
+      expect(mockNavigate).toHaveBeenCalledTimes(2);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("a list row link carries the list location into the record", async () => {
+    mockListState.items = [
+      {
+        id: 1,
+        public_id: "bill-row",
+        status: "completed",
+        is_draft: false,
+        vendor_id: null,
+        bill_number: "B-1",
+        bill_date: "2026-02-01",
+        total_amount: "10.00",
+        review_status: null,
+      },
+    ];
+    await mountAt(ORIGIN);
+    const card = container.querySelector<HTMLAnchorElement>("a.entry-card");
+    expect(card).not.toBeNull();
+    expect(card!.getAttribute("href")).toBe("/bill/bill-row");
+    await act(async () => {
+      card!.click();
+    });
+    expect(probe()).toEqual({ path: "/bill/bill-row", state: { returnTo: ORIGIN } });
+  });
+
+  it("the import queue's Open link carries the list location", async () => {
+    mockPost
+      .mockResolvedValueOnce({ bill_public_id: "bill-a", existing: false, existing_reason: null, read_status: "ok" })
+      .mockResolvedValueOnce({ bill_public_id: "bill-b", existing: false, existing_reason: null, read_status: "ok" });
+    await mountAt(ORIGIN);
+    await enqueueViaInput([
+      new File(["a"], "a.pdf", { type: "application/pdf" }),
+      new File(["b"], "b.pdf", { type: "application/pdf" }),
+    ]);
+    await flushUntil(() => openLinks().length === 2);
+    expect(openLinks()).toHaveLength(2);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    await act(async () => {
+      openLinks()[0].click();
+    });
+    expect(probe()).toEqual({ path: "/bill/bill-a/edit", state: { returnTo: ORIGIN } });
   });
 });

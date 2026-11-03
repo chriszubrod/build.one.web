@@ -5,6 +5,8 @@ import { getList, getOne } from "../../api/client";
 import { useViewAttachmentObjectUrl } from "../../hooks/useViewAttachmentObjectUrl";
 import DetailView from "../../components/DetailView";
 import { entityCrumbs } from "../../components/Breadcrumb";
+import { returnToState, useReturnTo } from "../../hooks/useReturnTo";
+import { BILL_DRAFT_LIST_PATH } from "./billDraftQueue";
 import LineItemTable, { type LineItemColumn } from "../../components/LineItemTable";
 import ReviewTimeline from "../../components/ReviewTimeline";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
@@ -61,6 +63,8 @@ function makeLineItemCols(
 
 export default function BillView() {
   const { publicId } = useParams<{ publicId: string }>();
+  // U-753: the list location this bill was opened from (else the Draft tab).
+  const returnTo = useReturnTo(BILL_DRAFT_LIST_PATH);
   const { item, loading, error } = useEntityItem<Bill>(`/api/v1/get/bill/${publicId}`);
   const vendorMap = useIdNameMap<Vendor>("/api/v1/get/vendors", (v) => v.name);
   const sccMap = useIdNameMap<SubCostCode>("/api/v1/get/sub-cost-codes", (s) => s.number ? `${s.number} — ${s.name}` : s.name);
@@ -107,7 +111,8 @@ export default function BillView() {
     <DetailView
       title={`Bill ${item.bill_number ?? "Draft"}`}
       editPath={`/bill/${publicId}/edit`}
-      breadcrumbs={entityCrumbs("Bills", "/bill/list", item.bill_number ?? "Draft")}
+      editState={returnToState(returnTo)}
+      breadcrumbs={entityCrumbs("Bills", returnTo, item.bill_number ?? "Draft")}
       fields={[
         {
           label: "Vendor",

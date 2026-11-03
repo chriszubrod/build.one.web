@@ -24,8 +24,8 @@ import {
 import InlineLineItems, { type LineItemFieldDef } from "../../components/InlineLineItems";
 import LineItemAttachment from "../../components/LineItemAttachment";
 import ReviewTimeline from "../../components/ReviewTimeline";
-import { expenseListPath } from "./expenseStatusTabs";
-import { expenseStatus } from "./expenseLifecycle";
+import { EXPENSE_DRAFT_LIST_PATH } from "./expenseDraftQueue";
+import { returnToState, useReturnTo } from "../../hooks/useReturnTo";
 import RecordChangedBanner from "../../components/RecordChangedBanner";
 import Breadcrumb from "../../components/Breadcrumb";
 import type { Expense, ExpenseLineItem, Project, SubCostCode, Vendor as FullVendor } from "../../types/api";
@@ -235,6 +235,11 @@ export default function ExpenseEdit() {
   const queryClient = useQueryClient();
   const expenseItemPath = `/api/v1/get/expense/${id}`;
   const { item, loading, error } = useEntityItem<Expense>(expenseItemPath);
+  // U-753: Save / Cancel / Complete / the breadcrumb return to the list
+  // location this expense was opened from. Without one, the Draft tab (like
+  // Bills — Chris, 2026-11-02), whatever this expense's status.
+  const returnTo = useReturnTo(EXPENSE_DRAFT_LIST_PATH);
+  const carryReturnTo = { state: returnToState(returnTo) };
   const { items: fullSubCostCodes } = useEntityList<SubCostCode>("/api/v1/get/sub-cost-codes");
   const { items: fullProjects } = useEntityList<Project>("/api/v1/get/projects");
   // Bumped after each line load so the default effect below re-runs with the CURRENT
@@ -283,6 +288,7 @@ export default function ExpenseEdit() {
         toast("Expense completed — external syncs continue in the background.");
         setForm((prev) => (prev ? { ...prev, is_draft: false } : prev));
         setCompleting(false);
+        navigate(returnTo);
       },
       onError: () => setCompleting(false),
     },
@@ -442,13 +448,12 @@ export default function ExpenseEdit() {
     if (!actions.canEdit) cancelAutoSave();
   }, [actions.canEdit, cancelAutoSave]);
 
-  const listPath = expenseListPath(item ? expenseStatus(item) : null);
   const { deleting, runDelete: runDeleteExpense } = useDeleteDocument({
     deletePath: id ? `/api/v1/delete/expense/${id}` : "",
     confirmText: "Delete this expense? This cannot be undone.",
     successToast: "Expense deleted.",
     errorFallback: "Could not delete expense.",
-    navigateTo: listPath,
+    navigateTo: returnTo,
     beforeDelete: cancelAutoSave,
     removeQueryKeys: id ? [entityItemKey(expenseItemPath)] : [],
   });
@@ -581,7 +586,7 @@ export default function ExpenseEdit() {
     return (
       <div className="page">
         <div className="page-error">You don&apos;t have permission to edit this expense.</div>
-        <button type="button" className="btn btn-secondary" onClick={() => navigate(`/expense/${id}`)}>
+        <button type="button" className="btn btn-secondary" onClick={() => navigate(`/expense/${id}`, carryReturnTo)}>
           Back to Expense
         </button>
       </div>
@@ -736,7 +741,7 @@ export default function ExpenseEdit() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (await saveAll()) {
-      navigate(`/expense/${id}`);
+      navigate(returnTo);
     }
   };
 
@@ -760,8 +765,8 @@ export default function ExpenseEdit() {
     <div className="page form-page-wide">
       <Breadcrumb
         crumbs={[
-          { label: "Expenses", path: listPath },
-          { label: item?.reference_number || "…", path: `/expense/${id}` },
+          { label: "Expenses", path: returnTo },
+          { label: item?.reference_number || "…", path: `/expense/${id}`, state: returnToState(returnTo) },
           { label: "Edit" },
         ]}
       />
@@ -816,7 +821,7 @@ export default function ExpenseEdit() {
           <button type="submit" className="btn btn-primary" disabled={saving || completing || deleting}>
             {saving ? "Saving..." : "Save"}
           </button>
-          <button type="button" className="btn btn-secondary" onClick={() => navigate(`/expense/${id}`)}>Cancel</button>
+          <button type="button" className="btn btn-secondary" onClick={() => navigate(returnTo)}>Cancel</button>
         </div>
 
         {form.is_draft && actions.canComplete && (
@@ -839,7 +844,7 @@ export default function ExpenseEdit() {
           state={pollState}
           completeMessage="Expense completed — external syncs continue in the background."
           viewLabel="View Expense"
-          onView={() => navigate(`/expense/${id}`)}
+          onView={() => navigate(`/expense/${id}`, carryReturnTo)}
         />
         </fieldset>
       </form>

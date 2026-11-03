@@ -258,12 +258,14 @@ let container: HTMLDivElement;
 let root: Root;
 let queryClient: QueryClient;
 
-function renderBillEdit() {
+type BillEditEntry = string | { pathname: string; state?: unknown };
+
+function renderBillEdit(entry: BillEditEntry = "/bill/bill-1/edit") {
   act(() => {
     root.render(
       createElement(
         MemoryRouter,
-        { initialEntries: ["/bill/bill-1/edit"] },
+        { initialEntries: [entry] },
         createElement(
           QueryClientProvider,
           { client: queryClient },
@@ -281,8 +283,8 @@ function renderBillEdit() {
   });
 }
 
-async function mountBillEdit() {
-  renderBillEdit();
+async function mountBillEdit(entry?: BillEditEntry) {
+  renderBillEdit(entry);
   await waitForCombobox(container);
 }
 
@@ -1038,7 +1040,7 @@ describe("BillEdit item cache reconciliation (U-174)", () => {
     await flushUntil(() => buttonWithText("Save") !== undefined);
 
     expect(cachedBill()?.row_version).toBe("brv-1");
-    expect(mockNavigate).toHaveBeenCalledWith("/bill/list");
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/list?status=draft");
   });
 
   it("seeds the item cache on a normal save even when the line sync is slow enough for React to commit", async () => {
@@ -1065,7 +1067,7 @@ describe("BillEdit item cache reconciliation (U-174)", () => {
     await flushUntil(() => buttonWithText("Save") !== undefined);
 
     expect(cachedBill()?.row_version).toBe("brv-2");
-    expect(mockNavigate).toHaveBeenCalledWith("/bill/list");
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/list?status=draft");
   });
 
   it("a successful delete removes the item cache entry", async () => {
@@ -3626,7 +3628,8 @@ describe("BillEdit coding suggestions", () => {
       await act(async () => {
         discardBtn.click();
       });
-      await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill/list"));
+      await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill/list?status=draft"));
+      expect(mockNavigate).toHaveBeenCalledWith("/bill/list?status=draft");
       expect(mockDel).toHaveBeenCalledWith("/api/v1/delete/bill/bill-1");
       expect(mockToast).toHaveBeenCalledWith("Draft discarded.");
       confirmSpy.mockRestore();
@@ -3646,7 +3649,7 @@ describe("BillEdit coding suggestions", () => {
       await act(async () => {
         discardBtn.click();
       });
-      await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill/list"));
+      await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill/list?status=draft"));
       expect(queryClient.getQueryData(["bill-intake-prediction", "bill-1"])).toBeUndefined();
       confirmSpy.mockRestore();
     });
@@ -3718,7 +3721,7 @@ describe("U-700 BillEdit navigation and reference data", () => {
     await act(async () => {
       cancelBtn.click();
     });
-    expect(mockNavigate).toHaveBeenCalledWith("/bill/list");
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/list?status=draft");
   });
 
   it("failed Save does not navigate away", async () => {
@@ -3792,7 +3795,7 @@ describe("U-700 BillEdit navigation and reference data", () => {
       mockPost.mock.calls.some((c) => c[0] === "/api/v1/submit/review/bill/bill-1"),
     );
     await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill/bill-next/edit"));
-    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-next/edit");
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-next/edit", { state: { returnTo: "/bill/list?status=draft" } });
     expect(String(mockToast.mock.calls.find((c) => String(c[0]).includes("next draft"))?.[0])).toContain(
       "next draft",
     );
@@ -3809,7 +3812,7 @@ describe("U-700 BillEdit navigation and reference data", () => {
     });
     await flushUntil(() => mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/bill/bill-1"));
     expect(mockNavigate).not.toHaveBeenCalledWith("/bill/bill-1");
-    expect(mockNavigate).toHaveBeenCalledWith("/bill/list");
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/list?status=draft");
   });
 
   it("handleSubmitForReview failure does not navigate away", async () => {
@@ -3830,7 +3833,7 @@ describe("U-700 BillEdit navigation and reference data", () => {
       submitBtn.click();
     });
     await flushUntil(() => container.textContent?.includes("submit failed") ?? false);
-    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/list");
+    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/list?status=draft");
   });
 
   it("ReviewTimeline onAfterAction advances to the next draft after save (U-717)", async () => {
@@ -3901,7 +3904,7 @@ describe("U-700 BillEdit navigation and reference data", () => {
     });
     await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill/bill-next/edit"));
     expect(mockPut).toHaveBeenCalledWith("/api/v1/update/bill/bill-1", expect.anything());
-    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-next/edit");
+    expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-next/edit", { state: { returnTo: "/bill/list?status=draft" } });
   });
 
   it("ReviewTimeline submit with no drafts left returns to the Draft tab (U-717)", async () => {
@@ -4076,12 +4079,12 @@ describe("U-700 BillEdit navigation and reference data", () => {
       completeBtn.click();
     });
     await flushUntil(() => completed);
-    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/list");
+    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/list?status=draft");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3500);
     });
     await flushUntilHard(
-      () => mockNavigate.mock.calls.some((c) => c[0] === "/bill/list"),
+      () => mockNavigate.mock.calls.some((c) => c[0] === "/bill/list?status=draft"),
       "Complete navigates to /bill/list after the poll reports completion",
     );
     expect(mockToast).toHaveBeenCalledWith(
@@ -4122,7 +4125,188 @@ describe("U-700 BillEdit navigation and reference data", () => {
       () => container.querySelector(".completion-status-bar--error") !== null,
     );
     expect(container.textContent).toContain("Completion failed: poll failed");
-    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/list");
+    expect(mockNavigate).not.toHaveBeenCalledWith("/bill/list?status=draft");
+  });
+
+  describe("U-753 return to where the user was", () => {
+    const ORIGIN = "/bill/list?status=completed&from=2026-01-01&to=2026-03-31";
+    const FROM_COMPLETED = { pathname: "/bill/bill-1/edit", state: { returnTo: ORIGIN } };
+
+    function clickButton(label: string) {
+      const btn = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+        (b) => b.textContent?.trim() === label,
+      );
+      expect(btn, `button ${label}`).toBeDefined();
+      return act(async () => {
+        btn!.click();
+      });
+    }
+
+    function crumbHref(label: string): string | null {
+      const a = Array.from(container.querySelectorAll<HTMLAnchorElement>(".breadcrumb a")).find(
+        (el) => el.textContent?.trim() === label,
+      );
+      expect(a, `crumb ${label}`).toBeDefined();
+      return a!.getAttribute("href");
+    }
+
+    it("Cancel returns to the origin list (tab + dates)", async () => {
+      setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+      await mountBillEdit(FROM_COMPLETED);
+      await waitForReady();
+      await clickButton("Cancel");
+      expect(mockNavigate).toHaveBeenCalledWith(ORIGIN);
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+    });
+
+    it("Save returns to the origin list", async () => {
+      setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+      await mountBillEdit(FROM_COMPLETED);
+      await waitForReady();
+      await clickButton("Save");
+      await flushUntil(() => mockNavigate.mock.calls.length > 0);
+      expect(mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/bill/bill-1")).toBe(true);
+      expect(mockNavigate).toHaveBeenCalledWith(ORIGIN);
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+    });
+
+    it("the Bills breadcrumb points at the origin list", async () => {
+      setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+      await mountBillEdit(FROM_COMPLETED);
+      await waitForReady();
+      expect(crumbHref("Bills")).toBe(ORIGIN);
+    });
+
+    it("no origin → Cancel and the breadcrumb go to the Draft tab", async () => {
+      setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+      await mountBillEdit();
+      await waitForReady();
+      expect(crumbHref("Bills")).toBe("/bill/list?status=draft");
+      await clickButton("Cancel");
+      expect(mockNavigate).toHaveBeenCalledWith("/bill/list?status=draft");
+    });
+
+    it.each(["https://evil.example/bill/list", "//evil.example", "/admin", "/expense/list?status=draft"])(
+      "an unsafe returnTo (%s) falls back to the Draft tab",
+      async (returnTo) => {
+        setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+        await mountBillEdit({ pathname: "/bill/bill-1/edit", state: { returnTo } });
+        await waitForReady();
+        expect(crumbHref("Bills")).toBe("/bill/list?status=draft");
+        await clickButton("Cancel");
+        expect(mockNavigate).toHaveBeenCalledWith("/bill/list?status=draft");
+        expect(mockNavigate).not.toHaveBeenCalledWith(returnTo);
+      },
+    );
+
+    it("U-753 Complete returns to the origin list after the poll reports completion", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+      let completed = false;
+      mockPost.mockImplementation((path: string) => {
+        if (path === "/api/v1/complete/bill/bill-1") {
+          completed = true;
+          return Promise.resolve({});
+        }
+        return Promise.reject(new Error(`unexpected post: ${path}`));
+      });
+      mockGetOne.mockImplementation((path: string) => {
+        if (path === BILL_GET_PATH) {
+          return Promise.resolve(
+            completed ? sampleBill({ is_draft: false }) : sampleBill(),
+          );
+        }
+        if (path === "/api/v1/bill/bill-1/intake-prediction") {
+          return Promise.reject(new ApiError(404, "Not found"));
+        }
+        if (path.startsWith("/api/v1/get/bill-line-item-attachment/by-bill-line-item/")) {
+          return Promise.reject(new ApiError(404, "Not found"));
+        }
+        return Promise.reject(new Error(`unexpected getOne: ${path}`));
+      });
+      await mountBillEdit(FROM_COMPLETED);
+      await waitForReady();
+      const completeBtn = Array.from(container.querySelectorAll("button")).find(
+        (b) => b.textContent === "Complete Bill",
+      )!;
+      await act(async () => {
+        completeBtn.click();
+      });
+      await flushUntil(() => completed);
+      expect(mockNavigate).not.toHaveBeenCalledWith(ORIGIN);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3500);
+      });
+      await flushUntilHard(
+        () => mockNavigate.mock.calls.some((c) => c[0] === ORIGIN),
+        "Complete navigates to the origin list after the poll reports completion",
+      );
+      expect(mockToast).toHaveBeenCalledWith(
+        "Bill completed — external syncs continue in the background.",
+      );
+    });
+
+    it("U-753 next draft after submit keeps the origin list in returnTo", async () => {
+      setupMocks([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]);
+      mockGetList.mockImplementation((path: string) => {
+        if (path === "/api/v1/get/bills?status=draft&page=1&page_size=2") {
+          return Promise.resolve({ data: [sampleBill({ public_id: "bill-next" })], count: 1 });
+        }
+        if (path === BILL_LINE_ITEMS_PATH) {
+          return Promise.resolve(lineItemsListResponse([sampleLineItem({ project_id: VISIBLE_PROJECT.id })]));
+        }
+        if (path === "/api/v1/get/vendors") {
+          return Promise.resolve({
+            data: [
+              { id: 1, public_id: "v-1", name: "V" },
+              { id: 2, public_id: "v-2", name: "V2" },
+            ],
+            count: 2,
+          });
+        }
+        if (path === "/api/v1/get/payment-terms") {
+          return Promise.resolve({ data: [{ id: 1, public_id: "pt-1", name: "Net 30" }], count: 1 });
+        }
+        if (path === "/api/v1/get/sub-cost-codes") {
+          return Promise.resolve({
+            data: [
+              { id: 1, public_id: "scc-1", name: "SCC", number: "01" },
+              { id: 10, public_id: "scc-pub", name: "Suggested SCC", number: "01-100" },
+            ],
+            count: 2,
+          });
+        }
+        if (path === "/api/v1/get/projects") {
+          return Promise.resolve({ data: [VISIBLE_PROJECT], count: 1 });
+        }
+        return Promise.reject(new Error(`unexpected getList: ${path}`));
+      });
+      mockPost.mockImplementation((path: string) => {
+        if (path === "/api/v1/submit/review/bill/bill-1") {
+          return Promise.resolve({});
+        }
+        return Promise.reject(new Error(`unexpected post: ${path}`));
+      });
+      await mountBillEdit(FROM_COMPLETED);
+      await waitForReady();
+      const submitBtn = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+        (b) => b.textContent === "Submit for Review" && !b.dataset.testid,
+      )!;
+      await flushUntil(() => !submitBtn.disabled);
+      await act(async () => {
+        submitBtn.click();
+      });
+      await flushUntil(() =>
+        mockPost.mock.calls.some((c) => c[0] === "/api/v1/submit/review/bill/bill-1"),
+      );
+      await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill/bill-next/edit"));
+      expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-next/edit", { state: { returnTo: ORIGIN } });
+      expect(String(mockToast.mock.calls.find((c) => String(c[0]).includes("next draft"))?.[0])).toContain(
+        "next draft",
+      );
+      expect(mockNavigate).not.toHaveBeenCalledWith("/bill/bill-1");
+    });
+
   });
 
   describe("possible duplicate (U-723b)", () => {
@@ -4257,7 +4441,7 @@ describe("U-700 BillEdit navigation and reference data", () => {
       });
       await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill/bill-next/edit"));
       expect(mockNavigate).toHaveBeenCalledTimes(1);
-      expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-next/edit");
+      expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-next/edit", { state: { returnTo: "/bill/list?status=draft" } });
       const retryBody = mockPost.mock.calls
         .filter((c) => c[0] === REVIEW_SUBMIT_PATH)
         .at(-1)![1] as Record<string, unknown>;
@@ -4349,7 +4533,7 @@ describe("U-700 BillEdit navigation and reference data", () => {
       await flushUntil(() => mockNavigate.mock.calls.some((c) => c[0] === "/bill/bill-next/edit"));
       expect(submitAttempts).toBeGreaterThanOrEqual(2);
       expect(mockNavigate).toHaveBeenCalledTimes(1);
-      expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-next/edit");
+      expect(mockNavigate).toHaveBeenCalledWith("/bill/bill-next/edit", { state: { returnTo: "/bill/list?status=draft" } });
       const retryBody = mockPost.mock.calls
         .filter((c) => c[0] === REVIEW_SUBMIT_PATH)
         .at(-1)![1] as Record<string, unknown>;

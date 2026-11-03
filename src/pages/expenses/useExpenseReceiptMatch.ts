@@ -1,6 +1,7 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 import { uploadFile, post, ApiError, OfflineError } from "../../api/client";
 import { withInferredReceiptType } from "../../components/receiptFileTypes";
+import { useFileProcessingQueue } from "../../hooks/useFileProcessingQueue";
 
 export interface ExpenseReceiptCandidate {
   public_id: string;
@@ -105,89 +106,76 @@ export function expenseLinkForCandidate(c: { public_id: string; is_draft: boolea
   return c.is_draft ? `/expense/${c.public_id}/edit` : `/expense/${c.public_id}`;
 }
 
-function patchRowInList(rows: ReceiptMatchRow[], id: string, patch: Partial<ReceiptMatchRow>): ReceiptMatchRow[] {
-  return rows.map((r) => (r.id === id ? { ...r, ...patch } : r));
+/** Upload one receipt, then read it for candidate expenses. */
+async function readReceiptRow(
+  row: ReceiptMatchRow,
+  patch: (patch: Partial<ReceiptMatchRow>) => void,
+): Promise<void> {
+  patch({ phase: "uploading", readError: undefined, errorMessage: undefined });
+  try {
+    const attachment = await uploadFile<{ public_id: string }>(
+      "/api/v1/upload/attachment",
+      withInferredReceiptType(row.file),
+    );
+    patch({ phase: "reading", attachmentPublicId: attachment.public_id });
+    const read = await post<ExpenseReceiptReadResponse>("/api/v1/expense/read-receipt", {
+      attachment_public_id: attachment.public_id,
+    });
+    patch({
+      phase: "ready",
+      read,
+      candidates: read.candidates ?? [],
+    });
+  } catch (err) {
+    patch({
+      phase: "error",
+      readError: readReceiptErrorMessage(err),
+    });
+  }
 }
 
+const isPendingReceipt = (row: ReceiptMatchRow) => row.phase === "pending";
+
+const RECEIPT_IN_FLIGHT: ReadonlySet<ReceiptQueuePhase> = new Set(["pending", "uploading", "reading"]);
+
 export function useExpenseReceiptMatch(onListRefresh: () => void) {
-  const [rows, setRows] = useState<ReceiptMatchRow[]>([]);
-  const rowsRef = useRef(rows);
-  rowsRef.current = rows;
   const onListRefreshRef = useRef(onListRefresh);
-  onListRefreshRef.current = onListRefresh;
+  useLayoutEffect(() => {
+    onListRefreshRef.current = onListRefresh;
+  }, [onListRefresh]);
 
-  const processingRef = useRef(false);
-
-  const patchRow = useCallback((id: string, patch: Partial<ReceiptMatchRow>) => {
-    const next = patchRowInList(rowsRef.current, id, patch);
-    rowsRef.current = next;
-    setRows(next);
-  }, []);
-
-  const processQueue = useCallback(async () => {
-    if (processingRef.current) return;
-    processingRef.current = true;
-    try {
-      for (;;) {
-        const snapshot = rowsRef.current;
-        const entry = snapshot.find((e) => e.phase === "pending");
-        if (!entry) break;
-
-        const { id, file } = entry;
-        patchRow(id, { phase: "uploading", readError: undefined, errorMessage: undefined });
-
-        try {
-          const attachment = await uploadFile<{ public_id: string }>(
-            "/api/v1/upload/attachment",
-            withInferredReceiptType(file),
-          );
-          patchRow(id, { phase: "reading", attachmentPublicId: attachment.public_id });
-          const read = await post<ExpenseReceiptReadResponse>("/api/v1/expense/read-receipt", {
-            attachment_public_id: attachment.public_id,
-          });
-          patchRow(id, {
-            phase: "ready",
-            read,
-            candidates: read.candidates ?? [],
-          });
-        } catch (err) {
-          patchRow(id, {
-            phase: "error",
-            readError: readReceiptErrorMessage(err),
-          });
-        }
+  const {
+    rows,
+    rowsRef,
+    patchRow,
+    enqueue,
+    remove: dismissRow,
+  } = useFileProcessingQueue<ReceiptMatchRow>({
+    isPending: isPendingReceipt,
+    process: readReceiptRow,
+    // A read step that escaped its own try/catch must not leave the row
+    // "Uploading…" — but never overwrite a row that already settled.
+    onError: (row, err, patch) => {
+      if (RECEIPT_IN_FLIGHT.has(row.phase)) {
+        patch({ phase: "error", readError: readReceiptErrorMessage(err) });
       }
-    } finally {
-      processingRef.current = false;
-      if (rowsRef.current.some((e) => e.phase === "pending")) {
-        void processQueue();
-      }
-    }
-  }, [patchRow]);
+    },
+  });
 
   const enqueueFiles = useCallback(
     (files: File[]) => {
-      if (files.length === 0) return;
-      const newEntries: ReceiptMatchRow[] = files.map((file) => ({
-        id: allocReceiptRowId(),
-        file,
-        phase: "pending",
-        candidates: [],
-        attachInProgress: false,
-      }));
-      const next = [...rowsRef.current, ...newEntries];
-      rowsRef.current = next;
-      setRows(next);
-      void processQueue();
+      enqueue(
+        files.map((file) => ({
+          id: allocReceiptRowId(),
+          file,
+          phase: "pending",
+          candidates: [],
+          attachInProgress: false,
+        })),
+      );
     },
-    [processQueue],
+    [enqueue],
   );
-
-  const dismissRow = useCallback((id: string) => {
-    const next = rowsRef.current.filter((r) => r.id !== id);
-    rowsRef.current = next;
-    setRows(next);
-  }, []);
 
   const attachToExpense = useCallback(
     async (rowId: string, candidate: ExpenseReceiptCandidate) => {
@@ -240,7 +228,7 @@ export function useExpenseReceiptMatch(onListRefresh: () => void) {
         });
       }
     },
-    [patchRow],
+    [patchRow, rowsRef],
   );
 
   return {

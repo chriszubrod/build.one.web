@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { flushUntil } from "../../__testutils__/flush";
 import ExpenseReceiptMatch from "./ExpenseReceiptMatch";
 import { ApiError } from "../../api/client";
@@ -472,5 +472,64 @@ describe("ExpenseReceiptMatch", () => {
   it("hides the drop zone without update permission", async () => {
     await renderMatch({ canUpdate: false });
     expect(container.querySelector(".drop-zone")).toBeNull();
+  });
+});
+
+describe("U-753 the attached-expense link carries the list location (returnTo)", () => {
+  const ORIGIN = "/expense/list?status=completed&from=2026-01-01";
+
+  function StateProbe() {
+    const location = useLocation();
+    return createElement(
+      "pre",
+      { "data-testid": "probe" },
+      JSON.stringify({ path: location.pathname, state: location.state }),
+    );
+  }
+
+  it("clicking the success link opens the expense with returnTo = the list location", async () => {
+    await act(async () => {
+      root.render(
+        createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          createElement(
+            MemoryRouter,
+            { initialEntries: [ORIGIN] },
+            createElement(
+              Routes,
+              null,
+              createElement(Route, {
+                path: "/expense/list",
+                element: createElement(ExpenseReceiptMatch, { canUpdate: true, onListRefresh: mockReload }),
+              }),
+              createElement(Route, { path: "/expense/:publicId/edit", element: createElement(StateProbe) }),
+            ),
+          ),
+        ),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await flushUntil(() => container.querySelector(".drop-zone input[type='file']") !== null);
+    await enqueueViaInput([new File(["p"], "r.pdf", { type: "application/pdf" })]);
+    await flushRowIdle();
+    const attach = container.querySelector(".receipt-match-candidate button") as HTMLButtonElement;
+    expect(attach).not.toBeNull();
+    await act(async () => {
+      attach.click();
+    });
+    await flushUntil(() => container.textContent?.includes("Attached to") ?? false);
+    const link = container.querySelector(".receipt-match-result a") as HTMLAnchorElement;
+    expect(link).not.toBeNull();
+    expect(link.getAttribute("href")).toBe("/expense/exp-c1/edit");
+    await act(async () => {
+      link.click();
+    });
+    const el = container.querySelector('[data-testid="probe"]');
+    expect(el).not.toBeNull();
+    expect(JSON.parse(el!.textContent ?? "null")).toEqual({
+      path: "/expense/exp-c1/edit",
+      state: { returnTo: ORIGIN },
+    });
   });
 });

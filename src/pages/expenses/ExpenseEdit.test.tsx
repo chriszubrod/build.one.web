@@ -248,7 +248,10 @@ function completionSuccessToastCalled(): boolean {
   return mockToast.mock.calls.some((c) => String(c[0]).includes("Expense completed"));
 }
 
-function renderExpenseEdit(root: Root) {
+function renderExpenseEdit(
+  root: Root,
+  entry: string | { pathname: string; state?: unknown } = "/expense/exp-1/edit",
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -256,7 +259,7 @@ function renderExpenseEdit(root: Root) {
     root.render(
       createElement(
         MemoryRouter,
-        { initialEntries: ["/expense/exp-1/edit"] },
+        { initialEntries: [entry] },
         createElement(
           QueryClientProvider,
           { client: queryClient },
@@ -505,6 +508,117 @@ describe("ExpenseEdit completion polling", () => {
     );
     expect(container.textContent).toContain(
       "Expense completed — external syncs continue in the background.",
+    );
+  });
+
+  describe("U-753 return to where the user was", () => {
+    const ORIGIN = "/expense/list?status=completed&from=2026-01-01&to=2026-03-31";
+    const FROM_COMPLETED = { pathname: "/expense/exp-1/edit", state: { returnTo: ORIGIN } };
+
+    function crumbHref(label: string): string | null {
+      const a = Array.from(container.querySelectorAll<HTMLAnchorElement>(".breadcrumb a")).find(
+        (el) => el.textContent?.trim() === label,
+      );
+      expect(a, `crumb ${label}`).toBeDefined();
+      return a!.getAttribute("href");
+    }
+
+    async function clickCancel() {
+      const btn = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+        (b) => b.textContent?.trim() === "Cancel",
+      );
+      expect(btn).toBeDefined();
+      await act(async () => {
+        btn!.click();
+      });
+    }
+
+    it("Complete returns to the origin list once the poll settles", async () => {
+      setupGetOnePollResponses([false]);
+      renderExpenseEdit(root, FROM_COMPLETED);
+      await waitForReady(container);
+      await clickCompleteExpense();
+      expect(mockNavigate).not.toHaveBeenCalled();
+      await advancePollInterval(1);
+      expect(completionSuccessToastCalled()).toBe(true);
+      expect(mockNavigate).toHaveBeenCalledWith(ORIGIN);
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+    });
+
+    it("Complete without an origin returns to the Draft tab", async () => {
+      setupGetOnePollResponses([false]);
+      renderExpenseEdit(root);
+      await waitForReady(container);
+      await clickCompleteExpense();
+      await advancePollInterval(1);
+      expect(completionSuccessToastCalled()).toBe(true);
+      expect(mockNavigate).toHaveBeenCalledWith("/expense/list?status=draft");
+    });
+
+    it("Save returns to the origin list, not the record's view page", async () => {
+      setupGetOnePollResponses([]);
+      renderExpenseEdit(root, FROM_COMPLETED);
+      await waitForReady(container);
+      const memo = container.querySelector('textarea[name="memo"]') as HTMLTextAreaElement;
+      expect(memo).not.toBeNull();
+      await act(async () => {
+        setTextareaValue(memo, "edited before save");
+      });
+      await clickSave(container);
+      expect(mockPut.mock.calls.some((c) => c[0] === "/api/v1/update/expense/exp-1")).toBe(true);
+      expect(mockNavigate).toHaveBeenCalledWith(ORIGIN);
+      expect(mockNavigate).not.toHaveBeenCalledWith("/expense/exp-1");
+    });
+
+    it("Cancel and the Expenses breadcrumb go to the origin list", async () => {
+      setupGetOnePollResponses([]);
+      renderExpenseEdit(root, FROM_COMPLETED);
+      await waitForReady(container);
+      expect(crumbHref("Expenses")).toBe(ORIGIN);
+      await clickCancel();
+      expect(mockNavigate).toHaveBeenCalledWith(ORIGIN);
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+    });
+
+    it("no origin → Cancel and the breadcrumb go to the Draft tab", async () => {
+      setupGetOnePollResponses([]);
+      renderExpenseEdit(root);
+      await waitForReady(container);
+      expect(crumbHref("Expenses")).toBe("/expense/list?status=draft");
+      await clickCancel();
+      expect(mockNavigate).toHaveBeenCalledWith("/expense/list?status=draft");
+    });
+
+    it("a completed expense with no origin → Cancel and the breadcrumb go to the Draft tab", async () => {
+      mockGetOne.mockImplementation((path: string) => {
+        const elia404 = elia404IfMatch(path);
+        if (elia404) return elia404;
+        if (path === EXPENSE_GET_PATH) {
+          return Promise.resolve(sampleExpense({ status: "completed", is_draft: false }));
+        }
+        return Promise.reject(new Error(`unexpected getOne: ${path}`));
+      });
+      renderExpenseEdit(root);
+      await waitForCondition(() => container.querySelector(".breadcrumb a") !== null);
+      // Precondition: the completed expense reached the page (no Complete button on a completed one).
+      expect(container.textContent).toContain("Edit Expense");
+      expect(completeButton(container)).toBeNull();
+      expect(crumbHref("Expenses")).toBe("/expense/list?status=draft");
+      await clickCancel();
+      expect(mockNavigate).toHaveBeenCalledWith("/expense/list?status=draft");
+    });
+
+    it.each(["https://evil.example/expense/list", "//evil.example", "/admin", "/bill/list?status=draft"])(
+      "an unsafe returnTo (%s) falls back to the Draft tab",
+      async (returnTo) => {
+        setupGetOnePollResponses([]);
+        renderExpenseEdit(root, { pathname: "/expense/exp-1/edit", state: { returnTo } });
+        await waitForReady(container);
+        expect(crumbHref("Expenses")).toBe("/expense/list?status=draft");
+        await clickCancel();
+        expect(mockNavigate).toHaveBeenCalledWith("/expense/list?status=draft");
+        expect(mockNavigate).not.toHaveBeenCalledWith(returnTo);
+      },
     );
   });
 });
@@ -2013,7 +2127,8 @@ describe("ExpenseEdit receipt re-homing on line delete (U-171 / U-476)", () => {
     expect(puts.length).toBeGreaterThan(0);
     expect(puts[puts.length - 1].memo).toBe("kept after restore");
     expect(lineDeletesFor("li-A")).toHaveLength(0);
-    expect(mockNavigate).toHaveBeenCalledWith("/expense/exp-1");
+    // U-753: Save returns to the origin list (no state here → the draft's own tab).
+    expect(mockNavigate).toHaveBeenCalledWith("/expense/list?status=draft");
   });
 
   it("does not restore a removed row when a non-rehome save step fails", async () => {

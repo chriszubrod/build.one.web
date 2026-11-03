@@ -10,6 +10,8 @@ interface DetailViewProps {
   title: string;
   fields: DetailField[];
   editPath?: string;
+  /** Router location state for the Edit navigation (U-753: carries `returnTo`). */
+  editState?: unknown;
   onDelete?: () => void;
   deleting?: boolean;
   children?: React.ReactNode;
@@ -20,6 +22,7 @@ export default function DetailView({
   title,
   fields,
   editPath,
+  editState,
   onDelete,
   deleting = false,
   children,
@@ -34,7 +37,12 @@ export default function DetailView({
         <h1>{title}</h1>
         <div className="page-header-spacer" />
         {editPath && (
-          <button className="btn btn-secondary" onClick={() => navigate(editPath)}>
+          <button
+            className="btn btn-secondary"
+            onClick={() =>
+              editState === undefined ? navigate(editPath) : navigate(editPath, { state: editState })
+            }
+          >
             Edit
           </button>
         )}

@@ -1,6 +1,8 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
+import { useFileProcessingQueue } from "../../hooks/useFileProcessingQueue";
+import { returnToState, useListLocation } from "../../hooks/useReturnTo";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
 import Pagination from "../../components/Pagination";
 import PageHeader from "../../components/PageHeader";
@@ -116,12 +118,8 @@ function allocPendingRowId(): string {
 export default function BillList() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
-  const pendingFilesRef = useRef(pendingFiles);
-  const processingRef = useRef(false);
   const mountedRef = useRef(true);
   const enqueueSeqRef = useRef(0);
-  const startedRowIdsRef = useRef(new Set<string>());
   const lastImportReloadAtRef = useRef(0);
   const importReloadOwedRef = useRef(false);
   useEffect(() => {
@@ -131,11 +129,83 @@ export default function BillList() {
     };
   }, []);
 
-  const patchRow = useCallback((id: string, patch: Partial<Omit<PendingFile, "id" | "file">>) => {
-    const next = pendingFilesRef.current.map((e) => (e.id === id ? { ...e, ...patch } : e));
-    pendingFilesRef.current = next;
-    setPendingFiles(next);
-  }, []);
+  // U-753: the list location (tab, dates, search) a record is opened from, so
+  // Save / Cancel / Complete on the record come back here. A ref too, because
+  // the solo-drop navigate fires from the queue loop after an await.
+  const listLocation = useListLocation("/bill/list");
+  const listLocationRef = useRef(listLocation);
+  useLayoutEffect(() => {
+    listLocationRef.current = listLocation;
+  }, [listLocation]);
+
+  const processBillRow = async (
+    entry: PendingFile,
+    patch: (patch: Partial<PendingFile>) => void,
+  ) => {
+    const { file, soloBatch, enqueueSeq } = entry;
+    patch({ status: "uploading" });
+
+    let billPublicId: string | undefined;
+    let existing = false;
+    let existingReason: BillDraftFromAttachmentResponse["existing_reason"] = null;
+
+    try {
+      const attachment = await uploadFile<AttachmentUploadResponse>(
+        "/api/v1/upload/attachment",
+        file,
+      );
+      patch({ status: "reading" });
+      const result = await post<BillDraftFromAttachmentResponse>(
+        "/api/v1/bill/draft-from-attachment",
+        { attachment_public_id: attachment.public_id },
+      );
+      billPublicId = result.bill_public_id;
+      existing = result.existing;
+      existingReason = result.existing_reason;
+      patch({
+        status: "done",
+        bill_public_id: result.bill_public_id,
+        existing: result.existing,
+        existing_reason: result.existing_reason,
+      });
+      scheduleImportReload();
+    } catch (err) {
+      patch({ status: "error", error: draftAttachmentErrorMessage(err) });
+      return;
+    }
+
+    const maySoloNavigate =
+      soloBatch &&
+      billPublicId &&
+      mountedRef.current &&
+      enqueueSeq === enqueueSeqRef.current;
+
+    if (maySoloNavigate) {
+      if (existing) {
+        if (existingReason === "same_vendor_number_date") {
+          toast("Opened the existing bill with this vendor, number and date.", "info");
+        } else {
+          toast("Opened the existing draft for this PDF.", "info");
+        }
+      }
+      navigate(`/bill/${billPublicId}/edit`, { state: returnToState(listLocationRef.current) });
+    }
+  };
+
+  const queue = useFileProcessingQueue<PendingFile>({
+    isPending: (e) => e.status === "pending",
+    process: processBillRow,
+    onSettled: () => flushOwedImportReload(),
+    // A step that escaped its own try/catch must not leave the row "Uploading…".
+    // Only while still in flight: a throw after "done" (toast/navigate) keeps the
+    // finished row and its Open link.
+    onError: (entry, err, patch) => {
+      if (importQueueInFlight([entry])) {
+        patch({ status: "error", error: draftAttachmentErrorMessage(err) });
+      }
+    },
+  });
+  const { rows: pendingFiles, rowsRef: pendingFilesRef, enqueue: enqueueRows } = queue;
 
   const [nonPdfMessage, setNonPdfMessage] = useState("");
   const [duplicateNotes, setDuplicateNotes] = useState<string[]>([]);
@@ -211,7 +281,7 @@ export default function BillList() {
     reload();
     lastImportReloadAtRef.current = Date.now();
     importReloadOwedRef.current = false;
-  }, [reload]);
+  }, [reload, pendingFilesRef]);
 
   const scheduleImportReload = useCallback(() => {
     const inFlight = importQueueInFlight(pendingFilesRef.current);
@@ -223,77 +293,7 @@ export default function BillList() {
     } else {
       importReloadOwedRef.current = true;
     }
-  }, [reload]);
-
-  const processQueue = useCallback(async () => {
-    if (processingRef.current) return;
-    processingRef.current = true;
-    try {
-      for (;;) {
-        const snapshot = pendingFilesRef.current;
-        const entry = snapshot.find(
-          (e) => e.status === "pending" && !startedRowIdsRef.current.has(e.id),
-        );
-        if (!entry) break;
-
-        const { id, file, soloBatch, enqueueSeq } = entry;
-        startedRowIdsRef.current.add(id);
-        patchRow(id, { status: "uploading" });
-
-        let billPublicId: string | undefined;
-        let existing = false;
-        let existingReason: BillDraftFromAttachmentResponse["existing_reason"] = null;
-
-        try {
-          const attachment = await uploadFile<AttachmentUploadResponse>(
-            "/api/v1/upload/attachment",
-            file,
-          );
-          patchRow(id, { status: "reading" });
-          const result = await post<BillDraftFromAttachmentResponse>(
-            "/api/v1/bill/draft-from-attachment",
-            { attachment_public_id: attachment.public_id },
-          );
-          billPublicId = result.bill_public_id;
-          existing = result.existing;
-          existingReason = result.existing_reason;
-          patchRow(id, {
-            status: "done",
-            bill_public_id: result.bill_public_id,
-            existing: result.existing,
-            existing_reason: result.existing_reason,
-          });
-          scheduleImportReload();
-        } catch (err) {
-          patchRow(id, { status: "error", error: draftAttachmentErrorMessage(err) });
-          continue;
-        }
-
-        const maySoloNavigate =
-          soloBatch &&
-          billPublicId &&
-          mountedRef.current &&
-          enqueueSeq === enqueueSeqRef.current;
-
-        if (maySoloNavigate) {
-          if (existing) {
-            if (existingReason === "same_vendor_number_date") {
-              toast("Opened the existing bill with this vendor, number and date.", "info");
-            } else {
-              toast("Opened the existing draft for this PDF.", "info");
-            }
-          }
-          navigate(`/bill/${billPublicId}/edit`);
-        }
-      }
-    } finally {
-      processingRef.current = false;
-      flushOwedImportReload();
-      if (pendingFilesRef.current.some((e) => e.status === "pending")) {
-        void processQueue();
-      }
-    }
-  }, [navigate, patchRow, scheduleImportReload, flushOwedImportReload, toast]);
+  }, [reload, pendingFilesRef]);
 
   const enqueueFiles = useCallback(
     (files: File[]) => {
@@ -336,24 +336,15 @@ export default function BillList() {
         entry.enqueueSeq = enqueueSeq;
       }
 
-      const next = [...pendingFilesRef.current, ...newEntries];
-      pendingFilesRef.current = next;
-      setPendingFiles(next);
-      void processQueue();
+      enqueueRows(newEntries);
     },
-    [processQueue],
+    [pendingFilesRef, enqueueRows],
   );
 
-  const removeFile = (id: string) => {
-    const next = pendingFilesRef.current.filter((e) => e.id !== id);
-    pendingFilesRef.current = next;
-    setPendingFiles(next);
-  };
+  const removeFile = queue.remove;
 
   const clearAllFiles = () => {
-    setPendingFiles([]);
-    pendingFilesRef.current = [];
-    startedRowIdsRef.current.clear();
+    queue.clear();
     setDuplicateNotes([]);
   };
 
@@ -430,6 +421,7 @@ export default function BillList() {
                       {entry.status === "done" && entry.bill_public_id && (
                         <Link
                           to={`/bill/${entry.bill_public_id}/edit`}
+                          state={returnToState(listLocation)}
                           className="btn btn-primary btn-sm"
                         >
                           Open{entry.existing ? " (existing)" : ""}
@@ -534,6 +526,7 @@ export default function BillList() {
               </>
             }
             to={billPath}
+            linkState={returnToState(listLocation)}
           />
         );
       })}

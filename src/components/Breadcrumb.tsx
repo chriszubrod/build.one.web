@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 export interface Crumb {
   label: string;
   path?: string;
+  /** Router location state for the crumb link (U-753: carries `returnTo`). */
+  state?: unknown;
 }
 
 interface BreadcrumbProps {
@@ -16,7 +18,7 @@ export default function Breadcrumb({ crumbs }: BreadcrumbProps) {
         <span key={i}>
           {i > 0 && <span className="breadcrumb-sep">/</span>}
           {crumb.path ? (
-            <Link to={crumb.path} className="breadcrumb-link">{crumb.label}</Link>
+            <Link to={crumb.path} state={crumb.state} className="breadcrumb-link">{crumb.label}</Link>
           ) : (
             <span className="breadcrumb-current">{crumb.label}</span>
           )}

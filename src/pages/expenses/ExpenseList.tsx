@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { useIdNameMap } from "../../hooks/useIdNameMap";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { returnToState, useListLocation } from "../../hooks/useReturnTo";
 import { hasExpensePermission } from "./expensePermissions";
 import ExpenseReceiptMatch from "./ExpenseReceiptMatch";
 import Pagination from "../../components/Pagination";
@@ -60,6 +61,9 @@ export default function ExpenseList() {
       { replace: true },
     );
   };
+
+  // U-753: a record opened from this list returns here (tab + dates) on Save / Cancel / Complete.
+  const rowLinkState = returnToState(useListLocation("/expense/list"));
 
   const fromRaw = searchParams.get("from");
   const toRaw = searchParams.get("to");
@@ -221,6 +225,7 @@ export default function ExpenseList() {
               </>
             }
             to={`/expense/${expense.public_id}`}
+            linkState={rowLinkState}
           />
         );
       })}

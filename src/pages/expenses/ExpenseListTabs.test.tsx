@@ -12,7 +12,7 @@ import { flushUntil } from "../../__testutils__/flush";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { Modules } from "../../shared/modules";
 import { makeModule, makeUserWithModules } from "../../__testutils__/currentUser";
 import type { CurrentUser } from "../../types/api";
@@ -313,6 +313,40 @@ describe("ExpenseList status tabs reach the API (U-470)", () => {
       .find((b) => b.textContent === "Clear") as HTMLButtonElement;
     expect(clear.disabled).toBe(true);
     expect(lastContainer.querySelector(".list-count")).toBeNull();
+  });
+
+  it("a row link carries the list location (tab + dates) into the record (U-753)", async () => {
+    const ORIGIN = "/expense/list?status=completed&from=2026-01-01&to=2026-03-31";
+    mockItems = [{ public_id: "e1", vendor_id: 10, is_draft: false, status: "completed", is_credit: false }];
+    mockTotal = 1;
+    function StateProbe() {
+      const location = useLocation();
+      return createElement("pre", { "data-testid": "probe" },
+        JSON.stringify({ path: location.pathname, state: location.state }));
+    }
+    const { default: ExpenseList } = await import("./ExpenseList");
+    const container = document.createElement("div");
+    lastContainer = container;
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    lastRoot = root;
+    listQueryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await act(async () => {
+      root.render(
+        createElement(QueryClientProvider, { client: listQueryClient },
+          createElement(MemoryRouter, { initialEntries: [ORIGIN] },
+            createElement(Routes, null,
+              createElement(Route, { path: "/expense/list", element: createElement(ExpenseList) }),
+              createElement(Route, { path: "/expense/:publicId", element: createElement(StateProbe) })))),
+      );
+    });
+    const card = container.querySelector<HTMLAnchorElement>("a.entry-card");
+    expect(card).not.toBeNull();
+    expect(card!.getAttribute("href")).toBe("/expense/e1");
+    await act(async () => { card!.click(); });
+    const el = container.querySelector('[data-testid="probe"]');
+    expect(el).not.toBeNull();
+    expect(JSON.parse(el!.textContent ?? "null")).toEqual({ path: "/expense/e1", state: { returnTo: ORIGIN } });
   });
 
   it("enables Clear and the count chip once a real filter is set", async () => {

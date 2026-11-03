@@ -128,7 +128,9 @@ async function flushEffects(times = 12) {
   });
 }
 
-async function mountView(): Promise<Root> {
+async function mountView(
+  entry: string | { pathname: string; state?: unknown } = "/expense/exp-1",
+): Promise<Root> {
   const { default: ExpenseView } = await import("./ExpenseView");
   const container = document.createElement("div");
   lastContainer = container;
@@ -139,7 +141,7 @@ async function mountView(): Promise<Root> {
     root.render(
       createElement(
         MemoryRouter,
-        { initialEntries: ["/expense/exp-1"] },
+        { initialEntries: [entry] },
         createElement(
           Routes,
           null,
@@ -276,6 +278,71 @@ describe("ExpenseView — submit from the View, keep the tab, move to the next d
     expect(crumb!.getAttribute("href")).toBe("/expense/list?status=draft");
   });
 
+  describe("U-753 return to where the user was", () => {
+    const ORIGIN = "/expense/list?status=completed&from=2026-01-01&to=2026-03-31";
+    const FROM_COMPLETED = { pathname: "/expense/exp-1", state: { returnTo: ORIGIN } };
+
+    function crumbHref(): string | null {
+      const crumb = Array.from(lastContainer.querySelectorAll("a")).find(
+        (a) => a.textContent?.trim() === "Expenses",
+      );
+      expect(crumb).toBeDefined();
+      return crumb!.getAttribute("href");
+    }
+
+    it("the Expenses breadcrumb points at the origin list", async () => {
+      await mountView(FROM_COMPLETED);
+      expect(crumbHref()).toBe(ORIGIN);
+    });
+
+    it("Edit carries the origin along to the edit page", async () => {
+      await mountView(FROM_COMPLETED);
+      const edit = Array.from(lastContainer.querySelectorAll("button")).find(
+        (b) => b.textContent?.trim() === "Edit",
+      );
+      expect(edit).toBeDefined();
+      await act(async () => { edit!.click(); });
+      expect(mockNavigate).toHaveBeenCalledWith("/expense/exp-1/edit", { state: { returnTo: ORIGIN } });
+    });
+
+    it("a completed expense opened without an origin → the breadcrumb goes to the Draft tab", async () => {
+      viewState.item = sampleExpense({ status: "completed", is_draft: false });
+      await mountView();
+      expect(viewState.item.status).toBe("completed");
+      expect(crumbHref()).toBe("/expense/list?status=draft");
+    });
+
+    it.each(["https://evil.example/expense/list", "//evil.example", "/admin", "/bill/list?status=draft"])(
+      "an unsafe returnTo (%s) is ignored",
+      async (returnTo) => {
+        await mountView({ pathname: "/expense/exp-1", state: { returnTo } });
+        expect(crumbHref()).toBe("/expense/list?status=draft");
+      },
+    );
+
+    it("the next draft after a submit keeps the origin in returnTo", async () => {
+      mockGetList.mockImplementation((path: string) =>
+        String(path).startsWith("/api/v1/get/expenses?status=draft")
+          ? Promise.resolve({ data: [sampleExpense({ public_id: "exp-next", status: "draft" })], count: 2 })
+          : Promise.resolve({ data: [] }));
+      await mountView(FROM_COMPLETED);
+      await act(async () => { await lastTimelineProps().onAfterAction!("submit"); });
+      expect(mockNavigate).toHaveBeenCalledWith("/expense/exp-next", { state: { returnTo: ORIGIN } });
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+    });
+
+    it("no more drafts → back to the origin list", async () => {
+      mockGetList.mockImplementation((path: string) =>
+        String(path).startsWith("/api/v1/get/expenses?status=draft")
+          ? Promise.resolve({ data: [sampleExpense({ public_id: "exp-1", status: "draft" })], count: 1 })
+          : Promise.resolve({ data: [] }));
+      await mountView(FROM_COMPLETED);
+      await act(async () => { await lastTimelineProps().onAfterAction!("submit"); });
+      expect(mockNavigate).toHaveBeenCalledWith(ORIGIN);
+      expect(String(mockToast.mock.calls[0]?.[0])).toContain("no more drafts");
+    });
+  });
+
   it("after a submit, opens the next draft when one exists", async () => {
     mockGetList.mockImplementation((path: string) => {
       if (String(path).startsWith("/api/v1/get/expenses?status=draft")) {
@@ -286,7 +353,7 @@ describe("ExpenseView — submit from the View, keep the tab, move to the next d
     await mountView();
     await act(async () => { await lastTimelineProps().onAfterAction!("submit"); });
     expect(mockGetList).toHaveBeenCalledWith("/api/v1/get/expenses?status=draft&page=1&page_size=2");
-    expect(mockNavigate).toHaveBeenCalledWith("/expense/exp-next");
+    expect(mockNavigate).toHaveBeenCalledWith("/expense/exp-next", { state: { returnTo: "/expense/list?status=draft" } });
     expect(String(mockToast.mock.calls[0]?.[0])).toContain("next draft");
   });
 
@@ -302,7 +369,7 @@ describe("ExpenseView — submit from the View, keep the tab, move to the next d
     });
     await mountView();
     await act(async () => { await lastTimelineProps().onAfterAction!("submit"); });
-    expect(mockNavigate).toHaveBeenCalledWith("/expense/exp-next");
+    expect(mockNavigate).toHaveBeenCalledWith("/expense/exp-next", { state: { returnTo: "/expense/list?status=draft" } });
 
     mockNavigate.mockReset();
     mockGetList.mockImplementation((path: string) =>
@@ -397,15 +464,22 @@ describe("ExpenseView — working the queue is not a one-shot (Pass 1 P1, 2026-1
       return Promise.resolve({ data: [] });
     });
 
+    const ORIGIN = "/expense/list?status=completed&from=2026-01-01";
     const rr = (await import("react-router-dom")) as unknown as {
-      __realUseNavigate: () => (to: string) => void;
+      __realUseNavigate: () => (to: string, opts?: { state?: unknown }) => void;
     };
-    let realNavigate: ((to: string) => void) | null = null;
+    let realNavigate: ((to: string, opts?: { state?: unknown }) => void) | null = null;
     function NavigateProbe() {
       realNavigate = rr.__realUseNavigate();
       return null;
     }
-    mockNavigate.mockImplementation((to: string) => realNavigate?.(to));
+    // Follow the app's navigation for real — path AND state — so the second
+    // hop reads its returnTo from the location the first hop produced.
+    mockNavigate.mockImplementation((to: string, opts?: { state?: unknown }) => {
+      const publicId = to.split("/").pop()!;
+      viewState.item = sampleExpense({ public_id: publicId, status: "draft", is_draft: true });
+      realNavigate?.(to, opts);
+    });
 
     const { default: ExpenseViewRoute } = await import("./ExpenseViewRoute");
     const container = document.createElement("div");
@@ -413,34 +487,33 @@ describe("ExpenseView — working the queue is not a one-shot (Pass 1 P1, 2026-1
     document.body.appendChild(container);
     const root = createRoot(container);
     lastRoot = root;
-    const renderAt = async (publicId: string) => {
-      viewState.item = sampleExpense({ public_id: publicId, status: "draft", is_draft: true });
-      await act(async () => {
-        root.render(
+    viewState.item = sampleExpense({ public_id: "exp-1", status: "draft", is_draft: true });
+    await act(async () => {
+      root.render(
+        createElement(
+          MemoryRouter,
+          { initialEntries: [{ pathname: "/expense/exp-1", state: { returnTo: ORIGIN } }] },
+          createElement(NavigateProbe),
           createElement(
-            MemoryRouter,
-            { initialEntries: [`/expense/${publicId}`] },
-            createElement(NavigateProbe),
-            createElement(
-              Routes,
-              null,
-              createElement(Route, { path: "/expense/:publicId", element: createElement(ExpenseViewRoute) }),
-            ),
+            Routes,
+            null,
+            createElement(Route, { path: "/expense/:publicId", element: createElement(ExpenseViewRoute) }),
           ),
-        );
-      });
-      await flushEffects();
-    };
-
-    await renderAt("exp-1");
+        ),
+      );
+    });
+    await flushEffects();
 
     await act(async () => { await lastTimelineProps().onAfterAction!("submit"); });
-    expect(mockNavigate).toHaveBeenLastCalledWith("/expense/exp-2");
-
-    await renderAt("exp-2");
+    expect(mockNavigate).toHaveBeenLastCalledWith("/expense/exp-2", { state: { returnTo: ORIGIN } });
+    await flushEffects();
+    // The keyed remount really happened: the breadcrumb is exp-2's and still points at the origin.
+    expect((lastTimelineProps() as { parentPublicId?: string }).parentPublicId).toBe("exp-2");
+    const crumb = Array.from(lastContainer.querySelectorAll("a")).find((a) => a.textContent?.trim() === "Expenses");
+    expect(crumb?.getAttribute("href")).toBe(ORIGIN);
 
     await act(async () => { await lastTimelineProps().onAfterAction!("submit"); });
-    expect(mockNavigate).toHaveBeenLastCalledWith("/expense/exp-3");
+    expect(mockNavigate).toHaveBeenLastCalledWith("/expense/exp-3", { state: { returnTo: ORIGIN } });
     expect(mockNavigate).toHaveBeenCalledTimes(2);
   });
 });

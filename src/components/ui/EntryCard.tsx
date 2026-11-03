@@ -16,6 +16,8 @@ interface EntryCardProps {
   badge?: ReactNode;
   /** In-app path — renders a real anchor for open-in-new-tab / modified clicks. */
   to?: string;
+  /** Router location state for the `to` link (U-753: the list's `returnTo`). */
+  linkState?: unknown;
   onClick?: () => void;
 }
 
@@ -28,6 +30,7 @@ export default function EntryCard({
   workerName,
   badge,
   to,
+  linkState,
   onClick,
 }: EntryCardProps) {
   const metaLine = workerName ? `${workerName} · ${meta}` : meta;
@@ -50,7 +53,7 @@ export default function EntryCard({
 
   if (to) {
     return (
-      <Link to={to} className="entry-card">
+      <Link to={to} state={linkState} className="entry-card">
         {inner}
       </Link>
     );

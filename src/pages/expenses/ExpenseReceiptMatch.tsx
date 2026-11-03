@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { returnToState, useListLocation } from "../../hooks/useReturnTo";
 import PdfDropZone from "../../components/PdfDropZone";
 import {
   expenseLinkForCandidate,
@@ -110,6 +111,8 @@ function ReceiptMatchRowView({
   onAttach: (candidate: ExpenseReceiptCandidate) => void;
 }) {
   const read = row.read;
+  // U-753: the attached expense returns to this list (tab + dates) on Save / Cancel.
+  const listLocation = useListLocation("/expense/list");
   const attachDisabled = row.attachInProgress || !!row.attached || !!row.attachBlocked;
 
   let body: ReactNode = null;
@@ -122,7 +125,7 @@ function ReceiptMatchRowView({
     const label = `${row.attached.vendor_name || "Unknown vendor"} ${fmtDate(row.attached.expense_date)} ${fmtMoney(row.attached.total_amount)}`;
     body = (
       <p className="receipt-match-result">
-        Attached to <Link to={link}>{label}</Link>
+        Attached to <Link to={link} state={returnToState(listLocation)}>{label}</Link>
       </p>
     );
   } else if (row.phase === "error" && row.readError) {
