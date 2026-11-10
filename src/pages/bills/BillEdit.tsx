@@ -20,6 +20,7 @@ import { computeBillLine, sumLineAmounts } from "./lineMath";
 import InlineLineItems from "../../components/InlineLineItems";
 import BillHeaderFields, { type BillHeaderFormValues } from "./BillHeaderFields";
 import LineItemAttachment from "../../components/LineItemAttachment";
+import { type BliaLink, getBliaLinkForLine, firstLinkedAttachmentPublicId } from "./billAttachment";
 import {
   BILL_LINE_COL,
   buildBillLineFields,
@@ -101,25 +102,8 @@ function newLineItem(): LineItemRow {
   };
 }
 
-interface BliaLink {
-  public_id: string;
-  attachment_id: number | null;
-}
-
 const ATTACHMENT_PRESERVE_ERROR =
   "Could not preserve this bill's attachment — nothing was saved and the line was not removed.";
-
-/** U-171: null only on a definitive 404 (the line has no link); other errors propagate. */
-async function getBliaLinkForLine(lineItemPublicId: string): Promise<BliaLink | null> {
-  try {
-    return await getOne<BliaLink>(
-      `/api/v1/get/bill-line-item-attachment/by-bill-line-item/${lineItemPublicId}`,
-    );
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 404) return null;
-    throw err;
-  }
-}
 
 /**
  * U-171: a bill's shared PDF is linked to ONE line item, so removing that line would orphan
@@ -141,43 +125,48 @@ async function rehomeAttachmentsBeforeLineDeletes(
     // nothing to preserve — never dereference attachment_id blindly (would GET /id/null).
     if (!link?.attachment_id) continue;
 
-    // Scan survivors once. A survivor that already carries THIS attachment means the
-    // document is already preserved — a retry after a partial failure, or a post-U-166
-    // one-BLIA-per-line bill — so just drop the old link. Otherwise remember the first
-    // truly link-free (404) survivor as the re-home target.
+    // Scan EVERY survivor. A survivor that already carries THIS attachment means the
+    // document is preserved (a retry after a partial failure, or a post-U-166
+    // one-BLIA-per-line bill). Every truly link-free (404) survivor is a re-home target:
+    // each gets its own link, so the document survives on all of them.
     let alreadyPreserved = false;
-    let target: string | null = null;
+    const targets: string[] = [];
     for (const sid of survivingIds) {
       const sLink = await getBliaLinkForLine(sid);
       if (sLink === null) {
-        if (target === null) target = sid;
-        continue;
-      }
-      if (sLink.attachment_id === link.attachment_id) {
+        targets.push(sid);
+      } else if (sLink.attachment_id === link.attachment_id) {
         alreadyPreserved = true;
-        break;
       }
-    }
-
-    if (alreadyPreserved) {
-      await del(`/api/v1/delete/bill-line-item-attachment/${link.public_id}`);
-      continue;
     }
     // No survivor holds it and none is link-free → re-homing would orphan the document.
     // Abort rather than fall through to the delete loop and remove the line with its link
     // still attached (which would FK-547 / leave a dangling BLIA row).
-    if (target === null) throw new Error(ATTACHMENT_PRESERVE_ERROR);
+    if (!alreadyPreserved && targets.length === 0) throw new Error(ATTACHMENT_PRESERVE_ERROR);
 
-    const att = await getOne<{ public_id: string }>(`/api/v1/get/attachment/id/${link.attachment_id}`);
-    const created = await post<BliaLink>("/api/v1/create/bill-line-item-attachment", {
-      bill_line_item_public_id: target,
-      attachment_public_id: att.public_id,
-    });
-    // Idempotent-create returns an existing row if target already had ANY link — verify
-    // it is OUR attachment or we would silently drop the document on the delete below.
-    if (created.attachment_id !== link.attachment_id) {
-      throw new Error(ATTACHMENT_PRESERVE_ERROR);
+    // Attempt every create even if one fails, so one bad target does not stop the rest.
+    // The first failure is kept and rethrown after the loop; the old link is only deleted
+    // once every create has succeeded.
+    let failure: unknown = null;
+    if (targets.length > 0) {
+      const att = await getOne<{ public_id: string }>(`/api/v1/get/attachment/id/${link.attachment_id}`);
+      for (const target of targets) {
+        try {
+          const created = await post<BliaLink>("/api/v1/create/bill-line-item-attachment", {
+            bill_line_item_public_id: target,
+            attachment_public_id: att.public_id,
+          });
+          // Idempotent-create returns an existing row if target already had ANY link — verify
+          // it is OUR attachment or we would silently drop the document on the delete below.
+          if (created.attachment_id !== link.attachment_id && failure === null) {
+            failure = new Error(ATTACHMENT_PRESERVE_ERROR);
+          }
+        } catch (err) {
+          if (failure === null) failure = err;
+        }
+      }
     }
+    if (failure !== null) throw failure;
     await del(`/api/v1/delete/bill-line-item-attachment/${link.public_id}`);
   }
 }
@@ -310,21 +299,8 @@ export default function BillEdit() {
         // U-171: the shared PDF may live on ANY line, not res.data[0]. Probe in order,
         // AFTER setLineItemsLoaded so the Save button is never delayed. `cancelled` guards
         // the longer async chain against a previous bill's attachment landing on this one.
-        for (const li of res.data) {
-          if (cancelled) return;
-          try {
-            const blia = await getBliaLinkForLine(li.public_id);
-            if (cancelled || !blia?.attachment_id) continue;
-            const att = await getOne<{ public_id: string }>(
-              `/api/v1/get/attachment/id/${blia.attachment_id}`,
-            );
-            if (cancelled) return;
-            setAttachmentPublicId(att.public_id);
-            break;
-          } catch {
-            // display-only — leave the pane empty and try the next line
-          }
-        }
+        const linked = await firstLinkedAttachmentPublicId(res.data, () => cancelled);
+        if (!cancelled && linked) setAttachmentPublicId(linked);
       })
       .catch(() => {
         if (!cancelled) setAttachmentPublicId(null);

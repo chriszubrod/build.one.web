@@ -1,7 +1,8 @@
 import { useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useEntityItem } from "../../hooks/useEntity";
-import { getList, getOne } from "../../api/client";
+import { getList } from "../../api/client";
+import { firstLinkedAttachmentPublicId } from "./billAttachment";
 import { useViewAttachmentObjectUrl } from "../../hooks/useViewAttachmentObjectUrl";
 import DetailView from "../../components/DetailView";
 import { entityCrumbs } from "../../components/Breadcrumb";
@@ -76,28 +77,27 @@ export default function BillView() {
 
   useEffect(() => {
     if (!item) return;
+    // The route is not keyed, so moving between bills reuses this component: a slow
+    // walk for the previous bill must not overwrite (or blank) the current bill's PDF.
+    let cancelled = false;
     getList<BillLineItem>(`/api/v1/get/bill_line_items/bill/${item.id}`)
       .then((res) => {
+        if (cancelled) return;
         setLineItems(res.data);
         setAttachmentPublicId(null);
-        // Fetch attachment from first line item (one attachment shared across all)
-        if (res.data.length > 0) {
-          const firstLi = res.data[0];
-          getOne<{ attachment_id: number }>(`/api/v1/get/bill-line-item-attachment/by-bill-line-item/${firstLi.public_id}`)
-            .then((blia) => {
-              if (blia.attachment_id) {
-                getOne<{ public_id: string }>(`/api/v1/get/attachment/id/${blia.attachment_id}`)
-                  .then((att) => setAttachmentPublicId(att.public_id))
-                  .catch(() => {});
-              }
-            })
-            .catch(() => {});
-        }
+        // One attachment is shared across every line (U-166): show the first line that has one.
+        firstLinkedAttachmentPublicId(res.data, () => cancelled).then((id) => {
+          if (!cancelled) setAttachmentPublicId(id);
+        });
       })
       .catch(() => {
+        if (cancelled) return;
         setLineItems([]);
         setAttachmentPublicId(null);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [item]);
 
   if (loading) return <div className="page-loading">Loading...</div>;

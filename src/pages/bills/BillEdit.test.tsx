@@ -838,14 +838,25 @@ describe("BillEdit shared-attachment re-homing on line delete (U-171)", () => {
     sampleLineItem({ id: 12, public_id: "li-B", project_id: VISIBLE_PROJECT.id, description: "line-B" }),
   ];
 
-  async function removeFirstRow() {
-    await flushUntil(() => lineItemRows().length === 2);
+  async function removeFirstRow(lineCount = 2) {
+    await flushUntil(() => lineItemRows().length === lineCount);
     const removeButtons = container.querySelectorAll('button[title="Remove"]');
     await act(async () => {
       removeButtons[0].dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    await flushUntil(() => lineItemRows().length === 1);
+    await flushUntil(() => lineItemRows().length === lineCount - 1);
   }
+
+  const threeLines = () => [
+    sampleLineItem({ id: 11, public_id: "li-A", project_id: VISIBLE_PROJECT.id, description: "line-A" }),
+    sampleLineItem({ id: 12, public_id: "li-B", project_id: VISIBLE_PROJECT.id, description: "line-B" }),
+    sampleLineItem({ id: 13, public_id: "li-C", project_id: VISIBLE_PROJECT.id, description: "line-C" }),
+  ];
+
+  const createTargets = () =>
+    mockPost.mock.calls
+      .filter((c) => c[0] === "/api/v1/create/bill-line-item-attachment")
+      .map((c) => (c[1] as Record<string, unknown>).bill_line_item_public_id as string);
 
   const called = (mock: typeof mockPost, p: string) =>
     mock.mock.calls.some((c) => c[0] === p);
@@ -930,6 +941,100 @@ describe("BillEdit shared-attachment re-homing on line delete (U-171)", () => {
     expect(
       mockGetOne.mock.calls.some((c) => c[0] === `/api/v1/get/attachment/id/${ATT_ID}`),
     ).toBe(true);
+  });
+
+  it("(a) re-homes onto EVERY link-free survivor with the same attachment, not just the first (U-166a)", async () => {
+    setup(threeLines(), {
+      "li-A": { linkId: "blia-A", attachmentId: ATT_ID },
+      "li-B": null,
+      "li-C": null,
+    });
+    mockPost.mockImplementation((path: string) =>
+      path === "/api/v1/create/bill-line-item-attachment"
+        ? Promise.resolve({ public_id: "blia-new", attachment_id: ATT_ID })
+        : Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    await mountBillEdit();
+    await removeFirstRow(3);
+    await clickSave();
+
+    expect(createTargets().sort()).toEqual(["li-B", "li-C"]);
+    const creates = mockPost.mock.calls.filter(
+      (c) => c[0] === "/api/v1/create/bill-line-item-attachment",
+    );
+    for (const c of creates) {
+      expect((c[1] as Record<string, unknown>).attachment_public_id).toBe("att-55");
+    }
+    expect(called(mockDel, "/api/v1/delete/bill-line-item-attachment/blia-A")).toBe(true);
+    expect(called(mockDel, "/api/v1/delete/bill_line_item/li-A")).toBe(true);
+  });
+
+  it("(d) a survivor already holds the same attachment AND another has none → create on the link-free one, then delete (U-166a)", async () => {
+    setup(threeLines(), {
+      "li-A": { linkId: "blia-A", attachmentId: ATT_ID },
+      "li-B": { linkId: "blia-B", attachmentId: ATT_ID },
+      "li-C": null,
+    });
+    mockPost.mockImplementation((path: string) =>
+      path === "/api/v1/create/bill-line-item-attachment"
+        ? Promise.resolve({ public_id: "blia-new", attachment_id: ATT_ID })
+        : Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    await mountBillEdit();
+    await removeFirstRow(3);
+    await clickSave();
+
+    expect(createTargets()).toEqual(["li-C"]);
+    expect(called(mockDel, "/api/v1/delete/bill-line-item-attachment/blia-A")).toBe(true);
+    expect(called(mockDel, "/api/v1/delete/bill_line_item/li-A")).toBe(true);
+    expect(container.textContent).not.toContain("Could not preserve");
+  });
+
+  it("(b) a survivor that already has a link gets no create; only link-free survivors are re-homed (U-166a)", async () => {
+    setup(threeLines(), {
+      "li-A": { linkId: "blia-A", attachmentId: ATT_ID },
+      "li-B": { linkId: "blia-B", attachmentId: 99 },
+      "li-C": null,
+    });
+    mockPost.mockImplementation((path: string) =>
+      path === "/api/v1/create/bill-line-item-attachment"
+        ? Promise.resolve({ public_id: "blia-new", attachment_id: ATT_ID })
+        : Promise.reject(new Error(`unexpected post: ${path}`)),
+    );
+
+    await mountBillEdit();
+    await removeFirstRow(3);
+    await clickSave();
+
+    expect(createTargets()).toEqual(["li-C"]);
+    expect(called(mockDel, "/api/v1/delete/bill-line-item-attachment/blia-A")).toBe(true);
+    expect(called(mockDel, "/api/v1/delete/bill_line_item/li-A")).toBe(true);
+  });
+
+  it("(c) one failing create does not stop the other creates; the save aborts with the old link and line kept (U-166a)", async () => {
+    setup(threeLines(), {
+      "li-A": { linkId: "blia-A", attachmentId: ATT_ID },
+      "li-B": null,
+      "li-C": null,
+    });
+    mockPost.mockImplementation((path: string, body: Record<string, unknown>) => {
+      if (path !== "/api/v1/create/bill-line-item-attachment")
+        return Promise.reject(new Error(`unexpected post: ${path}`));
+      if (body.bill_line_item_public_id === "li-B") return Promise.reject(new Error("boom"));
+      return Promise.resolve({ public_id: "blia-C", attachment_id: ATT_ID });
+    });
+
+    await mountBillEdit();
+    await removeFirstRow(3);
+    await clickSave();
+
+    expect(createTargets().sort()).toEqual(["li-B", "li-C"]);
+    expect(called(mockDel, "/api/v1/delete/bill-line-item-attachment/blia-A")).toBe(false);
+    expect(called(mockDel, "/api/v1/delete/bill_line_item/li-A")).toBe(false);
+    // The first underlying create error propagates to the save error, as before.
+    expect(container.querySelector(".form-error")?.textContent).toContain("boom");
   });
 });
 
