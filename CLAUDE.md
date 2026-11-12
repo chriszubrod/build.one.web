@@ -66,301 +66,101 @@ src/
 └── types/api.ts            — TypeScript types matching API response shapes
 ```
 
-## Conventions
-
-- **Page pattern**: Each entity gets a folder under `src/pages/` with up to 4 files: `List.tsx`, `View.tsx`, `Edit.tsx`, `Create.tsx`
-- **Route pattern**: Match the existing URL structure from Jinja2 — `/{entity}/list`, `/{entity}/{id}`, `/{entity}/{id}/edit`, `/{entity}/create`
-- **User entity is a single Profile page (2026-04-29).** `/user/:id` and `/user/:id/edit` both render `pages/users/UserProfile.tsx` (the old `UserView` + `UserEdit` split was retired). Sections: Profile basics, Credentials (admin only — POSTs to `/api/v1/admin/auth/set-credentials/:id`), Contacts (`<InlineContacts>`), Organizations, Companies, Roles, Modules, Projects. Admin gating reads `is_admin` from `useCurrentUser()` — non-admins see read-only sections with no add/remove/save controls. Companies dropdown is filtered to companies linked to the user's Organizations via the `OrganizationCompany` join. If no orgs are linked to companies yet, the empty-state hint renders inline `<Link>`s to each Organization's edit page.
-- **No state management library**: Use React state + context. Add Zustand or similar only if complexity demands it.
-- **Join-table pages resolve FK ids client-side.** UserRole, RoleModule, UserOrganization, UserCompany and OrganizationCompany carry FK ids, not names, so the consuming page loads lookup maps (`role_map`, `module_map`, `organization_map`, `company_map`) to render them. ⛔ **Dropdown values use the entity's `public_id` (UUID), but a POST body passes the internal `id` (BIGINT) for an FK column** — the two are not interchangeable and the API will not coerce one into the other.
-- **Scroll restoration targets `#content`, never `window`.** `<main id="content">` in `layout/AppLayout.tsx` is the canonical scroll container for everything under `AppLayout`, so `window.scrollY` / `window.scrollTo()` read and move the wrong element. The working shape (`pages/time-entry/TimeEntryList.tsx`): save `#content.scrollTop` to `sessionStorage` on a **plain** row-link click (bail on meta/ctrl/shift/alt and any non-primary button — those open a new tab and must not clobber the saved position); restore in an effect gated on the data having arrived, once only via a ref, inside a **double** `requestAnimationFrame` (one frame is not enough — the rows are not laid out yet), then `removeItem` so a later fresh navigation starts at the top. Wrap every `sessionStorage` call in try/catch; it throws in private mode.
-- **Review actions belong on View pages too (2026-10-03).** `ReviewTimeline` takes `readOnly` (pass it only for a terminal status), optional `onBeforeAction` (Edit pages: flush + save first), optional `onAfterAction` (View pages: react to the transition, e.g. ExpenseView opens the next draft), and optional `onAfterSubmit` (Edit-only navigation after submit, e.g. BillEdit → list). A View page needs no pre-save because nothing on it is editable — do not route users through Edit just to submit.
-- **Edit pages write only what changed.** Track header/line dirtiness and let `saveAll` return early on a clean form; each entity/line PUT is a ProcessEngine workflow with audit rows. Always `await flushAutoSave()` (never only `cancelAutoSave()`) before an action that depends on persisted state — Complete, Delete, **Submit for Review**. Edit pages debounce saves at **300ms**, and ⛔ **cancelling the timer is not enough**: an in-flight PUT still races the action's own PUT **on the same `row_version`**, so the loser 409s or silently loses the edit. ExpenseEdit had exactly this (fixed 2026-10-03). See ExpenseEdit / BillEdit.
-- **List links carry the user's tab.** A bare `/expense/list` resolves to the default (Draft, since U-752) tab; use `expenseListPath(status)` from `expenseStatusTabs.ts` (and the equivalent for other tabbed lists) on breadcrumbs and Cancel targets.
-- **CSS**: Single `index.css` with CSS custom properties. No CSS-in-JS, no Tailwind (yet). Use semantic class names.
-- **Types**: Define in `src/types/api.ts`. Keep in sync with API Pydantic schemas manually for now. `CurrentUser` now includes `accessible_project_ids: number[]` (informational; no enforcement wired yet).
-
-## Migration Plan (Phase 4)
-
-Entity pages are being migrated from Jinja2 (in `build.one.api/templates/`) to React. Priority order:
-
-### Tier 1 — Simple CRUD (start here)
-These have standard list/view/edit/create with no special behavior:
-- vendor, vendor_type, customer, company, organization
-- project, cost_code, sub_cost_code, payment_term
-- role, module, address, address_type
-- user (includes inline role assignment)
-
-### Tier 2 — Moderate complexity
-These have additional features (dropdowns, related data, inline children):
-- vendor_address, project_address
-- user_role, user_module, user_project, role_module
-- taxpayer, taxpayer_attachment
-- review_status, classification_override
-- integration, sync
-
-### Tier 3 — Complex entities
-These have auto-save, completion workflows, line items, attachments, inline email:
-- bill (auto-save, line items, attachments, completion, review workflow)
-- expense (auto-save, line items, attachments, completion)
-- bill_credit (line items, attachments, completion)
-- invoice (line items, enrichment, PDF packet, reconciliation, completion)
-- contract_labor (import, status workflow, PDF generation, billing)
-
-### Tier 4 — Special pages
-- dashboard (needs summary API — currently stubbed)
-- admin (workflow monitoring, actions)
-- inbox (email processing — needs API routes first)
-- auth (login/signup — already done)
-
-### Per-entity migration checklist
-For each entity migration:
-1. Add TypeScript types to `src/types/api.ts`
-2. Create page component(s) in `src/pages/{entity}/`
-3. Add route(s) to `src/routes.tsx` (the route tree; `App.tsx` is providers/shell only — U-066)
-4. Add sidebar link (automatic via modules lookup)
-5. Verify end-to-end with live API
-6. Check if any new API endpoints are needed (dropdowns, relationships)
-7. Reconcile the caches a mutation dirties — `invalidateEntity` / `removeEntity` for the entity list+item, plus `invalidateLookups` if the entity backs a `/api/v1/lookups` key. The authoritative key set is the **field list of the `Lookups` interface** in `src/types/api.ts` (mirrors the API's `VALID_LOOKUPS`) — read it there rather than trusting a copy in prose, which drifts silently when a 13th key is added.
 
 ## Dev Server
 
 ```bash
 npm run dev          # http://localhost:3000
-npm run build        # Production build to dist/
-npx tsc --noEmit     # Type check without building
+npm run build        # tsc -b && vite build  — the REAL type gate
+npm test             # vitest run            — but read the warning below
 ```
 
-**Dev talks directly to prod API.** `.env` sets `VITE_API_BASE_URL` to the
-Azure App Service URL (currently `https://buildone-esgaducjg4d3eucf.eastus-01.azurewebsites.net`);
-all `client.ts` helpers and SSE readers prefix it automatically. No local
-API process, no `/api` proxy in `vite.config.ts`.
+⛔ **`npx tsc --noEmit` checks ZERO files here — never use it as a gate.** Root
+`tsconfig.json` is `{"files": [], "references": [...]}`, and without `-b` tsc does not
+descend into referenced projects, so it exits 0 unconditionally (`--listFiles` prints
+nothing). A real TS6133 once passed it and failed `npm run build`. Use
+`npx tsc -p tsconfig.app.json --noEmit --incremental false` (fast, app + tests) or
+`npm run build`. *(Corrected 2026-11-11, U-788 — this file documented the vacuous form.)*
 
-**Consequence:** every local click that writes (create/edit/delete, bill
-completion → SharePoint + QBO push, etc.) mutates production data.
-Treat dev as a read-with-caution environment, same as the API repo's
-environment-isolation note.
+⛔ **`npm test` exits 0 while failing.** Vitest 4's parallel pool drops whole files on
+worker-start timeouts, and pool-level errors are not assertion failures, so they never
+set the exit code — a run has read `Test Files 84 passed (84)` with `Errors 6`. Never
+trust `$?` or the word "passed": **count the spec files that ran and compare to the
+files on disk** (`find src -name '*.test.ts*' | wc -l` → 148 on 2026-11-11). Fewer files
+than exist is a FAILED run whatever the exit code. For a number you can believe,
+`npx vitest run --no-file-parallelism`.
 
-**Use `client.ts` helpers, not raw `fetch("/api/...")`.** Raw relative
-paths would hit `localhost:3000/api/...` with no proxy — 502. If an
-endpoint doesn't fit the envelope pattern (`{data: ...}`), use
-`rawRequest` directly; the other helpers unwrap automatically.
+⛔ **Dev talks directly to the PROD API.** `.env` points `VITE_API_BASE_URL` at the
+Azure App Service; there is no local API process and no `/api` proxy. Every local click
+that writes — create/edit/delete, a bill completion fanning out to SharePoint + QBO —
+**mutates production data.** Treat dev as read-with-caution.
 
-## Navigation architecture
+**Use the `client.ts` helpers, not raw `fetch("/api/...")`.** A raw relative path hits
+`localhost:3000/api/...` with no proxy → 502. `getOne()` / `getList()` / `post()` /
+`put()` / `del()` unwrap the envelope; use `rawRequest` for a non-envelope endpoint.
 
-Single source of truth: `src/layout/menuConfig.ts`. Both `BottomTabBar`
-(mobile/tablet) and `AppSidebar` (desktop) render `primarySlotsForUser(me)`
-for the primary tier, then `secondarySectionsForUser(me)` for everything
-else (U-046, 2026-07-16).
+## Where the detail lives
 
-`secondarySectionsForUser` is the single source of truth for "what is NOT
-on the primary nav for this user": it composes `entriesInSection` (RBAC
-gating) over `SECONDARY_SECTION_SPECS`, drops any entry already occupying
-a primary slot (so Profile/Projects never double-list), and omits empty
-sections. **Both** surfaces must consume it — do not hand-maintain a
-per-surface section list. That is exactly the bug U-046 fixed: BottomTabBar
-and AppSidebar each kept their own list and both omitted `contacts`, so
-Vendors/Customers were URL-only on every breakpoint. A test tripwire in
-`menuConfig.test.ts` now fails if a `MENU_ENTRIES` section is missing from
-the spec list.
+This file is the **rule layer** — one line per standing rule, every prohibition kept
+with the trap it exists to prevent. Reasoning, incident detail and component inventories
+moved to `docs/conventions/` on 2026-11-11 (U-788). Nothing deleted, nothing downgraded.
 
-`MoreDrawer` (bottom sheet) renders those sections on mobile; `BottomTabBar`
-shows its "More" slot only when the helper returns ≥1 section, so the
-trigger can never open an empty drawer. **`MoreDrawer` must stay mounted
-OUTSIDE `<nav className="app-tabbar">`** — that pill has
-`transform: translateX(-50%)`, and a transformed ancestor becomes the
-containing block for `position: fixed` descendants, which would clip the
-sheet to the pill instead of the viewport. `BottomTabBar.test.tsx` pins
-this as a DOM-tree assertion.
+| file | when to read it |
+|---|---|
+| [`docs/conventions/page-conventions.md`](docs/conventions/page-conventions.md) | building or editing any entity page |
+| [`docs/conventions/adding-an-entity-page.md`](docs/conventions/adding-an-entity-page.md) | **adding a new entity page** — the 7-step checklist |
+| [`docs/conventions/navigation.md`](docs/conventions/navigation.md) | nav, sidebar, bottom bar, `menuConfig` |
+| [`docs/conventions/permissions-and-breakpoints.md`](docs/conventions/permissions-and-breakpoints.md) | gating a control, breakpoints, landing route |
+| [`docs/conventions/pwa.md`](docs/conventions/pwa.md) | **before touching anything SW / cache / offline** |
+| [`docs/conventions/testing-specs.md`](docs/conventions/testing-specs.md) | writing a spec that must be able to fail |
+| [`docs/conventions/docs-surface.md`](docs/conventions/docs-surface.md) | the admin `/docs` surface |
+| [`docs/deploy.md`](docs/deploy.md) | deploying — ⚠️ web ships only on an explicit ask |
+| [`docs/README.md`](docs/README.md) | index of this repo's docs |
+| [`docs/archive/2026/react-migration-tiers.md`](docs/archive/2026/react-migration-tiers.md) | historical — the Jinja→React tiers, migration complete |
 
-Module name constants live in `src/shared/modules.ts`
-— mirror of `build.one.api/shared/rbac_constants.py`. Never use the raw
-module-name string literals (`"Contract Labor"`, etc.) anywhere a value is
-compared against `dbo.Module.Name` — nav code, permission gates, module
-filters alike; typos on a literal silently hide entries while typos on a
-constant fail compilation.
+## Conventions — the rules
 
-## Permissions (RBAC gating in the UI)
+**Pages & routes** → [detail](docs/conventions/page-conventions.md)
+- One folder per entity under `src/pages/`, up to four files: `List.tsx` `View.tsx` `Edit.tsx` `Create.tsx`. Routes: `/{entity}/list`, `/{entity}/{id}`, `/{entity}/{id}/edit`, `/{entity}/create`.
+- `routes.tsx` is the route tree as data importing no shell components, so `routes.test.tsx` asserts on it with zero mocks; `App.tsx` is providers/shell only (U-066).
+- No state-management library (React state + context). One `index.css` with custom properties — no CSS-in-JS, no Tailwind. Types in `src/types/api.ts`, hand-synced with the API's Pydantic schemas.
+- **List links carry the user's tab** — use `expenseListPath(status)` (and its equivalents) on breadcrumbs and Cancel targets, not a bare `/expense/list`.
+- `/user/:id` and `/user/:id/edit` both render one `UserProfile.tsx`; admin affordances gate on `is_admin` from `useCurrentUser()`.
 
-`src/shared/permissions.ts::hasModulePermission(me, module, permission)` is
-the **single** client-side mirror of the API's
-`require_module_api(module, permission)`, system-admin bypass included.
-Three standing rules (U-105 shipped the primitive; U-108 retired the last
-inline check — there are now zero `me.modules?.find(...)` permission
-lookups in `src/`, and it should stay that way):
+**Saving** → [detail](docs/conventions/page-conventions.md)
+- Edit pages write only what changed — track header/line dirtiness and let `saveAll` return early on a clean form; every PUT is a ProcessEngine workflow with audit rows.
+- ⛔ Always `await flushAutoSave()` before an action that depends on persisted state (Complete, Delete, **Submit for Review**). **Cancelling the 300ms timer is not enough** — an in-flight PUT still races the action's own PUT on the same `row_version`, so one of them 409s or silently loses the edit (ExpenseEdit, fixed 2026-10-03).
+- A View page needs **no** pre-save (nothing on it is editable) — don't route users through Edit just to submit.
+- ⛔ A dropdown value is the entity's `public_id` (UUID); a POST body passes the internal `id` (BIGINT) for an FK column. The API does not coerce between them.
+- ⛔ Scroll restoration targets `#content` (`layout/AppLayout.tsx`), never `window` — `window.scrollY`/`scrollTo()` move the wrong element. Save on a plain row-link click only, restore inside a **double** `requestAnimationFrame`, then clear the key; wrap every `sessionStorage` call in try/catch.
+- After a mutation, reconcile the caches it dirties (`invalidateEntity` / `removeEntity`, plus `invalidateLookups` if the entity backs a lookup). The authoritative key set is the `Lookups` interface in `src/types/api.ts` — read it there, never a copy in prose.
 
-1. **Never hand-roll the lookup.** Call `hasModulePermission` directly, or an
-   entity wrapper (`src/pages/bills/billPermissions.ts`,
-   `src/pages/time-entry/timeEntryPermissions.ts`). Add a wrapper only when a
-   gate needs a *name*, a composite rule, or a contract note — a bare one-off
-   flag read is clearer inline.
-2. **Gate on the permission that action's route actually enforces, and cite
-   the route in a comment.** Getting this wrong is the live bug class here,
-   in both directions: gating on too weak a permission offers a button that
-   403s (U-108: TimeEntryView gated Approve/Reject on `can_update` when
-   `/approve` + `/reject` enforce `can_approve`); gating on too strong a one
-   hides an action the API allows. Check the router — don't infer from the
-   button's label.
-3. **Mind compound actions.** If a handler pre-saves before its headline call
-   (Complete, Submit, "Save & Activate"), it needs the save's permission **in
-   addition** to its own — see `resolveBillEditActions`, which encodes exactly
-   that for BillEdit.
+**Permissions** → [detail](docs/conventions/permissions-and-breakpoints.md)
+- ⛔ **Never hand-roll a permission lookup.** `hasModulePermission(me, module, permission)` is the only client mirror of the API's `require_module_api`; there are zero inline `me.modules?.find(...)` checks in `src/` and it must stay that way.
+- ⛔ **Gate on the permission that action's route actually enforces, and cite the route in a comment.** This is the live bug class, in both directions: too weak offers a button that 403s (U-108 gated Approve on `can_update` when `/approve` enforces `can_approve`); too strong hides an action the API allows. Read the router — don't infer from the label.
+- **Compound actions need both permissions.** A handler that pre-saves before its headline call needs the save's permission too (see `resolveBillEditActions`).
+- ⛔ **Never gate a `menuConfig` entry on a hardcoded role-name string.** Role names are RBAC-table mutable; gate on module read perms or `is_admin`.
+- ⛔ **Never use a raw module-name literal** (`"Contract Labor"`) where it is compared against `dbo.Module.Name` — use `src/shared/modules.ts` (mirror of the API's `rbac_constants.py`). A typo on a literal silently hides entries; on a constant it fails compilation.
+- Nothing enforces web↔API parity yet — a route→permission parity test is tracked in `TODO.md`.
 
-Nothing enforces web↔API parity yet; a cross-repo route→permission parity
-test is tracked in `TODO.md`.
+**Navigation** → [detail](docs/conventions/navigation.md)
+- `src/layout/menuConfig.ts` is the single source of truth. ⛔ **Both** surfaces (`AppSidebar`, `BottomTabBar`) must consume `secondarySectionsForUser` — never a hand-maintained per-surface list. That was U-046: each kept its own list, both omitted `contacts`, and Vendors/Customers were URL-only at every breakpoint.
+- ⛔ **`MoreDrawer` must stay mounted OUTSIDE `<nav className="app-tabbar">`.** That pill is `transform`ed, and a transformed ancestor becomes the containing block for `position: fixed` descendants — the sheet would clip to the pill instead of the viewport. Pinned by a DOM-tree assertion in `BottomTabBar.test.tsx`.
 
-Breakpoint tiers (2026-06-17 flip):
-- **Mobile portrait** (default, < 768w): `.app-shell` is a 430px column,
-  BottomTabBar floating pill visible, AppSidebar hidden.
-- **Tablet + Desktop** (≥ 768w): sidebar + main row, BottomTabBar hidden.
-  Previously gated on `(min-width: 1024px) and (hover: hover) and
-  (pointer: fine)` — left iPad PMs in the 430px phone column. iPad
-  portrait may feel cramped at 768; an opt-out under
-  `(orientation: portrait) and (max-width: 820px)` is documented in
-  index.css for the future if needed.
-- **Mobile landscape** (`(orientation: landscape) and (max-height: 500px)`):
-  rotate overlay (RotateOverlay component).
+**PWA / service worker** → [detail](docs/conventions/pwa.md)
+- ⛔ **The multi-user safety contract is NON-NEGOTIABLE.** The persisted React Query cache is keyed per user (`bo.rq.v1.<uid>`); `logout` is async and **awaits** `clearAllUserScopedStorage()` before redirecting; `login()`/`signup()` force a full reload so boot-time keying picks up the new identity. Breaking it ships the iOS v0.1.0 multi-user state-bleed bug to web. Regression test: `src/auth/cacheCleanup.test.ts`.
+- ⛔ `registerType: 'prompt'` — a new SW activates only when the user clicks Reload. **Never silent**; this is what protects installed clients from a bad deploy.
+- ⛔ `navigateFallbackDenylist` must keep excluding `/api/`, `/.auth/` and `/sw-kill.html`. Re-check it whenever the SW config is touched. `/sw-kill.html` is the escape hatch for a stuck client.
+- Bump `PERSISTER_BUSTER` in `src/main.tsx` whenever an entity model gains a required field.
+- Mutations pre-flight `navigator.onLine` and fast-fail with the typed `OfflineError`. Tier 3 (local-first writes) is **not** shipped.
 
-Primary slots are CURATED per role in `PRIMARY_SLOTS_BY_ROLE`
-(menuConfig.ts). Phase 1+ extends each role's list as financial entities
-unpark. **Do NOT gate any menuConfig entry on a hardcoded role name
-string at the consumer level** — gate on module read perms or
-`is_admin` only. Role names are RBAC-table mutable; gating on them
-creates silent breakage if Ops renames a role.
+**Specs** → [detail](docs/conventions/testing-specs.md)
+- ⛔ A spec that passes whether or not the code works is worse than none — it reads as coverage. The `does not clobber in-progress edits` spec shipped **four times** by copy-paste before anyone checked it could fail.
+- Type through the value tracker (`setInputValue`): a bare `input.value = x` updates React's `_valueTracker`, so React suppresses `onChange` and a later `expect(input.value)` reads back the test's own write.
+- Flush with timers, not microtasks (`flushUntil`) — under fake timers a React Query refetch needs a timer tick; always follow it with a hard assertion, since it returns silently on exhaustion.
+- Assert propagation **before** the outcome, or "nothing changed" passes for the wrong reason. Fixture preconditions belong in `expect`s, not comments.
+- ⛔ **Mutation-test anything guard-shaped before trusting it** — break the guard, confirm RED, restore (`assertGuardSurvivesSameRowRefetch` is the worked example).
 
-Landing route: `LandingRedirect` resolves `/` and `*` to either Time
-Tracking or Profile based on `Time Tracking.can_read` (with
-`is_admin` bypass). System admins land on Time. Field workers without
-Time grant land on Profile.
-
-For the full nav strategy + Phase 1+ roadmap, see TODO.md "Nav strategy"
-section.
-
-## PWA / Service Worker
-
-Build One is an installable PWA. **Tier 1** (shell-only) shipped
-2026-06-15: home-screen install, branded launch offline, in-app update
-toast on new deploys. **Tier 2** (offline reads) shipped 2026-06-15:
-persistent React Query cache backed by IndexedDB, NetworkFirst SW
-caching for `/api/v1/get/*` + `/api/v1/list/*` + `/api/v1/lookups*` +
-`/api/v1/*/by-*`, "Synced X ago" UI, storage estimate readout in Profile.
-**Tier 3** (local-first writes) is conditional on a decision gate per
-the evaluation memo and NOT shipped. See `docs/pwa-tier1.md` and
-`docs/pwa-tier2.md` for the runbooks, install instructions, escape
-hatch, and verification checklists.
-
-Key conventions to preserve when editing PWA-adjacent code:
-
-- **`registerType: 'prompt'`** in `vite.config.ts` — a new SW activates
-  ONLY when the user clicks Reload in `PWAUpdatePrompt`. Never silent.
-  This protects installed clients from a borked deploy.
-- **`/sw-kill.html`** — branded escape hatch that unregisters every SW
-  for the origin + clears caches + redirects. Send this URL to a stuck
-  user out-of-band if recovery is needed.
-- **`navigateFallbackDenylist`** in the workbox config explicitly
-  excludes `/api/`, `/.auth/`, and `/sw-kill.html`. The SW must NEVER
-  intercept these. Re-check the denylist whenever the SW config is
-  touched.
-- **`OfflineError`** (`src/api/client.ts`) is the typed error for
-  network failures. `client.ts` pre-flight-checks `navigator.onLine`
-  before mutations and fast-fails with `OfflineError` + a
-  "Not saved — you are offline." toast (via the `toastBridge`
-  module so `client.ts` doesn't need a React import).
-- **`useOnline`** hook + **`OfflineBanner`** — top-center hover pill
-  when offline. Banner uses `position: fixed`; it does NOT push content
-  down.
-- **Safe-area insets** — `index.html` has `viewport-fit=cover`. CSS
-  uses `env(safe-area-inset-*)` on `.app-content` (top, for the iOS
-  notch) and `.app-tabbar` / `.pwa-update-banner` (bottom, for the home
-  indicator). All collapse to 0 in non-installed browsers.
-- **Icon regen** — `public/icons/source/icon.svg` is the master; PNGs
-  are generated via `node scripts/gen-icons.mjs` (requires
-  `npm install sharp --no-save`). Source SVG mirrors the iOS
-  `AppIcon-1024.png` (pure black + white "B1" wordmark) so the two
-  installs look like siblings on the same home screen.
-
-Tier 2 additions:
-
-- **The multi-user safety contract is NON-NEGOTIABLE.** Persisted
-  React Query cache is keyed PER USER (`bo.rq.v1.<uid>` in IndexedDB).
-  `AuthContext.logout` is `async` and AWAITS
-  `clearAllUserScopedStorage()` BEFORE redirecting. Both `login()` and
-  `signup()` force `window.location.href = "/"` so boot-time keying
-  picks up the new identity. Any change that breaks this contract
-  ships the iOS v0.1.0 multi-user state-bleed bug to web. The
-  regression test lives at `src/auth/cacheCleanup.test.ts` — five
-  Vitest specs. **`npm test` must pass before deploy.**
-- **Custom Service Worker** — `src/sw.ts` is the SW source. We use
-  vite-plugin-pwa's `injectManifest` mode (not `generateSW`) so the
-  per-pattern caching strategies are explicit. The SW NetworkFirst-caches
-  whitelisted GETs; everything else (mutations, auth, attachments,
-  completion polling, admin) bypasses the SW.
-- **Per-query maxAge policy** — `src/main.tsx`'s `shouldDehydrateQuery`
-  filter applies 24h for `['me']` + `['lookups', *]`; 7d default. RBAC
-  / dropdown data churns more aggressively than entity payloads.
-- **`PERSISTER_BUSTER`** — bump the string in `src/main.tsx` whenever
-  an entity TypeScript model gains a required field. Invalidates every
-  persisted payload across all users.
-- **Test infrastructure** — Vitest + jsdom + fake-indexeddb. Setup at
-  `vitest.setup.ts` polyfills `localStorage` because jsdom 29 +
-  vitest 4 don't ship a complete `Storage` shape.
-
-## Writing component specs that can actually fail (U-152)
-
-A spec that passes whether or not the code works is worse than no spec — it
-reads as coverage. The `does not clobber in-progress edits` spec shipped
-**four times** by copy-paste before anyone checked it could fail. Three rules,
-all enforced by `src/__testutils__/`:
-
-1. **Type through the value tracker.** `input.value = x` also updates React's
-   internal `_valueTracker`, so React sees no change and **suppresses
-   `onChange`** — the text lands in the DOM but never in component state. A
-   later `expect(input.value)` then reads back the test's own write. Use
-   `setInputValue` from `src/__testutils__/domEvents.ts`.
-2. **Flush with timers, not microtasks.** Under `vi.useFakeTimers()`, a React
-   Query refetch needs a timer tick before React re-renders; `await
-   Promise.resolve()` xN never delivers it, so the spec asserts against the
-   stale render. Use `flushUntil` from `src/__testutils__/flush.ts`, and always
-   follow it with a hard assertion — it returns silently on exhaustion.
-3. **Assert propagation BEFORE asserting the outcome.** If the spec depends on
-   fresh server data reaching the component, prove it did (see `RefetchWitness`
-   in `formSeedGuardHarness.ts`) — otherwise "nothing changed" passes for the
-   wrong reason. Fixture preconditions belong in `expect`s, not comments.
-
-**Mutation-test anything guard-shaped before you trust it:** break the guard,
-confirm the spec goes RED, restore. `assertGuardSurvivesSameRowRefetch` is the
-worked example — reuse it when unparking an Edit page rather than copying a
-spec body.
-
-## Documentation surface (/docs)
-
-Admin-only internal docs at `/docs` (routes in `src/routes.tsx`, **lazy-loaded** via
-`React.lazy` so react-markdown stays out of the main bundle). Dual-gated:
-`menuConfig` entry `requiresAdmin: true` — surfaced through the **Reference**
-group in `AppSidebar` (NOT the primary bottom pill) — plus a page-level
-`is_admin` redirect in `DocsPage.tsx`. Built on the native primitives
-(`ios-page` / `SectionCard` / `ListRow` / `NavHeader`) as a drill-down
-(`DocsHome` → section), matching Time/Labor/Profile.
-
-It documents the **whole application** (Hybrid: curated narrative + introspected
-facts, freshness-badged LIVE/DERIVED/CURATED). **It must stay current as
-features change — Chris can't maintain it manually, so it is the Docs step of
-the per-unit pipeline** (umbrella `CLAUDE.md` + umbrella memory
-`feedback_docs_keep_current.md`).
-
-- **iOS section** (v1, shipped 2026-06-20): DERIVED facts vendored from
-  `build.one.ios`. After ANY iOS app-shape change: `python3
-  scripts/gen_docs_manifest.py` (in the iOS repo) → `npm run docs:sync:ios`
-  (here) to re-vendor `src/docs/ios/`. Narrative lives in
-  `build.one.ios/docs/app-guide/*.md`.
-- **Adding a section** (API live / Web / MCP / Scheduler derived): add an entry
-  to `src/pages/docs/docsSections.ts` + a component under
-  `src/pages/docs/sections/`. API is the planned LIVE one (`/openapi.json` +
-  registries behind a `require_system_admin` endpoint in `build.one.api`).
-- Gating is **presentational only** — bundled content is intentionally
-  non-sensitive (see the header comment in `src/pages/docs/DocsPage.tsx`).
-
-Follow-ups (API section, web/mcp/scheduler generators, freshness CI/hook) are
-tracked in `TODO.md`. Mobile reachability is **done** — U-046 wired `MoreDrawer`
-into `BottomTabBar`, so system admins reach `/docs` on a phone via
-More → Reference.
+**The /docs surface** → [detail](docs/conventions/docs-surface.md)
+- Admin-only, lazy-loaded, dual-gated (`requiresAdmin` + a page-level `is_admin` redirect). Gating is **presentational only** — bundled content is deliberately non-sensitive.
+- ⛔ **It must stay current as features change** — it cannot be maintained by hand, so refreshing it is the **Docs step of the per-unit pipeline**, not a later chore. After any iOS app-shape change: `python3 scripts/gen_docs_manifest.py` in the iOS repo, then `npm run docs:sync:ios` here.
