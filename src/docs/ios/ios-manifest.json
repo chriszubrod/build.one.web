@@ -3,10 +3,10 @@
   "freshness": {
     "class": "derived",
     "live": false,
-    "source_commit": "4925e1f",
-    "source_commit_date": "2026-11-05T16:38:09-06:00",
-    "source_branch": "unit/u-773",
-    "generated_at": "2026-11-05T22:48:11.235758+00:00",
+    "source_commit": "fa8d7cd",
+    "source_commit_date": "2026-11-10T13:30:06-06:00",
+    "source_branch": "master",
+    "generated_at": "2026-11-10T19:30:21.982288+00:00",
     "note": "iOS cannot be introspected at runtime from the web. This is a build-time snapshot of the build.one.ios source, regenerated on each release. The shipping App Store / TestFlight build may differ if this was not regenerated."
   },
   "app": {
