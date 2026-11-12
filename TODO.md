@@ -1,3 +1,10 @@
+> ⚠️ **The Expense Coding cockpit was RETIRED — any item below naming `src/pages/expense-coding/` or
+> `ExpenseCodingCockpit.test.tsx` is partly moot.** `6cdb497` (2026-09-18) moved it onto the consolidated
+> expense paths; `3421488` (2026-09-19, U-486 Phase E) deleted the page, and `/expense-coding` now
+> `Navigate`s to `/expense/list`. The **U-036** and **U-047** follow-ups each list that spec among the files
+> to de-duplicate — re-derive their file lists at pickup rather than trusting the written one; the cockpit
+> copy is already gone. Flagged 2026-11-11 (U-788); the items themselves are left for their owners.
+
 ## U-753 follow-ups - shared upload queue + return-to-origin (booked 2026-11-02)
 
 - [ ] (Pass 2 D1) Export `billListPath` from `billStatusTabs.ts` (createStatusTabs listPath, like expenseListPath) and delete the local copy in `billDraftQueue.ts`.
